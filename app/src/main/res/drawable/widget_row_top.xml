@@ -1,0 +1,10 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <size android:width="48dp" android:height="48dp" />
+    <corners
+        android:topLeftRadius="24dp"
+        android:topRightRadius="24dp"
+        android:bottomLeftRadius="4dp"
+        android:bottomRightRadius="4dp" />
+    <solid android:color="@color/widget_row_container" />
+</shape>

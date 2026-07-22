@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#6366F1</color>
+    <color name="primary_variant">#4F46E5</color>
+    <color name="secondary">#EC4899</color>
+    <color name="background_dark">#0F0F1A</color>
+    <color name="surface_dark">#1A1A2E</color>
+    <color name="on_surface">#FFFFFF</color>
+    <color name="on_surface_variant">#9CA3AF</color>
+    <!-- Fondo del splash: surface M3 claro (override oscuro en values-night) -->
+    <color name="splash_background">#FFFBFE</color>
+</resources>

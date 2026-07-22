@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <attribution android:tag="music_playback" android:label="@string/app_name" />
+
+    <!-- Permisos para leer archivos de audio -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    
+    <!-- Permisos de Internet -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Permiso para servicio en primer plano (reproducción en background) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".MusicPlayerApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MusicPlayer"
+        android:enableOnBackInvokedCallback="true"
+        android:localeConfig="@xml/locales_config"
+        tools:targetApi="33">
+
+        <property
+            android:name="android.content.PROPERTY_ATTRIBUTION_TAG"
+            android:value="music_playback" />
+        
+        <!-- Configuración de WorkManager para Foreground Service -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.MusicPlayer.Starting">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Modo Ambient Player (pantalla de reproducción dedicada) -->
+        <activity
+            android:name=".ui.screens.AmbientPlayerActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.MusicPlayer" />
+
+        <activity
+            android:name="com.microsoft.identity.client.BrowserTabActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="msauth"
+                    android:host="com.qhana.siku"
+                    android:path="/9iIMP+wSostNbzqfp/dHJ4SxhX8=" />
+            </intent-filter>
+        </activity>
+
+        <!-- Widgets de pantalla de inicio (Glance) -->
+        <receiver
+            android:name=".widget.PlayerWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.QueueWidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_queue_info" />
+        </receiver>
+
+        <!-- Servicio de reproducción de música -->
+        <service
+            android:name=".service.MusicPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Disable default WorkManager initializer for Hilt on-demand initialization -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+    </application>
+
+</manifest>

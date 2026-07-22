@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MusicPlayer" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Splash de arranque (solo MainActivity): se mantiene en pantalla vía
+         setKeepOnScreenCondition hasta que MSAL resuelve la sesión, evitando
+         el flash de la pantalla de login al reabrir la app. -->
+    <style name="Theme.MusicPlayer.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.MusicPlayer</item>
+    </style>
+</resources>

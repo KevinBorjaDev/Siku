@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Idiomas que la app declara soportar. Con esto Android 13+ muestra la entrada
+  "Idioma de la app" en Ajustes del sistema → Aplicaciones → Siku Music.
+  El primero es el idioma base (values/strings.xml). Al añadir un values-<lang>/
+  nuevo hay que listarlo aquí también, o el sistema no lo ofrecerá.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="es" />
+    <locale android:name="en" />
+</locale-config>

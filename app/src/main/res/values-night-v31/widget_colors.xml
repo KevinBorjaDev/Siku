@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Color dinámico (Material You): surfaceVariant oscuro. -->
+<resources>
+    <color name="widget_row_container">@android:color/system_neutral2_700</color>
+</resources>

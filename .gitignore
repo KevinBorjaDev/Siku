@@ -1,0 +1,22 @@
+# Project exclude paths
+/.gradle/
+/app/build/
+/build/
+/core/build/
+/.kotlin/
+*.logcat
+/.claude
+/.idea
+claude.md
+limpieza.md
+logs.txt
+artefactos.jpg
+captura.jpeg
+/docs
+
+# Claves de firma y configuración local (NUNCA commitear)
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+local.properties

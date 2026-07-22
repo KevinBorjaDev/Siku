@@ -1,0 +1,39 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="6dp">
+
+    <!-- Carátula circular (placeholder) con nota musical -->
+    <ImageView
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="center"
+        android:background="@drawable/widget_preview_circle"
+        android:padding="38dp"
+        android:src="@drawable/ic_widget_music_note"
+        android:tint="@android:color/system_accent2_700"
+        android:importantForAccessibility="no" />
+
+    <!-- Me gusta arriba-derecha -->
+    <ImageView
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:layout_gravity="top|end"
+        android:background="@drawable/widget_preview_circle_like"
+        android:padding="11dp"
+        android:src="@drawable/ic_widget_favorite"
+        android:tint="@android:color/system_accent2_900"
+        android:importantForAccessibility="no" />
+
+    <!-- Play squircle abajo-izquierda -->
+    <ImageView
+        android:layout_width="54dp"
+        android:layout_height="54dp"
+        android:layout_gravity="bottom|start"
+        android:background="@drawable/widget_preview_squircle"
+        android:padding="15dp"
+        android:src="@drawable/ic_widget_play"
+        android:tint="@android:color/system_accent1_900"
+        android:importantForAccessibility="no" />
+
+</FrameLayout>

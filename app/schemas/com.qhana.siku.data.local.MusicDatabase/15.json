@@ -1,0 +1,343 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 15,
+    "identityHash": "808900125d88b09c0ebb14b64722afc3",
+    "entities": [
+      {
+        "tableName": "songs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `album` TEXT NOT NULL, `albumId` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `uriString` TEXT NOT NULL, `albumArtUriString` TEXT, `trackNumber` INTEGER NOT NULL, `year` INTEGER NOT NULL, `dateAdded` INTEGER NOT NULL, `colorPrimary` INTEGER, `colorSecondary` INTEGER, `lyrics` TEXT, `lyricsAttemptedAt` INTEGER, `needsMetadata` INTEGER NOT NULL, `remoteId` TEXT, `isCorrupted` INTEGER NOT NULL, `size` INTEGER NOT NULL, `userDataUpdatedAt` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artist",
+            "columnName": "artist",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "album",
+            "columnName": "album",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumId",
+            "columnName": "albumId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uriString",
+            "columnName": "uriString",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumArtUriString",
+            "columnName": "albumArtUriString",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "trackNumber",
+            "columnName": "trackNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateAdded",
+            "columnName": "dateAdded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorPrimary",
+            "columnName": "colorPrimary",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "colorSecondary",
+            "columnName": "colorSecondary",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lyrics",
+            "columnName": "lyrics",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lyricsAttemptedAt",
+            "columnName": "lyricsAttemptedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "needsMetadata",
+            "columnName": "needsMetadata",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteId",
+            "columnName": "remoteId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isCorrupted",
+            "columnName": "isCorrupted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userDataUpdatedAt",
+            "columnName": "userDataUpdatedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_songs_title",
+            "unique": false,
+            "columnNames": [
+              "title"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_title` ON `${TABLE_NAME}` (`title`)"
+          },
+          {
+            "name": "index_songs_colorPrimary",
+            "unique": false,
+            "columnNames": [
+              "colorPrimary"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_colorPrimary` ON `${TABLE_NAME}` (`colorPrimary`)"
+          },
+          {
+            "name": "index_songs_artist",
+            "unique": false,
+            "columnNames": [
+              "artist"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_artist` ON `${TABLE_NAME}` (`artist`)"
+          },
+          {
+            "name": "index_songs_album",
+            "unique": false,
+            "columnNames": [
+              "album"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_album` ON `${TABLE_NAME}` (`album`)"
+          },
+          {
+            "name": "index_songs_dateAdded",
+            "unique": false,
+            "columnNames": [
+              "dateAdded"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_dateAdded` ON `${TABLE_NAME}` (`dateAdded`)"
+          },
+          {
+            "name": "index_songs_uriString",
+            "unique": false,
+            "columnNames": [
+              "uriString"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_uriString` ON `${TABLE_NAME}` (`uriString`)"
+          },
+          {
+            "name": "index_songs_remoteId",
+            "unique": false,
+            "columnNames": [
+              "remoteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_remoteId` ON `${TABLE_NAME}` (`remoteId`)"
+          },
+          {
+            "name": "index_songs_needsMetadata",
+            "unique": false,
+            "columnNames": [
+              "needsMetadata"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_needsMetadata` ON `${TABLE_NAME}` (`needsMetadata`)"
+          },
+          {
+            "name": "index_songs_isCorrupted",
+            "unique": false,
+            "columnNames": [
+              "isCorrupted"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_songs_isCorrupted` ON `${TABLE_NAME}` (`isCorrupted`)"
+          }
+        ]
+      },
+      {
+        "tableName": "playlists",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, `name` TEXT NOT NULL, `dateCreated` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `deletedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uuid",
+            "columnName": "uuid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateCreated",
+            "columnName": "dateCreated",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deletedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "playlistId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playlists_uuid",
+            "unique": true,
+            "columnNames": [
+              "uuid"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_playlists_uuid` ON `${TABLE_NAME}` (`uuid`)"
+          }
+        ]
+      },
+      {
+        "tableName": "playlist_song_cross_ref",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` INTEGER NOT NULL, `songId` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `songId`), FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`playlistId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "orderIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "songId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playlist_song_cross_ref_playlistId",
+            "unique": false,
+            "columnNames": [
+              "playlistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_song_cross_ref_playlistId` ON `${TABLE_NAME}` (`playlistId`)"
+          },
+          {
+            "name": "index_playlist_song_cross_ref_songId",
+            "unique": false,
+            "columnNames": [
+              "songId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_song_cross_ref_songId` ON `${TABLE_NAME}` (`songId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "playlists",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "playlistId"
+            ],
+            "referencedColumns": [
+              "playlistId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '808900125d88b09c0ebb14b64722afc3')"
+    ]
+  }
+}

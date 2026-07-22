@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Contenedor tonal de las filas del widget de cola (baseline M3 surfaceVariant claro).
+     En values-v31/night se sustituye por los colores DINÁMICOS del sistema. -->
+<resources>
+    <color name="widget_row_container">#E7E0EC</color>
+</resources>

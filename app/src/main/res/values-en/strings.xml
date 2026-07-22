@@ -1,0 +1,576 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Traducción al INGLÉS. El idioma base sigue siendo el español (values/strings.xml):
+  las claves y los comentarios explicativos viven allí. Aquí solo van los textos.
+  Al añadir una clave nueva en values/, añadirla también aquí (lint: MissingTranslation).
+-->
+<resources>
+    <string name="app_name">Siku Music</string>
+
+    <!-- ==================== Common ==================== -->
+    <string name="common_cancel">Cancel</string>
+    <string name="common_play">Play</string>
+    <string name="common_favorites">Favorites</string>
+    <string name="common_logout">Sign out</string>
+    <string name="common_add_to_favorites">Add to favorites</string>
+    <string name="common_remove_from_favorites">Remove from favorites</string>
+    <string name="common_redownload">Download again</string>
+    <string name="common_add_to_playlist">Add to playlist</string>
+    <string name="common_connecting">Connecting…</string>
+    <string name="common_verifying">Verifying…</string>
+    <string name="common_recovering">Recovering…</string>
+    <string name="common_no_offline_connection">No internet connection</string>
+    <string name="common_error">Error</string>
+    <string name="common_create">Create</string>
+    <string name="common_save">Save</string>
+    <string name="common_back">Back</string>
+    <string name="common_search_songs">Search songs, albums or artists</string>
+    <string name="common_clear_search">Clear search</string>
+    <string name="common_pause">Pause</string>
+    <string name="common_next">Next song</string>
+    <string name="common_previous">Previous song</string>
+    <string name="common_close">Close</string>
+    <string name="common_album_art">Album art</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_song_options">Song options</string>
+    <string name="common_start">Start</string>
+    <string name="common_duration">Duration: %1$s</string>
+    <string name="common_unknown">Unknown</string>
+    <string name="common_artists">Artists</string>
+    <string name="common_albums">Albums</string>
+    <string name="common_unknown_artist">Unknown artist</string>
+    <string name="common_unknown_album">Unknown album</string>
+    <string name="common_various_artists">Various artists</string>
+    <string name="common_error_format">Error: %1$s</string>
+
+    <!-- ==================== Downloads / status ==================== -->
+    <string name="download_status_throttled">OneDrive: request limit reached</string>
+    <string name="download_status_waiting_other">Waiting for another download…</string>
+    <string name="download_status_queued">Queued (waiting for resources)</string>
+    <string name="download_status_preparing">Preparing download…</string>
+    <string name="download_status_restarting">Restarting download…</string>
+
+    <!-- Failure cause shown in the download manager -->
+    <string name="dl_err_no_internet">No internet connection</string>
+    <string name="dl_err_no_space">Not enough space on the device</string>
+    <string name="dl_err_empty_url">Empty download URL</string>
+    <string name="dl_err_content_type">Invalid Content-Type for audio: %1$s (error page?)</string>
+    <string name="dl_err_path_validation">Path validation error: %1$s</string>
+    <string name="dl_err_empty_body">Empty response from the server</string>
+    <string name="dl_err_empty_file">Downloaded file is empty or a write error occurred</string>
+    <string name="dl_err_truncated">Truncated download: %1$d/%2$d bytes</string>
+    <string name="dl_err_stalled">No download progress for more than %1$d s</string>
+    <string name="dl_err_exception">Exception: %1$s</string>
+
+    <!-- ==================== Playlists ==================== -->
+    <string name="playlist_create_title">New playlist</string>
+    <string name="playlist_create_action">Create playlist</string>
+    <string name="playlist_section_title">Your playlists</string>
+    <string name="playlist_create_prompt">Enter a name for your playlist:</string>
+    <string name="playlist_create_placeholder">My awesome playlist</string>
+    <string name="playlist_add_sheet_title">Add to playlist</string>
+    <string name="playlist_none_created">You have no playlists yet</string>
+    <string name="playlist_rename_title">Rename</string>
+    <string name="playlist_delete_title">Delete playlist</string>
+    <string name="playlist_delete_confirm">Are you sure you want to delete \"%1$s\"? This can\'t be undone.</string>
+    <string name="playlist_created_on">Created on %1$s</string>
+    <string name="playlist_empty">Empty playlist</string>
+    <string name="playlist_empty_subtitle">Add songs from your library</string>
+    <string name="favorites_empty">You have no favorites</string>
+    <string name="playlist_remove_song">Remove from playlist</string>
+
+    <!-- ==================== Add songs to a playlist ==================== -->
+    <string name="playlist_add_songs">Add songs</string>
+    <string name="playlist_add_songs_title">Add to \"%1$s\"</string>
+    <string name="playlist_add_songs_search">Search your library</string>
+    <string name="playlist_add_songs_none">There are no songs to add</string>
+    <string name="playlist_add_songs_no_results">No results</string>
+    <string name="playlist_add_songs_confirm">Add (%1$d)</string>
+    <plurals name="playlist_songs_added">
+        <item quantity="one">%d song added</item>
+        <item quantity="other">%d songs added</item>
+    </plurals>
+
+    <!-- ==================== Detail actions (artist/album/playlist) ==================== -->
+    <string name="detail_play_all">Play all</string>
+    <string name="detail_shuffle">Shuffle</string>
+
+    <!-- ==================== Download manager ==================== -->
+    <string name="download_title">Downloads</string>
+    <string name="download_tab_active">Active (%1$d)</string>
+    <string name="download_tab_failed">Failed (%1$d)</string>
+    <string name="download_global_progress">Overall progress</string>
+    <string name="download_queue_progress">%1$d/%2$d songs</string>
+    <string name="download_completed_progress">%1$d of %2$d completed</string>
+    <string name="download_syncing">Syncing…</string>
+    <string name="download_up_to_date">All up to date</string>
+    <string name="download_no_errors">No errors</string>
+    <string name="download_retry_all">Retry all</string>
+    <string name="download_retry_one">Retry download</string>
+    <string name="download_retry_started">Retrying \"%1$s\"</string>
+    <string name="download_error_transient">Temporary error</string>
+    <string name="download_error_permanent">Permanent error</string>
+    <string name="download_retry_scheduled">automatic retry at %1$s</string>
+    <plurals name="download_attempts">
+        <item quantity="one">%d attempt</item>
+        <item quantity="other">%d attempts</item>
+    </plurals>
+    <string name="download_msg_starting">Starting download: %1$s</string>
+    <string name="download_msg_complete">Download complete: %1$s</string>
+    <string name="download_msg_cancelled">Download cancelled: %1$s</string>
+    <string name="download_msg_unknown">Download: %1$s (unknown state)</string>
+    <string name="download_msg_failed_reason">Failed: %1$s (%2$s)</string>
+    <string name="download_msg_failed">Failed: %1$s</string>
+
+    <!-- Download control: pause / stop / storage cap -->
+    <string name="download_pause">Pause</string>
+    <string name="download_resume">Resume</string>
+    <string name="download_stop">Stop</string>
+    <string name="download_paused_title">Downloads paused</string>
+    <string name="download_paused_desc">Bulk downloads are paused. Songs you play are still downloaded.</string>
+    <string name="download_stopped_title">Downloads stopped</string>
+    <string name="download_stopped_desc">Resume to download what\'s missing.</string>
+    <string name="download_options">Options</string>
+    <string name="download_storage_limit_title">Storage cap</string>
+    <string name="download_storage_limit_desc">Limits how much audio is downloaded. Once the cap is reached, syncing stops and the least played songs are deleted to make room for new ones.</string>
+    <string name="download_storage_limit_unlimited">No limit</string>
+    <string name="download_storage_limit_value">%1$s GB</string>
+    <string name="download_storage_usage">%1$s of %2$s used</string>
+    <string name="download_banner_pending_title">There are pending downloads</string>
+    <string name="download_banner_pending_desc">%1$d songs not downloaded. Resume whenever you want.</string>
+    <string name="download_banner_paused_title">Downloads paused</string>
+    <string name="download_banner_paused_desc">%1$d songs not downloaded. Resume whenever you want.</string>
+    <string name="download_banner_resume">Resume</string>
+    <string name="download_banner_never">Don\'t show again</string>
+    <string name="download_banner_close">Dismiss notice</string>
+
+    <!-- ==================== Library / colors / repair ==================== -->
+    <string name="library_error_loading">Error loading library: %1$s</string>
+    <string name="library_error_loading_favorites">Error loading favorites: %1$s</string>
+    <string name="colors_regenerated">Colors regenerated successfully. Play a song to see the change.</string>
+    <string name="colors_regenerate_error">Error regenerating colors: %1$s</string>
+    <string name="repair_default_status">Repairing…</string>
+    <string name="repair_in_progress">Repairing corrupted files: %1$s</string>
+
+    <!-- ==================== Songs / library (All tab) ==================== -->
+    <string name="search_no_songs">No songs match this search</string>
+    <string name="search_no_results">No results</string>
+    <string name="status_ready_offline">Ready to play offline</string>
+    <string name="status_will_stream">It will stream from the cloud</string>
+    <string name="status_redownloading">Downloading again…</string>
+    <string name="status_downloading_generic">Downloading…</string>
+    <string name="menu_add_to_playlist">Add to playlist</string>
+    <string name="menu_favorite">Favorite</string>
+    <string name="menu_remove_favorite">Remove favorite</string>
+    <string name="songs_empty_title">No songs</string>
+    <string name="songs_empty_subtitle">Sync your library from OneDrive to start listening</string>
+    <string name="songs_empty_generic">No songs here</string>
+    <string name="favorites_empty_title">No favorites</string>
+    <string name="favorites_empty_subtitle">Mark songs as favorites and they\'ll show up here</string>
+
+    <!-- ==================== Artists ==================== -->
+    <string name="artist_empty">No artists</string>
+    <string name="artist_no_songs">No songs by this artist</string>
+    <string name="songs_header">Songs</string>
+    <string name="filter_source_local">Local</string>
+    <string name="filter_source_downloaded">Downloaded</string>
+    <string name="filter_source_streaming">Cloud</string>
+    <string name="duplicates_title">Duplicate songs</string>
+    <plurals name="duplicates_message">
+        <item quantity="one">%1$d song exists both in the cloud and in your local folder. Which copies do you want to use?</item>
+        <item quantity="other">%1$d songs exist both in the cloud and in your local folder. Which copies do you want to use?</item>
+    </plurals>
+    <string name="duplicates_keep_both">Keep both</string>
+    <string name="duplicates_prefer_cloud">Use the cloud ones</string>
+    <string name="duplicates_prefer_local">Use the local ones</string>
+    <string name="duplicates_later">Not now</string>
+    <string name="filter_empty_title">No songs match these filters</string>
+    <string name="filter_empty_subtitle">Remove a source filter to see more results</string>
+    <string name="artist_photo_desc">Photo of %1$s</string>
+    <string name="artist_photos_metered_title">Artist photos paused</string>
+    <string name="artist_photos_metered_desc">You\'re on mobile data. Download the photos anyway? (only a few KB)</string>
+    <string name="artist_photos_metered_download">Download</string>
+    <string name="artist_photos_metered_not_now">Not now</string>
+    <string name="artist_photos_banner_hint">You can change this in Settings → Downloads</string>
+    <string name="settings_artist_photos_header">Artist photos</string>
+    <string name="settings_artist_photos_metered">Download over mobile data</string>
+    <string name="settings_artist_photos_metered_desc">Fill in missing photos in the background on any network</string>
+    <string name="settings_artist_photos_banner">Ask on mobile data</string>
+    <string name="settings_artist_photos_banner_desc">Shows the notice in Artists when downloading is paused because of mobile data</string>
+    <string name="settings_artist_photo_detail">Photo when opening an artist</string>
+    <string name="settings_artist_photo_detail_desc">Download the artist photo when you open their detail even on mobile data</string>
+    <string name="settings_downloads_cloud_only">Only available with a cloud provider set up</string>
+    <string name="ambient_no_playback">Nothing playing</string>
+
+    <!-- ==================== Albums ==================== -->
+    <string name="album_empty">No albums</string>
+    <string name="album_art_desc">Cover of %1$s</string>
+    <string name="album_empty_detail">Empty album</string>
+
+    <!-- ==================== Plurals (counters) ==================== -->
+    <plurals name="album_count">
+        <item quantity="one">%d album</item>
+        <item quantity="other">%d albums</item>
+    </plurals>
+    <plurals name="song_count">
+        <item quantity="one">%d song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
+    <plurals name="artist_count">
+        <item quantity="one">%d artist</item>
+        <item quantity="other">%d artists</item>
+    </plurals>
+
+    <!-- ==================== Now Playing / MiniPlayer / queue ==================== -->
+    <string name="mini_player_desc">Mini player: %1$s</string>
+    <string name="queue_title">Queue</string>
+    <string name="queue_shuffle">Shuffle</string>
+    <string name="queue_empty">The queue is empty</string>
+    <string name="queue_save_as_playlist">Save as playlist</string>
+    <string name="queue_remove_song">Remove from queue</string>
+    <string name="np_close_desc">Close player</string>
+    <string name="np_ambient_mode_desc">Ambient mode</string>
+    <string name="np_chip_local">LOCAL</string>
+    <string name="np_chip_downloaded">DOWNLOADED</string>
+    <string name="np_chip_stream">STREAM</string>
+    <string name="np_format_desc">Audio format: %1$s</string>
+    <string name="np_format_desc_lossless">Lossless audio format: %1$s</string>
+    <string name="np_shuffle_on">Turn on shuffle</string>
+    <string name="np_shuffle_off">Turn off shuffle</string>
+    <string name="np_more_controls">More controls</string>
+    <string name="np_previous">Previous</string>
+    <string name="np_next">Next</string>
+    <string name="np_loading">Loading</string>
+    <string name="np_repeat_off">Turn on repeat</string>
+    <string name="np_repeat_one">Repeat current song</string>
+    <string name="np_repeat_all">Repeat the whole queue</string>
+    <string name="np_show_lyrics">Show lyrics</string>
+    <string name="np_hide_lyrics">Close lyrics</string>
+    <string name="np_view_queue">View play queue</string>
+    <string name="np_screen_on">Keep screen on</string>
+    <string name="np_screen_off">Allow screen to turn off</string>
+    <string name="np_open_eq">Open equalizer</string>
+    <string name="np_more_options">More options</string>
+    <string name="np_download">Download</string>
+
+    <!-- ==================== Widgets ==================== -->
+    <string name="widget_player_desc">Album art with play/pause and like</string>
+    <string name="widget_queue_desc">Current song and play queue</string>
+    <string name="widget_nothing_playing">Nothing playing</string>
+    <string name="widget_empty_hint">Tap to pick music</string>
+    <!-- SHORT labels for the center pill of the queue widget -->
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pause</string>
+    <string name="widget_queue_no_next">Nothing up next</string>
+    <string name="widget_queue_up_next">Up next</string>
+    <string name="widget_preview_title">Song</string>
+    <string name="widget_preview_artist">Artist</string>
+
+    <!-- ==================== Song status (list item) ==================== -->
+    <string name="status_downloaded">Downloaded</string>
+    <string name="status_downloading">Downloading %1$d%%</string>
+    <string name="status_download_song">Download song</string>
+    <string name="status_playing">Playing</string>
+
+    <!-- ==================== Lyrics ==================== -->
+    <string name="lyrics_choose">Choose lyrics</string>
+    <string name="lyrics_choose_hint">Tap to use · Long press to preview</string>
+    <string name="lyrics_no_matches">No matches on LrcLib</string>
+    <string name="lyrics_use">Use these lyrics</string>
+    <string name="lyrics_badge_instrumental">Instrumental</string>
+    <string name="lyrics_badge_synced">Synced</string>
+    <string name="lyrics_plain">Text</string>
+    <string name="lyrics_badge_none">No lyrics</string>
+    <string name="lyrics_close_desc">Close lyrics</string>
+    <string name="lyrics_search_manual_desc">Search lyrics manually</string>
+    <string name="lyrics_refetch_desc">Search for the lyrics again</string>
+    <string name="lyrics_view_karaoke">Karaoke</string>
+    <string name="lyrics_none_available">No lyrics available</string>
+    <string name="lyrics_search_manual">Search manually</string>
+    <string name="lyrics_search_google">Search on Google</string>
+    <string name="lyrics_search_alternatives">Search alternatives</string>
+    <string name="lyrics_error_offline_title">No connection</string>
+    <string name="lyrics_error_offline_subtitle">Go online to look up the lyrics for this song</string>
+    <string name="lyrics_error_provider_title">Couldn\'t load the lyrics</string>
+    <string name="lyrics_error_provider_subtitle">LrcLib didn\'t respond</string>
+    <string name="common_retry">Retry</string>
+    <string name="lyrics_refresh_updated">Lyrics updated</string>
+    <string name="lyrics_refresh_unchanged">No changes on LrcLib</string>
+    <string name="lyrics_refresh_notfound">No lyrics found</string>
+    <string name="lyrics_no_metadata">The file has no artist tags: use manual search</string>
+
+    <!-- ==================== Equalizer ==================== -->
+    <string name="eq_none_available">No equalizer available</string>
+    <string name="eq_open_error">Error opening the equalizer</string>
+    <string name="eq_title">Equalizer</string>
+    <string name="eq_desc">32-bit float processing. While it\'s on, the DSP battery saver (offload) is disabled.</string>
+    <string name="eq_reset">Reset</string>
+    <string name="eq_open_system">System equalizer</string>
+    <string name="eq_bands_label">%1$d bands</string>
+    <string name="eq_preset_flat">Flat</string>
+    <string name="eq_preset_rock">Rock</string>
+    <string name="eq_preset_pop">Pop</string>
+    <string name="eq_preset_jazz">Jazz</string>
+    <string name="eq_preset_classical">Classical</string>
+    <string name="eq_preset_dance">Dance</string>
+    <string name="eq_preset_hiphop">Hip-Hop</string>
+    <string name="eq_preset_bass">Bass</string>
+    <string name="eq_preset_treble">Treble</string>
+    <string name="eq_preset_vocal">Vocal</string>
+    <string name="eq_preset_save">Save preset</string>
+    <string name="eq_preset_save_title">Save preset</string>
+    <string name="eq_preset_name_label">Preset name</string>
+    <string name="eq_preset_label">Preset</string>
+    <string name="eq_preset_custom">Custom</string>
+    <string name="eq_preset_save_short">Save</string>
+    <string name="eq_system_short">System</string>
+    <string name="eq_system_conflict_title">Do you have a system equalizer on?</string>
+    <string name="eq_system_conflict_message">If a system or manufacturer equalizer is active (Xiaomi, Wavelet, etc.), it will be applied along with the app\'s one and the sound will be equalized twice. We recommend using only one.</string>
+    <string name="eq_enable_anyway">Turn on anyway</string>
+    <string name="eq_warning_dont_show">Don\'t show again</string>
+    <string name="eq_open_system_conflict_title">The app equalizer is on</string>
+    <string name="eq_open_system_conflict_message">If you adjust the system equalizer while the app\'s one is on, both will apply at once and the sound will be equalized twice. You can turn off the app\'s one before opening the system one.</string>
+    <string name="eq_open_system_disable">Turn off and open</string>
+    <string name="eq_open_system_anyway">Open anyway</string>
+    <string name="settings_eq_header">Equalizer</string>
+    <string name="settings_use_system_eq">Use the system equalizer</string>
+    <string name="settings_use_system_eq_desc">The player\'s equalizer button opens the system panel (MIUI/manufacturer) instead of the built-in equalizer. Turning this on switches off the built-in one.</string>
+
+    <!-- ==================== Player bar (Now Playing toolbar) ==================== -->
+    <string name="settings_player_bar_header">Player bar</string>
+    <string name="settings_player_bar_desc">Drag to reorder. Enabled actions show up in the bar; the rest go to the menu (⋮).</string>
+    <string name="settings_player_bar_in_bar">In the bar</string>
+    <string name="settings_player_bar_max">%1$d in the bar at most</string>
+    <string name="toolbar_action_repeat">Repeat</string>
+    <string name="toolbar_action_lyrics">Lyrics</string>
+    <string name="toolbar_action_queue">Queue</string>
+    <string name="toolbar_action_screen">Keep screen on</string>
+    <string name="toolbar_action_equalizer">Equalizer</string>
+    <string name="toolbar_action_sleep">Sleep timer</string>
+    <string name="toolbar_action_add_playlist">Add to playlist</string>
+    <string name="toolbar_action_download">Download</string>
+
+    <!-- ==================== Settings ==================== -->
+    <string name="settings_title">Settings</string>
+
+    <string name="settings_cat_sources_empty">No sources connected</string>
+    <string name="settings_source_onedrive">OneDrive</string>
+    <string name="settings_source_local">Local folder</string>
+    <string name="settings_cat_backup_desc">Export or import your playlists on OneDrive</string>
+    <string name="settings_cat_playback_desc">Volume normalization (ReplayGain)</string>
+    <string name="settings_cat_downloads_desc">Storage cap for downloads</string>
+    <string name="settings_cat_appearance_desc">Player colors and background</string>
+    <string name="settings_downloads_header">Downloads</string>
+    <string name="settings_volume_header">Volume (ReplayGain)</string>
+    <string name="settings_volume_desc">Evens out perceived loudness across songs using the file\'s ReplayGain tags. It only attenuates, never boosts.</string>
+    <string name="settings_rg_off">Off</string>
+    <string name="settings_rg_track">Per track</string>
+    <string name="settings_rg_album">Per album</string>
+    <string name="settings_rg_off_desc">No leveling: every song plays at its original loudness.</string>
+    <string name="settings_rg_track_desc">Levels track by track. Ideal for shuffling across artists.</string>
+    <string name="settings_rg_album_desc">Uses the album gain: keeps the loudness balance between tracks of the same record.</string>
+    <string name="settings_preamp_title">Pre-amp: %1$s dB</string>
+    <string name="settings_preamp_desc">Starting level. Raise it if the music is too quiet (careful: raising it too much clamps the factor to 1.0 and loses leveling on the loudest songs).</string>
+    <!-- Local music (Phase 3) -->
+    <string name="settings_local_header">Local music</string>
+    <string name="settings_local_desc">Scans a folder on the device (subfolders included). Its songs join the same library as OneDrive.</string>
+    <string name="settings_local_pick">Pick a music folder</string>
+    <string name="settings_local_change">Change folder</string>
+    <string name="settings_local_remove">Remove local folder</string>
+    <string name="settings_local_none">No folder selected</string>
+    <string name="local_folder_set">Local folder added. Scanning…</string>
+    <string name="local_folder_removed">Local folder removed</string>
+
+    <!-- Music sources: onboarding (Phase 4) + Settings section -->
+    <string name="onboarding_title">Welcome</string>
+    <string name="onboarding_subtitle">Connect at least one music source. You can add the other one later from Settings.</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_need_source">Pick a source to continue</string>
+
+    <string name="sources_header">Music sources</string>
+    <string name="source_onedrive_title">OneDrive</string>
+    <string name="source_onedrive_desc">Streaming and downloads from your Microsoft account.</string>
+    <string name="source_onedrive_connected">Account connected</string>
+    <string name="source_onedrive_connect">Connect</string>
+    <string name="source_onedrive_disconnect">Disconnect</string>
+    <string name="source_local_title">Local music</string>
+    <string name="source_local_desc">A folder on the device, subfolders included.</string>
+    <string name="sources_rescan">Scan again</string>
+    <string name="sources_rescan_desc">Full scan of every source and cleanup of songs that no longer exist.</string>
+    <string name="sources_rescan_started">Scanning sources…</string>
+
+    <!-- Playlist backup (Phase 6) -->
+    <string name="backup_header">Backup</string>
+    <string name="backup_desc">Saves your playlists and favorites in the app folder on OneDrive so you can restore them on another device. Restoring never deletes anything: it only adds what\'s missing.</string>
+    <string name="backup_export">Export playlists</string>
+    <string name="backup_export_desc">Uploads your playlists to OneDrive and replaces the previous backup.</string>
+    <string name="backup_import">Restore playlists</string>
+    <string name="backup_import_desc">Fetches the OneDrive backup and merges it with your current playlists.</string>
+    <string name="backup_export_success">%1$d playlists saved to OneDrive</string>
+    <string name="backup_import_success">%1$d songs added · %2$d new playlists</string>
+    <string name="backup_import_missing_suffix"> · %1$d are not in your library</string>
+    <string name="backup_none">There is no backup on OneDrive yet</string>
+    <string name="backup_needs_reconnect">Reconnect OneDrive: the backup needs a new permission</string>
+    <string name="backup_error">Couldn\'t complete: %1$s</string>
+
+    <!-- OneDrive disconnect confirmation dialog -->
+    <string name="source_disconnect_title">Disconnect OneDrive?</string>
+    <string name="source_disconnect_message">OneDrive songs and the downloaded files will be deleted. Your local music, playlists and favorites are kept; the songs come back to your playlists when you reconnect the account.</string>
+    <string name="source_disconnect_confirm">Disconnect</string>
+
+    <string name="settings_appearance_header">Appearance</string>
+    <string name="settings_regenerating">Regenerating…</string>
+    <string name="settings_regenerate_colors">Regenerate theme colors</string>
+    <string name="settings_regenerate_desc">Forces a re-analysis of the album art with the new color algorithm.</string>
+    <string name="settings_solid_bg">Solid background in the player</string>
+    <string name="settings_solid_bg_desc">Uses a solid theme color instead of the album art gradient.</string>
+    <string name="settings_wavy_progress">Wavy progress bar</string>
+    <string name="settings_wavy_progress_desc">Uses the animated Material 3 wave in the player. The mini player keeps the thin bar.</string>
+
+    <!-- Palette style: how the theme is generated from the album art color -->
+    <string name="settings_palette_style">Color style</string>
+    <string name="settings_palette_tonalspot">Balanced</string>
+    <string name="settings_palette_tonalspot_desc">The Android one. Moderate, consistent color.</string>
+    <string name="settings_palette_vibrant">Vibrant</string>
+    <string name="settings_palette_vibrant_desc">Color at full blast. It can overdo muted album art.</string>
+    <string name="settings_palette_content">True to the artwork</string>
+    <string name="settings_palette_content_desc">Intensity follows the cover; more neutral surfaces.</string>
+    <string name="settings_palette_fidelity">Fidelity</string>
+    <string name="settings_palette_fidelity_desc">Like the previous one, with complementary accents.</string>
+    <string name="settings_palette_neutral">Neutral</string>
+    <string name="settings_palette_neutral_desc">Nearly gray, with a minimal hint of the album.</string>
+    <string name="settings_palette_expressive">Expressive</string>
+    <string name="settings_palette_expressive_desc">Reinterprets the hue: colors that aren\'t in the cover.</string>
+    <string name="settings_palette_rainbow">Rainbow</string>
+    <string name="settings_palette_rainbow_desc">Playful, with very saturated accents.</string>
+    <string name="settings_palette_fruitsalad">Fruit salad</string>
+    <string name="settings_palette_fruitsalad_desc">Playful, shifts the album hue.</string>
+
+    <!-- ==================== Ambient mode ==================== -->
+    <string name="ambient_title">Ambient mode</string>
+    <string name="ambient_desc">A simplified screen for continuous playback.</string>
+
+    <!-- ==================== Sleep timer ==================== -->
+    <string name="sleep_timer_title">Sleep timer</string>
+    <string name="sleep_timer_minutes">%1$d min</string>
+    <string name="sleep_timer_finish_song">Finish the current song before pausing</string>
+    <string name="sleep_timer_remaining">until the music pauses</string>
+    <string name="sleep_timer_then_finish_song">When it ends, the current song will finish</string>
+    <string name="sleep_timer_awaiting_song_end">It will pause when this song ends</string>
+    <string name="sleep_timer_cancel">Cancel timer</string>
+
+    <!-- ==================== Artist picker (Deezer) ==================== -->
+    <string name="artist_picker_title">Choose artist</string>
+    <string name="artist_picker_subtitle">Deezer results for \"%1$s\"</string>
+    <string name="artist_picker_empty">No results on Deezer</string>
+
+    <!-- ==================== Color picker ==================== -->
+    <string name="color_picker_title">Select color</string>
+    <string name="color_picker_prompt">Tap a color to apply it:</string>
+
+    <!-- ==================== Library: tabs / sync / sorting / logout ==================== -->
+    <string name="tab_all">Songs</string>
+    <string name="tab_home">Home</string>
+    <string name="tab_playlists">Playlists</string>
+    <plurals name="library_selected_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
+    <string name="library_clear_selection">Exit selection</string>
+
+    <!-- ==================== Home screen ==================== -->
+    <string name="sort_chip_label">Sort: %1$s</string>
+    <string name="home_section_quick_actions">Quick actions</string>
+    <string name="home_action_shuffle">Shuffle</string>
+    <string name="home_action_play_order">In order</string>
+    <string name="home_action_favorites">Favorites</string>
+    <string name="home_greeting_morning">Good morning</string>
+    <string name="home_greeting_afternoon">Good afternoon</string>
+    <string name="home_greeting_evening">Good evening</string>
+    <string name="home_section_continue">Keep listening</string>
+    <string name="home_ctx_album">Album</string>
+    <string name="home_ctx_artist">Artist</string>
+    <string name="home_ctx_playlist">Playlist</string>
+    <string name="home_ctx_favorites">Favorites</string>
+    <string name="home_ctx_shuffle">Shuffle</string>
+    <string name="home_ctx_library">Whole library</string>
+    <string name="home_section_most_played">Most played</string>
+    <string name="home_section_recently_added">Recently added</string>
+    <string name="home_section_top_albums">Albums of the moment</string>
+    <string name="home_section_because_you_listened">Because you listened to %1$s</string>
+    <string name="home_section_rediscover">Give them another listen</string>
+    <plurals name="home_stats_week">
+        <item quantity="one">You listened to %1$d song this week</item>
+        <item quantity="other">You listened to %1$d songs this week</item>
+    </plurals>
+    <plurals name="home_stats_library">
+        <item quantity="one">%1$d song in your library</item>
+        <item quantity="other">%1$d songs in your library</item>
+    </plurals>
+    <string name="home_empty_title">Your music will show up here</string>
+    <string name="home_empty_subtitle">Play something or add a source to get started</string>
+    <string name="home_play_count">%1$d plays</string>
+    <string name="logout_confirm">All downloaded songs and local data will be deleted. Do you want to continue?</string>
+    <!-- Sync banners -->
+    <string name="sync_downloading">Downloading songs</string>
+    <string name="sync_with_errors_suffix">" · %1$d failed"</string>
+    <string name="sync_progress">%1$d of %2$d%3$s</string>
+    <string name="sync_error">Sync error</string>
+    <string name="sync_error_retry">%1$s · Tap to retry</string>
+    <string name="sync_postponed_low_battery">Low battery: syncing will run when you charge the device</string>
+    <string name="sync_new">%1$d new</string>
+    <string name="sync_downloaded">%1$d downloaded</string>
+    <string name="sync_deleted">%1$d deleted</string>
+    <string name="sync_no_changes">No changes</string>
+    <string name="sync_failed_suffix">" · %1$d failed"</string>
+    <string name="sync_up_to_date">Library up to date</string>
+    <string name="sync_scanning">Scanning library</string>
+    <string name="sync_found">%1$d found · %2$s</string>
+    <string name="sort_title_asc">Title (A-Z)</string>
+    <string name="sort_name_asc">Name (A-Z)</string>
+    <string name="sort_song_count">Most songs</string>
+    <string name="sort_by_artist">Artist</string>
+    <string name="sort_title_desc">Title (Z-A)</string>
+    <string name="sort_recent_first">Newest first</string>
+    <string name="sort_oldest_first">Oldest first</string>
+    <string name="sort_most_played">Most played</string>
+    <string name="sort_recently_played">Recently played</string>
+
+    <plurals name="scan_local_songs">
+        <item quantity="one">%1$d local song</item>
+        <item quantity="other">%1$d local songs</item>
+    </plurals>
+    <plurals name="scan_changes">
+        <item quantity="one">%1$d change</item>
+        <item quantity="other">%1$d changes</item>
+    </plurals>
+
+    <!-- ==================== Notifications (workers) ==================== -->
+    <string name="notif_channel_sync">Sync</string>
+    <string name="notif_syncing_title">Syncing library</string>
+    <string name="notif_checking_changes">Checking OneDrive for changes…</string>
+    <string name="notif_changes_detected">%1$d changes detected</string>
+    <string name="notif_downloading">Downloading music</string>
+    <string name="notif_channel_priority">Priority downloads</string>
+    <string name="notif_downloading_song">Downloading song</string>
+    <string name="notif_priority_processing">Processing priority download…</string>
+    <string name="notif_download_progress">%1$d/%2$d%3$s</string>
+
+    <!-- ==================== Errors (playback / network) ==================== -->
+    <string name="common_connection_error">Connection error</string>
+    <string name="error_song_not_synced">Error: song not synced</string>
+    <string name="error_local_file_unavailable">Couldn\'t read the local file (was it moved or deleted from the folder?). Skipping…</string>
+    <string name="error_connection_skipping">Connection error. Skipping…</string>
+    <string name="error_hardware_skipping">Hardware error. Skipping…</string>
+    <string name="error_incompatible_skipping">Unsupported file. Skipping…</string>
+    <string name="error_url_skipping">Error fetching the URL. Skipping…</string>
+    <string name="error_no_deezer">No connection to Deezer</string>
+    <string name="error_playback_load">Error playing the song</string>
+    <string name="error_playback_generic">Playback error</string>
+
+    <!-- ==================== Permissions ==================== -->
+    <string name="permission_required">Permission required</string>
+    <string name="permission_rationale">We need access to your audio files.</string>
+    <string name="grant_permission">Grant permission</string>
+
+</resources>

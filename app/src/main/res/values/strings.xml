@@ -1,0 +1,630 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Idioma POR DEFECTO = español (es el idioma base de la app). Las traducciones viven en
+  values-<lang>/strings.xml (ej. values-en/). Convención de claves: prefijo por área
+  (common_, onboarding_, source_/sources_, library_, now_playing_, settings_, lyrics_, sync_,
+  download_, playlist_, artist_, album_). Los textos repetidos van a common_*.
+-->
+<resources>
+    <string name="app_name">Siku Music</string>
+
+    <!-- ==================== Común (reutilizado en varias pantallas) ==================== -->
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_play">Reproducir</string>
+    <string name="common_favorites">Favoritos</string>
+    <string name="common_logout">Cerrar sesión</string>
+    <string name="common_add_to_favorites">Añadir a favoritos</string>
+    <string name="common_remove_from_favorites">Quitar de favoritos</string>
+    <string name="common_redownload">Redescargar</string>
+    <string name="common_add_to_playlist">Añadir a lista de reproducción</string>
+    <string name="common_connecting">Conectando…</string>
+    <string name="common_verifying">Verificando…</string>
+    <string name="common_recovering">Recuperando…</string>
+    <string name="common_no_offline_connection">Sin conexión offline</string>
+    <string name="common_error">Error</string>
+    <string name="common_create">Crear</string>
+    <string name="common_save">Guardar</string>
+    <string name="common_back">Volver</string>
+    <string name="common_search_songs">Buscar canciones, álbumes o artistas</string>
+    <string name="common_clear_search">Borrar búsqueda</string>
+    <string name="common_pause">Pausar</string>
+    <string name="common_next">Siguiente canción</string>
+    <string name="common_previous">Canción anterior</string>
+    <string name="common_close">Cerrar</string>
+    <string name="common_album_art">Carátula del álbum</string>
+    <string name="common_delete">Eliminar</string>
+    <string name="common_song_options">Opciones de la canción</string>
+    <string name="common_start">Iniciar</string>
+    <!-- %1$s = duración formateada -->
+    <string name="common_duration">Duración: %1$s</string>
+    <string name="common_unknown">Desconocido</string>
+    <string name="common_artists">Artistas</string>
+    <string name="common_albums">Álbumes</string>
+    <string name="common_unknown_artist">Artista desconocido</string>
+    <string name="common_unknown_album">Álbum desconocido</string>
+    <string name="common_various_artists">Varios artistas</string>
+    <!-- %1$s = detalle del error -->
+    <string name="common_error_format">Error: %1$s</string>
+
+    <!-- ==================== Descargas / estado ==================== -->
+    <string name="download_status_throttled">OneDrive: límite de solicitudes</string>
+    <string name="download_status_waiting_other">Esperando otra descarga…</string>
+    <string name="download_status_queued">En cola (esperando recursos)</string>
+    <string name="download_status_preparing">Preparando descarga…</string>
+    <string name="download_status_restarting">Reiniciando descarga…</string>
+
+    <!-- Causa del fallo mostrada en el gestor de descargas (fila "Fallidas"). Se PERSISTE en
+         `songs.lastDownloadError` ya resuelta, así que una fila vieja conserva el idioma que
+         había cuando falló hasta el siguiente reintento. Los diagnósticos puramente técnicos
+         (código HTTP, path traversal) siguen crudos en el código: no son texto de interfaz. -->
+    <string name="dl_err_no_internet">Sin conexión a internet</string>
+    <string name="dl_err_no_space">Espacio insuficiente en el dispositivo</string>
+    <string name="dl_err_empty_url">URL de descarga vacía</string>
+    <!-- %1$s = Content-Type recibido -->
+    <string name="dl_err_content_type">Content-Type inválido para audio: %1$s (¿página de error?)</string>
+    <!-- %1$s = detalle de la excepción -->
+    <string name="dl_err_path_validation">Error validando rutas: %1$s</string>
+    <string name="dl_err_empty_body">Respuesta vacía del servidor</string>
+    <string name="dl_err_empty_file">Archivo descargado vacío o error de escritura</string>
+    <!-- %1$d = bytes recibidos, %2$d = bytes esperados -->
+    <string name="dl_err_truncated">Descarga truncada: %1$d/%2$d bytes</string>
+    <!-- %1$d = segundos sin progreso -->
+    <string name="dl_err_stalled">Descarga sin progreso por más de %1$d s</string>
+    <!-- %1$s = mensaje de la excepción -->
+    <string name="dl_err_exception">Excepción: %1$s</string>
+
+    <!-- ==================== Listas de reproducción ==================== -->
+    <string name="playlist_create_title">Nueva lista de reproducción</string>
+    <string name="playlist_create_action">Crear lista</string>
+    <string name="playlist_section_title">Tus listas</string>
+    <string name="playlist_create_prompt">Ingresa el nombre de tu lista:</string>
+    <string name="playlist_create_placeholder">Mi lista genial</string>
+    <string name="playlist_add_sheet_title">Añadir a lista</string>
+    <string name="playlist_none_created">No tienes listas creadas</string>
+    <string name="playlist_rename_title">Cambiar nombre</string>
+    <string name="playlist_delete_title">Eliminar playlist</string>
+    <!-- %1$s = nombre de la playlist -->
+    <string name="playlist_delete_confirm">¿Estás seguro de que quieres eliminar \"%1$s\"? Esta acción no se puede deshacer.</string>
+    <!-- %1$s = fecha -->
+    <string name="playlist_created_on">Creada el %1$s</string>
+    <string name="playlist_empty">Lista vacía</string>
+    <string name="playlist_empty_subtitle">Añade canciones desde tu biblioteca</string>
+    <string name="favorites_empty">No tienes favoritos</string>
+    <string name="playlist_remove_song">Quitar de la lista</string>
+
+    <!-- ==================== Añadir canciones a una lista ==================== -->
+    <string name="playlist_add_songs">Añadir canciones</string>
+    <!-- %1$s = nombre de la lista -->
+    <string name="playlist_add_songs_title">Añadir a \"%1$s\"</string>
+    <string name="playlist_add_songs_search">Buscar en tu biblioteca</string>
+    <string name="playlist_add_songs_none">No hay canciones que añadir</string>
+    <string name="playlist_add_songs_no_results">Ningún resultado</string>
+    <!-- %1$d = nº de canciones seleccionadas -->
+    <string name="playlist_add_songs_confirm">Añadir (%1$d)</string>
+    <plurals name="playlist_songs_added">
+        <item quantity="one">%d canción añadida</item>
+        <item quantity="other">%d canciones añadidas</item>
+    </plurals>
+
+    <!-- ==================== Acciones de detalle (artista/álbum/lista) ==================== -->
+    <string name="detail_play_all">Reproducir todo</string>
+    <string name="detail_shuffle">Reproducir en aleatorio</string>
+
+    <!-- ==================== Gestor de descargas ==================== -->
+    <string name="download_title">Descargas</string>
+    <!-- %1$d = nº de descargas -->
+    <string name="download_tab_active">Activas (%1$d)</string>
+    <string name="download_tab_failed">Fallidas (%1$d)</string>
+    <string name="download_global_progress">Progreso Global</string>
+    <!-- %1$d = actuales, %2$d = total -->
+    <string name="download_queue_progress">%1$d/%2$d canciones</string>
+    <string name="download_completed_progress">%1$d de %2$d completadas</string>
+    <string name="download_syncing">Sincronizando…</string>
+    <string name="download_up_to_date">Todo al día</string>
+    <string name="download_no_errors">No hay errores</string>
+    <string name="download_retry_all">Reintentar Todo</string>
+    <string name="download_retry_one">Reintentar descarga</string>
+    <!-- %1$s = título de la canción -->
+    <string name="download_retry_started">Reintentando \"%1$s\"</string>
+    <string name="download_error_transient">Error temporal</string>
+    <string name="download_error_permanent">Error permanente</string>
+    <!-- %1$s = hora local del reintento automático -->
+    <string name="download_retry_scheduled">reintento automático a las %1$s</string>
+    <!-- %1$d = intentos fallidos -->
+    <plurals name="download_attempts">
+        <item quantity="one">%d intento</item>
+        <item quantity="other">%d intentos</item>
+    </plurals>
+    <!-- Mensajes (snackbar). %1$s = título de la canción; %2$s = detalle del error -->
+    <string name="download_msg_starting">Iniciando descarga: %1$s</string>
+    <string name="download_msg_complete">Descarga completa: %1$s</string>
+    <string name="download_msg_cancelled">Descarga cancelada: %1$s</string>
+    <string name="download_msg_unknown">Descarga: %1$s (estado desconocido)</string>
+    <string name="download_msg_failed_reason">Falló: %1$s (%2$s)</string>
+    <string name="download_msg_failed">Falló: %1$s</string>
+
+    <!-- Control de descargas: pausa / stop / tope de almacenamiento -->
+    <string name="download_pause">Pausar</string>
+    <string name="download_resume">Reanudar</string>
+    <string name="download_stop">Detener</string>
+    <string name="download_paused_title">Descargas en pausa</string>
+    <string name="download_paused_desc">Las descargas masivas están en pausa. Las canciones que reproduzcas se descargan igual.</string>
+    <string name="download_stopped_title">Descargas detenidas</string>
+    <string name="download_stopped_desc">Reanuda para descargar lo que falta.</string>
+    <string name="download_options">Opciones</string>
+    <string name="download_storage_limit_title">Tope de almacenamiento</string>
+    <string name="download_storage_limit_desc">Limita cuánto audio se descarga. Al llegar al tope, el sync frena y las canciones menos escuchadas se borran para hacer sitio a las nuevas.</string>
+    <string name="download_storage_limit_unlimited">Sin límite</string>
+    <!-- %1$s = valor en GB -->
+    <string name="download_storage_limit_value">%1$s GB</string>
+    <!-- %1$s = usado, %2$s = tope -->
+    <string name="download_storage_usage">%1$s de %2$s usados</string>
+    <string name="download_banner_pending_title">Hay descargas pendientes</string>
+    <!-- %1$d = canciones pendientes -->
+    <string name="download_banner_pending_desc">%1$d canciones sin descargar. Reanuda cuando quieras.</string>
+    <string name="download_banner_paused_title">Descargas en pausa</string>
+    <!-- %1$d = canciones pendientes -->
+    <string name="download_banner_paused_desc">%1$d canciones sin descargar. Reanuda cuando quieras.</string>
+    <string name="download_banner_resume">Reanudar</string>
+    <string name="download_banner_never">No volver a mostrar</string>
+    <string name="download_banner_close">Cerrar aviso</string>
+
+    <!-- ==================== Biblioteca / colores / reparación ==================== -->
+    <!-- %1$s = detalle del error -->
+    <string name="library_error_loading">Error cargando biblioteca: %1$s</string>
+    <string name="library_error_loading_favorites">Error cargando favoritos: %1$s</string>
+    <string name="colors_regenerated">Colores regenerados correctamente. Reproduce una canción para ver el cambio.</string>
+    <string name="colors_regenerate_error">Error al regenerar colores: %1$s</string>
+    <string name="repair_default_status">Reparando…</string>
+    <!-- %1$s = estado -->
+    <string name="repair_in_progress">Reparando archivos corruptos: %1$s</string>
+
+    <!-- ==================== Canciones / biblioteca (pestaña Todas) ==================== -->
+    <string name="search_no_songs">Sin canciones para esta búsqueda</string>
+    <string name="search_no_results">Sin resultados</string>
+    <string name="status_ready_offline">Lista para escuchar offline</string>
+    <string name="status_will_stream">Se reproducirá desde la nube</string>
+    <string name="status_redownloading">Redescargando…</string>
+    <string name="status_downloading_generic">Descargando…</string>
+    <string name="menu_add_to_playlist">Añadir a playlist</string>
+    <string name="menu_favorite">Favorito</string>
+    <string name="menu_remove_favorite">Quitar favorito</string>
+    <string name="songs_empty_title">No hay canciones</string>
+    <string name="songs_empty_subtitle">Sincroniza tu biblioteca desde OneDrive para empezar a escuchar</string>
+    <string name="songs_empty_generic">No hay canciones aquí</string>
+    <string name="favorites_empty_title">Sin favoritos</string>
+    <string name="favorites_empty_subtitle">Marca canciones como favoritas y aparecerán aquí</string>
+
+    <!-- ==================== Artistas ==================== -->
+    <string name="artist_empty">No hay artistas</string>
+    <string name="artist_no_songs">No hay canciones de este artista</string>
+    <string name="songs_header">Canciones</string>
+    <string name="filter_source_local">Local</string>
+    <string name="filter_source_downloaded">Descargadas</string>
+    <string name="filter_source_streaming">Nube</string>
+    <string name="duplicates_title">Canciones duplicadas</string>
+    <plurals name="duplicates_message">
+        <item quantity="one">%1$d canción existe tanto en la nube como en tu carpeta local. ¿Qué copias quieres usar?</item>
+        <item quantity="other">%1$d canciones existen tanto en la nube como en tu carpeta local. ¿Qué copias quieres usar?</item>
+    </plurals>
+    <string name="duplicates_keep_both">Mantener ambas</string>
+    <string name="duplicates_prefer_cloud">Usar las de la nube</string>
+    <string name="duplicates_prefer_local">Usar las locales</string>
+    <string name="duplicates_later">Ahora no</string>
+    <string name="filter_empty_title">Sin canciones con estos filtros</string>
+    <string name="filter_empty_subtitle">Quita algún filtro de origen para ver más resultados</string>
+    <!-- %1$s = nombre del artista -->
+    <string name="artist_photo_desc">Foto de %1$s</string>
+    <string name="artist_photos_metered_title">Fotos de artistas en pausa</string>
+    <string name="artist_photos_metered_desc">Estás en red móvil. ¿Descargar las fotos igualmente? (solo unos KB)</string>
+    <string name="artist_photos_metered_download">Descargar</string>
+    <string name="artist_photos_metered_not_now">Ahora no</string>
+    <string name="artist_photos_banner_hint">Puedes cambiar esto en Ajustes → Descargas</string>
+    <string name="settings_artist_photos_header">Fotos de artistas</string>
+    <string name="settings_artist_photos_metered">Descargar con datos móviles</string>
+    <string name="settings_artist_photos_metered_desc">Completa las fotos que falten en segundo plano con cualquier red</string>
+    <string name="settings_artist_photos_banner">Preguntar en red móvil</string>
+    <string name="settings_artist_photos_banner_desc">Muestra el aviso en Artistas cuando la descarga queda en pausa por datos</string>
+    <string name="settings_artist_photo_detail">Foto al abrir un artista</string>
+    <string name="settings_artist_photo_detail_desc">Descarga la foto del artista al entrar a su detalle aunque estés en datos</string>
+    <string name="settings_downloads_cloud_only">Solo disponible con un proveedor de nube configurado</string>
+    <string name="ambient_no_playback">Sin reproducción</string>
+
+    <!-- ==================== Álbumes ==================== -->
+    <string name="album_empty">No hay álbumes</string>
+    <!-- %1$s = nombre del álbum -->
+    <string name="album_art_desc">Carátula de %1$s</string>
+    <string name="album_empty_detail">Álbum vacío</string>
+
+    <!-- ==================== Plurales (contadores) ==================== -->
+    <plurals name="album_count">
+        <item quantity="one">%d álbum</item>
+        <item quantity="other">%d álbumes</item>
+    </plurals>
+    <plurals name="song_count">
+        <item quantity="one">%d canción</item>
+        <item quantity="other">%d canciones</item>
+    </plurals>
+    <plurals name="artist_count">
+        <item quantity="one">%d artista</item>
+        <item quantity="other">%d artistas</item>
+    </plurals>
+
+    <!-- ==================== Now Playing / MiniPlayer / cola ==================== -->
+    <!-- %1$s = título de la canción -->
+    <string name="mini_player_desc">Mini reproductor: %1$s</string>
+    <string name="queue_title">Cola</string>
+    <string name="queue_shuffle">Aleatorio</string>
+    <string name="queue_empty">La lista está vacía</string>
+    <string name="queue_save_as_playlist">Guardar como lista</string>
+    <string name="queue_remove_song">Quitar de la cola</string>
+    <string name="np_close_desc">Cerrar reproductor</string>
+    <string name="np_ambient_mode_desc">Modo ambiente</string>
+    <!-- Chip de origen (Fase 5). %1$s = formato de audio (FLAC/MP3…) -->
+    <string name="np_chip_local">LOCAL</string>
+    <string name="np_chip_downloaded">DESCARGADO</string>
+    <string name="np_chip_stream">STREAM</string>
+    <string name="np_format_desc">Formato de audio: %1$s</string>
+    <string name="np_format_desc_lossless">Formato de audio sin pérdida: %1$s</string>
+    <string name="np_shuffle_on">Activar aleatorio</string>
+    <string name="np_shuffle_off">Desactivar aleatorio</string>
+    <string name="np_more_controls">Más controles</string>
+    <string name="np_previous">Anterior</string>
+    <string name="np_next">Siguiente</string>
+    <string name="np_loading">Cargando</string>
+    <string name="np_repeat_off">Activar repetición</string>
+    <string name="np_repeat_one">Repetir canción actual</string>
+    <string name="np_repeat_all">Repetir toda la cola</string>
+    <string name="np_show_lyrics">Mostrar letra</string>
+    <string name="np_hide_lyrics">Cerrar letra</string>
+    <string name="np_view_queue">Ver cola de reproducción</string>
+    <string name="np_screen_on">Mantener pantalla encendida</string>
+    <string name="np_screen_off">Permitir apagar pantalla</string>
+    <string name="np_open_eq">Abrir ecualizador</string>
+    <string name="np_more_options">Más opciones</string>
+    <string name="np_download">Descargar</string>
+
+    <!-- ==================== Widgets ==================== -->
+    <string name="widget_player_desc">Carátula con play/pausa y me gusta</string>
+    <string name="widget_queue_desc">Canción actual y cola de reproducción</string>
+    <string name="widget_nothing_playing">Nada en reproducción</string>
+    <string name="widget_empty_hint">Toca para elegir música</string>
+    <!-- Etiquetas CORTAS para la píldora central del widget de cola ("Reproducir" no cabe) -->
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pausa</string>
+    <!-- Se muestra con una canción SONANDO cuya cola no tiene más temas después (p.ej. álbum
+         de una sola canción): la cola NO está vacía, solo no hay siguientes. -->
+    <string name="widget_queue_no_next">No hay más canciones a continuación</string>
+    <string name="widget_queue_up_next">A continuación</string>
+    <string name="widget_preview_title">Canción</string>
+    <string name="widget_preview_artist">Artista</string>
+
+    <!-- ==================== Estado de canción (item de lista) ==================== -->
+    <string name="status_downloaded">Descargado</string>
+    <!-- %1$d = porcentaje -->
+    <string name="status_downloading">Descargando %1$d%%</string>
+    <string name="status_download_song">Descargar canción</string>
+    <string name="status_playing">Reproduciendo</string>
+
+    <!-- ==================== Letras ==================== -->
+    <string name="lyrics_choose">Elegir letra</string>
+    <string name="lyrics_choose_hint">Toca para usar · Mantén presionado para previsualizar</string>
+    <string name="lyrics_no_matches">Sin coincidencias en LrcLib</string>
+    <string name="lyrics_use">Usar esta letra</string>
+    <string name="lyrics_badge_instrumental">Instrumental</string>
+    <string name="lyrics_badge_synced">Sincronizada</string>
+    <string name="lyrics_plain">Texto</string>
+    <string name="lyrics_badge_none">Sin letras</string>
+    <string name="lyrics_close_desc">Cerrar letras</string>
+    <string name="lyrics_search_manual_desc">Buscar letras manualmente</string>
+    <string name="lyrics_refetch_desc">Volver a buscar la letra</string>
+    <string name="lyrics_view_karaoke">Karaoke</string>
+    <string name="lyrics_none_available">No hay letras disponibles</string>
+    <string name="lyrics_search_manual">Buscar manualmente</string>
+    <string name="lyrics_search_google">Buscar en Google</string>
+    <!-- Estados vacíos de la pantalla de letras, uno por causa (ver LyricsFailure) -->
+    <string name="lyrics_search_alternatives">Buscar alternativas</string>
+    <string name="lyrics_error_offline_title">Sin conexión</string>
+    <string name="lyrics_error_offline_subtitle">Conéctate para buscar la letra de esta canción</string>
+    <string name="lyrics_error_provider_title">No se pudo cargar la letra</string>
+    <string name="lyrics_error_provider_subtitle">LrcLib no respondió</string>
+    <string name="common_retry">Reintentar</string>
+    <string name="lyrics_refresh_updated">Letra actualizada</string>
+    <string name="lyrics_refresh_unchanged">Sin cambios desde LrcLib</string>
+    <string name="lyrics_refresh_notfound">No se encontraron letras</string>
+    <string name="lyrics_no_metadata">El archivo no tiene tags de artista: usa la búsqueda manual</string>
+
+    <!-- ==================== Ecualizador ==================== -->
+    <string name="eq_none_available">No hay ecualizador disponible</string>
+    <string name="eq_open_error">Error al abrir ecualizador</string>
+    <string name="eq_title">Ecualizador</string>
+    <string name="eq_desc">Procesado en float de 32 bits. Mientras está activo se desactiva el ahorro de batería del DSP (offload).</string>
+    <string name="eq_reset">Restablecer</string>
+    <string name="eq_open_system">Ecualizador del sistema</string>
+    <!-- %1$d = número de bandas -->
+    <string name="eq_bands_label">%1$d bandas</string>
+    <string name="eq_preset_flat">Plano</string>
+    <string name="eq_preset_rock">Rock</string>
+    <string name="eq_preset_pop">Pop</string>
+    <string name="eq_preset_jazz">Jazz</string>
+    <string name="eq_preset_classical">Clásica</string>
+    <string name="eq_preset_dance">Dance</string>
+    <string name="eq_preset_hiphop">Hip-Hop</string>
+    <string name="eq_preset_bass">Bajos</string>
+    <string name="eq_preset_treble">Agudos</string>
+    <string name="eq_preset_vocal">Voz</string>
+    <string name="eq_preset_save">Guardar preset</string>
+    <string name="eq_preset_save_title">Guardar preset</string>
+    <string name="eq_preset_name_label">Nombre del preset</string>
+    <string name="eq_preset_label">Preset</string>
+    <string name="eq_preset_custom">Personalizado</string>
+    <string name="eq_preset_save_short">Guardar</string>
+    <string name="eq_system_short">Sistema</string>
+    <!-- Aviso al encender el EQ propio: posible doble ecualización con un EQ del sistema -->
+    <string name="eq_system_conflict_title">¿Tienes un ecualizador del sistema activo?</string>
+    <string name="eq_system_conflict_message">Si hay un ecualizador del sistema o del fabricante activo (Xiaomi, Wavelet, etc.), se aplicará junto con el de la app y el sonido se ecualizará dos veces. Se recomienda usar solo uno.</string>
+    <string name="eq_enable_anyway">Activar igual</string>
+    <string name="eq_warning_dont_show">No volver a mostrar</string>
+    <string name="eq_open_system_conflict_title">El ecualizador de la app está activado</string>
+    <string name="eq_open_system_conflict_message">Si ajustas el ecualizador del sistema con el de la app encendido, ambos se aplicarán a la vez y el sonido se ecualizará dos veces. Puedes apagar el de la app antes de abrir el del sistema.</string>
+    <string name="eq_open_system_disable">Apagar y abrir</string>
+    <string name="eq_open_system_anyway">Abrir igual</string>
+    <string name="settings_eq_header">Ecualizador</string>
+    <string name="settings_use_system_eq">Usar ecualizador del sistema</string>
+    <string name="settings_use_system_eq_desc">El botón de ecualizador del reproductor abre el panel del sistema (MIUI/fabricante) en vez del ecualizador propio. Al activarlo, el ecualizador propio se apaga.</string>
+
+    <!-- ==================== Barra del reproductor (toolbar del NowPlaying) ==================== -->
+    <string name="settings_player_bar_header">Barra del reproductor</string>
+    <string name="settings_player_bar_desc">Arrastra para ordenar. Las acciones activadas aparecen en la barra; el resto van al menú (⋮).</string>
+    <string name="settings_player_bar_in_bar">En la barra</string>
+    <!-- %1$d = máximo de acciones permitidas en la barra -->
+    <string name="settings_player_bar_max">Máximo %1$d en la barra</string>
+    <string name="toolbar_action_repeat">Repetir</string>
+    <string name="toolbar_action_lyrics">Letra</string>
+    <string name="toolbar_action_queue">Cola</string>
+    <string name="toolbar_action_screen">Mantener pantalla encendida</string>
+    <string name="toolbar_action_equalizer">Ecualizador</string>
+    <string name="toolbar_action_sleep">Temporizador de apagado</string>
+    <string name="toolbar_action_add_playlist">Añadir a lista</string>
+    <string name="toolbar_action_download">Descargar</string>
+
+    <!-- ==================== Ajustes ==================== -->
+    <string name="settings_title">Ajustes</string>
+
+    <!-- Hub de categorías de Ajustes (cada una abre su propia pantalla) -->
+    <string name="settings_cat_sources_empty">Sin fuentes conectadas</string>
+    <string name="settings_source_onedrive">OneDrive</string>
+    <string name="settings_source_local">Carpeta local</string>
+    <string name="settings_cat_backup_desc">Exporta o importa tus listas en OneDrive</string>
+    <string name="settings_cat_playback_desc">Normalización de volumen (ReplayGain)</string>
+    <string name="settings_cat_downloads_desc">Tope de almacenamiento para descargas</string>
+    <string name="settings_cat_appearance_desc">Colores del reproductor y fondo</string>
+    <string name="settings_downloads_header">Descargas</string>
+    <string name="settings_volume_header">Volumen (ReplayGain)</string>
+    <string name="settings_volume_desc">Iguala el volumen percibido entre canciones según los tags ReplayGain del archivo. Solo atenúa, nunca sube.</string>
+    <string name="settings_rg_off">Desactivado</string>
+    <string name="settings_rg_track">Por pista</string>
+    <string name="settings_rg_album">Por álbum</string>
+    <string name="settings_rg_off_desc">Sin igualación: cada canción suena a su volumen original.</string>
+    <string name="settings_rg_track_desc">Iguala pista a pista. Ideal para reproducción aleatoria mezclando artistas.</string>
+    <string name="settings_rg_album_desc">Usa la ganancia del álbum: preserva la relación de volumen entre pistas de un mismo disco.</string>
+    <!-- %1$s = valor formateado (dB) -->
+    <string name="settings_preamp_title">Pre-amplificación: %1$s dB</string>
+    <string name="settings_preamp_desc">Nivel de partida. Súbelo si la música queda muy baja (ojo: subir mucho satura el factor a 1.0 y pierde igualación en las canciones más fuertes).</string>
+    <!-- Música local (Fase 3) -->
+    <string name="settings_local_header">Música local</string>
+    <string name="settings_local_desc">Escanea una carpeta del dispositivo (subcarpetas incluidas). Sus canciones se suman a la misma biblioteca que OneDrive.</string>
+    <string name="settings_local_pick">Elegir carpeta de música</string>
+    <string name="settings_local_change">Cambiar carpeta</string>
+    <string name="settings_local_remove">Quitar carpeta local</string>
+    <string name="settings_local_none">Ninguna carpeta seleccionada</string>
+    <string name="local_folder_set">Carpeta local añadida. Escaneando…</string>
+    <string name="local_folder_removed">Carpeta local quitada</string>
+
+    <!-- Fuentes de música: onboarding (Fase 4) + sección de Ajustes -->
+    <string name="onboarding_title">Bienvenido</string>
+    <string name="onboarding_subtitle">Conecta al menos una fuente de música. Puedes añadir la otra más tarde desde Ajustes.</string>
+    <string name="onboarding_start">Empezar</string>
+    <string name="onboarding_need_source">Elige una fuente para continuar</string>
+
+    <string name="sources_header">Fuentes de música</string>
+    <string name="source_onedrive_title">OneDrive</string>
+    <string name="source_onedrive_desc">Streaming y descargas desde tu cuenta de Microsoft.</string>
+    <string name="source_onedrive_connected">Cuenta conectada</string>
+    <string name="source_onedrive_connect">Conectar</string>
+    <string name="source_onedrive_disconnect">Desconectar</string>
+    <string name="source_local_title">Música local</string>
+    <string name="source_local_desc">Una carpeta del dispositivo, subcarpetas incluidas.</string>
+    <string name="sources_rescan">Volver a escanear</string>
+    <string name="sources_rescan_desc">Full scan de todas las fuentes y limpieza de las canciones que ya no existen.</string>
+    <string name="sources_rescan_started">Escaneando fuentes…</string>
+
+    <!-- Copia de seguridad de playlists (Fase 6) -->
+    <string name="backup_header">Copia de seguridad</string>
+    <string name="backup_desc">Guarda tus playlists y favoritos en la carpeta de la app en OneDrive, y restáuralos en otro dispositivo. Restaurar nunca borra nada: solo añade lo que falte.</string>
+    <string name="backup_export">Exportar playlists</string>
+    <string name="backup_export_desc">Sube tus playlists a OneDrive y reemplaza el backup anterior.</string>
+    <string name="backup_import">Restaurar playlists</string>
+    <string name="backup_import_desc">Trae el backup de OneDrive y lo fusiona con tus playlists actuales.</string>
+    <!-- %1$d = nº de playlists -->
+    <string name="backup_export_success">%1$d listas guardadas en OneDrive</string>
+    <!-- %1$d = canciones añadidas, %2$d = listas nuevas -->
+    <string name="backup_import_success">%1$d canciones añadidas · %2$d listas nuevas</string>
+    <!-- %1$d = canciones del backup que no están en la biblioteca -->
+    <string name="backup_import_missing_suffix"> · %1$d no están en tu biblioteca</string>
+    <string name="backup_none">Todavía no hay ningún backup en OneDrive</string>
+    <string name="backup_needs_reconnect">Vuelve a conectar OneDrive: el backup necesita un permiso nuevo</string>
+    <string name="backup_error">No se pudo completar: %1$s</string>
+
+    <!-- Diálogo de confirmación al desconectar OneDrive -->
+    <string name="source_disconnect_title">¿Desconectar OneDrive?</string>
+    <string name="source_disconnect_message">Se borrarán las canciones de OneDrive y los archivos descargados. Tu música local, las playlists y los favoritos se conservan; las canciones vuelven a tus playlists al reconectar la cuenta.</string>
+    <string name="source_disconnect_confirm">Desconectar</string>
+
+    <string name="settings_appearance_header">Apariencia</string>
+    <string name="settings_regenerating">Regenerando…</string>
+    <string name="settings_regenerate_colors">Regenerar colores de temas</string>
+    <string name="settings_regenerate_desc">Obliga a re-analizar las carátulas con el nuevo algoritmo de color.</string>
+    <string name="settings_solid_bg">Fondo sólido en el reproductor</string>
+    <string name="settings_solid_bg_desc">Usa un color sólido del tema en lugar del degradado de la carátula.</string>
+    <string name="settings_wavy_progress">Barra de progreso ondulada</string>
+    <string name="settings_wavy_progress_desc">Usa la onda animada de Material 3 en el reproductor. El miniplayer mantiene la barra fina.</string>
+
+    <!-- Estilo de paleta: cómo se genera el tema a partir del color de la carátula -->
+    <string name="settings_palette_style">Estilo de color</string>
+    <string name="settings_palette_tonalspot">Equilibrado</string>
+    <string name="settings_palette_tonalspot_desc">El de Android. Color moderado y constante.</string>
+    <string name="settings_palette_vibrant">Vibrante</string>
+    <string name="settings_palette_vibrant_desc">Color al máximo. Puede intensificar carátulas apagadas.</string>
+    <string name="settings_palette_content">Fiel a la carátula</string>
+    <string name="settings_palette_content_desc">La intensidad sigue a la portada; superficies más neutras.</string>
+    <string name="settings_palette_fidelity">Fidelidad</string>
+    <string name="settings_palette_fidelity_desc">Como el anterior, con acentos complementarios.</string>
+    <string name="settings_palette_neutral">Neutro</string>
+    <string name="settings_palette_neutral_desc">Casi gris, con un matiz mínimo del álbum.</string>
+    <string name="settings_palette_expressive">Expresivo</string>
+    <string name="settings_palette_expressive_desc">Reinterpreta el tono: colores que no están en la portada.</string>
+    <string name="settings_palette_rainbow">Arcoíris</string>
+    <string name="settings_palette_rainbow_desc">Juguetón, con acentos muy saturados.</string>
+    <string name="settings_palette_fruitsalad">Frutal</string>
+    <string name="settings_palette_fruitsalad_desc">Juguetón, desplaza el tono del álbum.</string>
+
+    <!-- ==================== Modo Ambient ==================== -->
+    <string name="ambient_title">Modo Ambient</string>
+    <string name="ambient_desc">Pantalla simplificada para reproducción continua.</string>
+
+    <!-- ==================== Temporizador de apagado ==================== -->
+    <string name="sleep_timer_title">Temporizador de apagado</string>
+    <!-- %1$d = minutos -->
+    <string name="sleep_timer_minutes">%1$d min</string>
+    <string name="sleep_timer_finish_song">Terminar la canción en curso antes de pausar</string>
+    <string name="sleep_timer_remaining">para pausar la música</string>
+    <string name="sleep_timer_then_finish_song">Al vencer, terminará la canción en curso</string>
+    <string name="sleep_timer_awaiting_song_end">Se pausará al terminar esta canción</string>
+    <string name="sleep_timer_cancel">Cancelar temporizador</string>
+
+    <!-- ==================== Selector de artista (Deezer) ==================== -->
+    <string name="artist_picker_title">Elegir artista</string>
+    <!-- %1$s = nombre del artista -->
+    <string name="artist_picker_subtitle">Resultados de Deezer para \"%1$s\"</string>
+    <string name="artist_picker_empty">Sin resultados en Deezer</string>
+
+    <!-- ==================== Selector de color ==================== -->
+    <string name="color_picker_title">Seleccionar color</string>
+    <string name="color_picker_prompt">Toca un color para aplicarlo:</string>
+
+    <!-- ==================== Biblioteca: pestañas / sync / orden / logout ==================== -->
+    <string name="tab_all">Canciones</string>
+    <string name="tab_home">Inicio</string>
+    <string name="tab_playlists">Listas</string>
+    <!-- Cabecera del modo selección múltiple. %d = nº de canciones marcadas -->
+    <plurals name="library_selected_count">
+        <item quantity="one">%d seleccionada</item>
+        <item quantity="other">%d seleccionadas</item>
+    </plurals>
+    <string name="library_clear_selection">Salir de la selección</string>
+
+    <!-- ==================== Pantalla de inicio (home) ==================== -->
+    <!-- Chip de orden (menú desplegable) compartido por Todas/Artistas/Álbumes. %1$s = criterio actual -->
+    <string name="sort_chip_label">Ordenar: %1$s</string>
+    <!-- Acciones rápidas (fila de chips arriba de los carruseles) -->
+    <string name="home_section_quick_actions">Acciones rápidas</string>
+    <string name="home_action_shuffle">Aleatorio</string>
+    <string name="home_action_play_order">En orden</string>
+    <string name="home_action_favorites">Favoritos</string>
+    <string name="home_greeting_morning">Buenos días</string>
+    <string name="home_greeting_afternoon">Buenas tardes</string>
+    <string name="home_greeting_evening">Buenas noches</string>
+    <string name="home_section_continue">Seguir escuchando</string>
+    <!-- Subtítulos de tipo de cada contexto reanudable en "Seguir escuchando" -->
+    <string name="home_ctx_album">Álbum</string>
+    <string name="home_ctx_artist">Artista</string>
+    <string name="home_ctx_playlist">Lista</string>
+    <string name="home_ctx_favorites">Favoritos</string>
+    <string name="home_ctx_shuffle">Aleatorio</string>
+    <string name="home_ctx_library">Toda la biblioteca</string>
+    <string name="home_section_most_played">Más reproducidas</string>
+    <string name="home_section_recently_added">Recién agregadas</string>
+    <string name="home_section_top_albums">Álbumes del momento</string>
+    <!-- %1$s = nombre del artista más escuchado -->
+    <string name="home_section_because_you_listened">Porque escuchaste a %1$s</string>
+    <string name="home_section_rediscover">Vuelve a escucharlas</string>
+    <!-- Subtítulo del saludo: %1$d = número de canciones -->
+    <plurals name="home_stats_week">
+        <item quantity="one">Escuchaste %1$d canción esta semana</item>
+        <item quantity="other">Escuchaste %1$d canciones esta semana</item>
+    </plurals>
+    <plurals name="home_stats_library">
+        <item quantity="one">%1$d canción en tu biblioteca</item>
+        <item quantity="other">%1$d canciones en tu biblioteca</item>
+    </plurals>
+    <string name="home_empty_title">Tu música aparecerá aquí</string>
+    <string name="home_empty_subtitle">Reproduce algo o agrega una fuente para empezar</string>
+    <!-- %1$d = número de reproducciones -->
+    <string name="home_play_count">%1$d reproducciones</string>
+    <string name="logout_confirm">Se eliminarán todas las canciones descargadas y datos locales. ¿Deseas continuar?</string>
+    <!-- Banners de sincronización. %1$d/%2$d = contadores; %1$s/%2$s/%3$s = texto -->
+    <string name="sync_downloading">Descargando canciones</string>
+    <string name="sync_with_errors_suffix">" · %1$d con error"</string>
+    <string name="sync_progress">%1$d de %2$d%3$s</string>
+    <string name="sync_error">Error de sincronización</string>
+    <string name="sync_error_retry">%1$s · Toca para reintentar</string>
+    <string name="sync_postponed_low_battery">Batería baja: la sincronización se hará cuando cargues el dispositivo</string>
+    <string name="sync_new">%1$d nuevas</string>
+    <string name="sync_downloaded">%1$d descargadas</string>
+    <string name="sync_deleted">%1$d eliminadas</string>
+    <string name="sync_no_changes">No hay cambios</string>
+    <string name="sync_failed_suffix">" · %1$d fallidas"</string>
+    <string name="sync_up_to_date">Biblioteca al día</string>
+    <string name="sync_scanning">Escaneando biblioteca</string>
+    <string name="sync_found">%1$d encontradas · %2$s</string>
+    <string name="sort_title_asc">Título (A-Z)</string>
+    <string name="sort_name_asc">Nombre (A-Z)</string>
+    <string name="sort_song_count">Más canciones</string>
+    <string name="sort_by_artist">Artista</string>
+    <string name="sort_title_desc">Título (Z-A)</string>
+    <string name="sort_recent_first">Recientes primero</string>
+    <string name="sort_oldest_first">Antiguos primero</string>
+    <string name="sort_most_played">Más reproducidas</string>
+    <string name="sort_recently_played">Escuchadas recientemente</string>
+
+    <!-- Progreso del escaneo por fuente (banner de sync: "N encontradas · <esto>") -->
+    <plurals name="scan_local_songs">
+        <item quantity="one">%1$d canción local</item>
+        <item quantity="other">%1$d canciones locales</item>
+    </plurals>
+    <plurals name="scan_changes">
+        <item quantity="one">%1$d cambio</item>
+        <item quantity="other">%1$d cambios</item>
+    </plurals>
+
+    <!-- ==================== Notificaciones (workers) ==================== -->
+    <string name="notif_channel_sync">Sincronización</string>
+    <string name="notif_syncing_title">Sincronizando biblioteca</string>
+    <string name="notif_checking_changes">Verificando cambios en OneDrive…</string>
+    <string name="notif_changes_detected">%1$d cambios detectados</string>
+    <string name="notif_downloading">Descargando música</string>
+    <string name="notif_channel_priority">Descargas Prioritarias</string>
+    <string name="notif_downloading_song">Descargando canción</string>
+    <string name="notif_priority_processing">Procesando descarga prioritaria…</string>
+    <!-- %1$d/%2$d = progreso; %3$s = sufijo de fallidas -->
+    <string name="notif_download_progress">%1$d/%2$d%3$s</string>
+
+    <!-- ==================== Errores (reproducción / red) ==================== -->
+    <string name="common_connection_error">Error de conexión</string>
+    <string name="error_song_not_synced">Error: Canción no sincronizada</string>
+    <string name="error_local_file_unavailable">No se pudo leer el archivo local (¿se movió o eliminó de la carpeta?). Saltando…</string>
+    <string name="error_connection_skipping">Error de conexión. Saltando…</string>
+    <string name="error_hardware_skipping">Error de hardware. Saltando…</string>
+    <string name="error_incompatible_skipping">Archivo incompatible. Saltando…</string>
+    <string name="error_url_skipping">Error recuperando URL. Saltando…</string>
+    <string name="error_no_deezer">Sin conexión con Deezer</string>
+    <string name="error_playback_load">Error al reproducir canción</string>
+    <string name="error_playback_generic">Error de reproducción</string>
+
+    <!-- ==================== Permisos ==================== -->
+    <string name="permission_required">Permiso requerido</string>
+    <string name="permission_rationale">Necesitamos acceso a tus archivos de audio.</string>
+    <string name="grant_permission">Otorgar Permiso</string>
+
+</resources>

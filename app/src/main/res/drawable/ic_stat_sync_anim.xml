@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icono animado para la status bar durante sync/descargas: flechas circulares
+     (Material "sync") girando. Es un animation-list por fotogramas porque es el
+     único tipo de drawable que SystemUI anima en la status bar (mismo mecanismo
+     que android.R.drawable.stat_sys_download); los AnimatedVectorDrawable se
+     renderizan estáticos ahí. 8 fotogramas a 45° / 100ms = una vuelta cada 800ms,
+     rotación antihoraria siguiendo la dirección de las flechas del icono. -->
+<animation-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:oneshot="false">
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="0" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-45" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-90" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-135" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-180" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-225" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-270" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+    <item android:duration="100">
+        <vector android:width="24dp" android:height="24dp"
+            android:viewportWidth="24" android:viewportHeight="24">
+            <group android:rotation="-315" android:pivotX="12" android:pivotY="12">
+                <path android:fillColor="#FFFFFFFF"
+                    android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zm0,14c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
+            </group>
+        </vector>
+    </item>
+</animation-list>
