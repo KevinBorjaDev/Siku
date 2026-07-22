@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+}
+
+
+
+val keystoreProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -31,7 +40,21 @@ android {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystoreProps.isNotEmpty()) {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            manifestPlaceholders["msalHash"] = "9iIMP+wSostNbzqfp/dHJ4SxhX8="
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -39,7 +62,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystoreProps.isEmpty) signingConfigs.getByName("debug")
+            else signingConfigs.getByName("release")
+            manifestPlaceholders["msalHash"] = "h4IbsW2RdoWyIktegHmCXNbcKWQ="
         }
     }
     compileOptions {

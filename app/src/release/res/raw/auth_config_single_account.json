@@ -1,0 +1,16 @@
+{
+  "client_id" : "b3900d06-aa84-4ac9-8ace-ea49e5ba0d77",
+  "authorization_user_agent" : "DEFAULT",
+  "redirect_uri" : "msauth://com.qhana.siku/h4IbsW2RdoWyIktegHmCXNbcKWQ%3D",
+  "account_mode" : "SINGLE",
+  "broker_redirect_uri_registered": false,
+  "authorities" : [
+    {
+      "type": "AAD",
+      "audience": {
+        "type": "PersonalMicrosoftAccount",
+        "tenant_id": "consumers"
+      }
+    }
+  ]
+}

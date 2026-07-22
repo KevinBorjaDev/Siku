@@ -68,7 +68,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="msauth"
                     android:host="com.qhana.siku"
-                    android:path="/9iIMP+wSostNbzqfp/dHJ4SxhX8=" />
+                    android:path="/${msalHash}" />
             </intent-filter>
         </activity>
 
