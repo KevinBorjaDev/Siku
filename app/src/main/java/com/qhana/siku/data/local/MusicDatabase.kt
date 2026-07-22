@@ -10,10 +10,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Base de datos Room para cache local de canciones y colores.
  *
- * Migraciones: desde la v22 los bumps aditivos llevan Migration real (la biblioteca del
- * usuario ya tiene estado que duele perder: playlists, colores manuales, contadores).
- * El fallbackToDestructiveMigration queda como red para saltos sin ruta (p.ej. una BD
- * vieja de dev anterior a v21).
+ * **TODO bump de `version` DEBE traer su `Migration`.** No hay
+ * `fallbackToDestructiveMigration`, y su ausencia es deliberada: con la app publicada, ese
+ * fallback convertía un olvido en el BORRADO SILENCIOSO de la biblioteca de cada usuario
+ * (playlists, favoritos, historial, colores manuales) sin crash ni aviso. Sin él, una
+ * migración faltante lanza `IllegalStateException` al abrir la BD — un fallo ruidoso que
+ * aparece en el primer arranque de quien subió la versión, no semanas después en el
+ * teléfono de otro. Es preferible un crash reproducible a datos irrecuperables.
+ *
+ * Antes de publicar un bump: instalar la versión anterior, usarla, actualizar encima y
+ * verificar que la biblioteca sigue completa. Los schemas de `app/schemas/` permiten además
+ * escribir tests con `MigrationTestHelper`.
  */
 @Database(
     entities = [
@@ -78,9 +85,7 @@ abstract class MusicDatabase : RoomDatabase() {
                     "music_cache.db"
                 )
                     .addMigrations(MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
-                    // Red de seguridad para saltos SIN ruta de migración (BDs de dev muy
-                    // viejas). Los bumps nuevos deben traer su Migration y no caer aquí.
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    // SIN fallbackToDestructiveMigration a propósito: ver el KDoc de la clase.
                     .build()
                     .also { INSTANCE = it }
             }
