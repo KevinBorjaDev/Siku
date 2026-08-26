@@ -120,7 +120,7 @@ fun NowPlayingLayer(
     val playbackState by playbackViewModel.playbackState.collectAsStateWithLifecycle()
     val nowPlayingUiState by playbackViewModel.nowPlayingUiState.collectAsStateWithLifecycle()
     val keepScreenOn by playbackViewModel.keepScreenOn.collectAsStateWithLifecycle()
-    val nowPlayingSolidBackground by playbackViewModel.nowPlayingSolidBackground.collectAsStateWithLifecycle()
+    val nowPlayingBackground by playbackViewModel.nowPlayingBackground.collectAsStateWithLifecycle()
     val nowPlayingWavyProgress by playbackViewModel.nowPlayingWavyProgress.collectAsStateWithLifecycle()
     val nowPlayingProgressThickness by playbackViewModel.nowPlayingProgressThickness.collectAsStateWithLifecycle()
     val nowPlayingProgressHandle by playbackViewModel.nowPlayingProgressHandle.collectAsStateWithLifecycle()
@@ -524,7 +524,7 @@ fun NowPlayingLayer(
                 currentIndexFlow = playbackViewModel.currentIndex,
                 isFavorite = currentSong?.let { it.id in favorites } ?: false,
                 keepScreenOn = keepScreenOn,
-                solidBackground = nowPlayingSolidBackground,
+                background = nowPlayingBackground,
                 wavyProgress = nowPlayingWavyProgress,
                 progressThickness = nowPlayingProgressThickness.dp,
                 progressHandle = nowPlayingProgressHandle,

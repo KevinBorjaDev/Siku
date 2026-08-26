@@ -12,6 +12,7 @@ import com.qhana.siku.data.coordinator.SyncStatus
 import com.qhana.siku.data.model.PlaybackContext
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.LyricsSaveMode
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
@@ -561,7 +562,7 @@ class LibraryViewModel @Inject constructor(
                 playbackSettings = it.playbackSettings.copy(
                     replayGainMode = musicPreferences.loadReplayGainMode(),
                     replayGainPreamp = musicPreferences.loadReplayGainPreamp(),
-                    nowPlayingSolidBackground = musicPreferences.loadNowPlayingSolidBackground(),
+                    nowPlayingBackground = musicPreferences.loadNowPlayingBackground(),
                     nowPlayingWavyProgress = musicPreferences.loadNowPlayingWavyProgress(),
                     nowPlayingProgressThickness = musicPreferences.loadNowPlayingProgressThickness(),
                     nowPlayingProgressHandle = musicPreferences.loadNowPlayingProgressHandle(),
@@ -1033,10 +1034,10 @@ class LibraryViewModel @Inject constructor(
 
     // --- Apariencia ---
 
-    fun setNowPlayingSolidBackground(enabled: Boolean) {
-        _uiState.update { it.copy(playbackSettings = it.playbackSettings.copy(nowPlayingSolidBackground = enabled)) }
-        // PlaybackViewModel lo observa vía nowPlayingSolidBackgroundFlow (DataStore).
-        musicPreferences.saveNowPlayingSolidBackground(enabled)
+    fun setNowPlayingBackground(mode: NowPlayingBackground) {
+        _uiState.update { it.copy(playbackSettings = it.playbackSettings.copy(nowPlayingBackground = mode)) }
+        // PlaybackViewModel lo observa vía nowPlayingBackgroundFlow (DataStore).
+        musicPreferences.saveNowPlayingBackground(mode)
     }
 
     /**

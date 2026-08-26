@@ -27,6 +27,7 @@ import com.qhana.siku.player.audio.EqualizerAudioProcessor
 import com.qhana.siku.player.audio.clarity.Clarity
 import com.qhana.siku.data.model.LibraryTabsConfig
 import com.qhana.siku.data.model.LyricsSaveMode
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.PlaybackContext
 import com.qhana.siku.data.model.PlayerToolbarConfig
 import com.qhana.siku.data.model.ReplayGainMode
@@ -1018,19 +1019,37 @@ class MusicPreferences(context: Context) {
 
     // --- Now Playing ---
 
-    fun saveNowPlayingSolidBackground(enabled: Boolean) = update {
-        it[KEY_NOW_PLAYING_SOLID_BG] = enabled
+    fun saveNowPlayingBackground(mode: NowPlayingBackground) = update {
+        it[KEY_NOW_PLAYING_BACKGROUND] = mode.name
     }
 
-    fun loadNowPlayingSolidBackground(): Boolean = cache[KEY_NOW_PLAYING_SOLID_BG] ?: false
+    fun loadNowPlayingBackground(): NowPlayingBackground = readNowPlayingBackground(cache)
 
     /**
      * Flow reactivo del ajuste de fondo: lo cambia LibraryViewModel (Ajustes) y lo observa
      * PlaybackViewModel (NowPlaying), que son instancias distintas — la caché síncrona no
      * alcanza para propagar el cambio en vivo.
      */
-    val nowPlayingSolidBackgroundFlow: Flow<Boolean> =
-        prefFlow { it[KEY_NOW_PLAYING_SOLID_BG] ?: false }
+    val nowPlayingBackgroundFlow: Flow<NowPlayingBackground> =
+        prefFlow { readNowPlayingBackground(it) }
+
+    /**
+     * El default no es una constante suelta porque tiene que MIGRAR: hasta la 1.2.0 el fondo era el
+     * booleano `now_playing_solid_bg`, y quien dejó puesto el sólido debe seguir viéndolo. La key
+     * vieja solo se LEE, y solo mientras no exista la nueva — mismo patrón que
+     * `local_folder_uri` → `local_folder_uris`. Un nombre desconocido (preferencia de una versión
+     * futura, tras un downgrade) cae al degradado en vez de reventar.
+     */
+    private fun readNowPlayingBackground(prefs: Preferences): NowPlayingBackground {
+        prefs[KEY_NOW_PLAYING_BACKGROUND]
+            ?.let { name -> runCatching { NowPlayingBackground.valueOf(name) }.getOrNull() }
+            ?.let { return it }
+        return if (prefs[KEY_NOW_PLAYING_SOLID_BG] == true) {
+            NowPlayingBackground.SOLID
+        } else {
+            NowPlayingBackground.GRADIENT
+        }
+    }
 
     /**
      * Barra de progreso ONDULADA (M3 Expressive) en el NowPlaying, en vez de la píldora plana.
@@ -1043,7 +1062,7 @@ class MusicPreferences(context: Context) {
 
     fun loadNowPlayingWavyProgress(): Boolean = cache[KEY_NOW_PLAYING_WAVY] ?: false
 
-    /** Reactivo por el mismo motivo que [nowPlayingSolidBackgroundFlow] (Ajustes ↔ NowPlaying). */
+    /** Reactivo por el mismo motivo que [nowPlayingBackgroundFlow] (Ajustes ↔ NowPlaying). */
     val nowPlayingWavyProgressFlow: Flow<Boolean> =
         prefFlow { it[KEY_NOW_PLAYING_WAVY] ?: false }
 
@@ -1173,7 +1192,7 @@ class MusicPreferences(context: Context) {
 
     fun loadPlayerGestures(): Boolean = cache[KEY_PLAYER_GESTURES] ?: DEFAULT_PLAYER_GESTURES
 
-    /** Reactivo por el mismo motivo que [nowPlayingSolidBackgroundFlow] (Ajustes ↔ reproductor). */
+    /** Reactivo por el mismo motivo que [nowPlayingBackgroundFlow] (Ajustes ↔ reproductor). */
     val playerGesturesFlow: Flow<Boolean> =
         prefFlow { it[KEY_PLAYER_GESTURES] ?: DEFAULT_PLAYER_GESTURES }
 
@@ -1293,7 +1312,9 @@ class MusicPreferences(context: Context) {
         private val KEY_NOW_PLAYING_DETAILED_FORMAT = booleanPreferencesKey("now_playing_detailed_format")
         private val KEY_GENRE_PARTIAL_MATCH = booleanPreferencesKey("genre_partial_match")
         private val KEY_RECENT_CONTEXTS = stringPreferencesKey("recent_playback_contexts")
+        // Se conserva SOLO para leer: `readNowPlayingBackground` migra desde ella. No se escribe más.
         private val KEY_NOW_PLAYING_SOLID_BG = booleanPreferencesKey("now_playing_solid_bg")
+        private val KEY_NOW_PLAYING_BACKGROUND = stringPreferencesKey("now_playing_background")
         private val KEY_THEME_PALETTE_STYLE = stringPreferencesKey("theme_palette_style")
 
         /** Igual que el default de Material You y el de MaterialKolor. */

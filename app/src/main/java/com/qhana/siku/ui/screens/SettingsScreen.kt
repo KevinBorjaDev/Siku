@@ -44,6 +44,7 @@ import com.qhana.siku.data.model.LibraryTabId
 import com.qhana.siku.data.model.LibraryTabState
 import com.qhana.siku.data.model.LibraryTabsConfig
 import com.qhana.siku.data.model.LyricsSaveMode
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.PlayerToolbarAction
 import com.qhana.siku.data.model.PlayerToolbarConfig
 import com.qhana.siku.data.model.ReplayGainMode
@@ -1390,7 +1391,7 @@ fun SettingsAppearanceScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRegenerating = uiState.isRegeneratingColors
-    val nowPlayingSolidBackground = uiState.nowPlayingSolidBackground
+    val nowPlayingBackground = uiState.nowPlayingBackground
     val miniPlayerRoundedRect = uiState.miniPlayerRoundedRect
     val miniPlayerRoundPlayButton = uiState.miniPlayerRoundPlayButton
     val nowPlayingDetailedFormat = uiState.nowPlayingDetailedFormat
@@ -1443,15 +1444,13 @@ fun SettingsAppearanceScreen(
         // contenedor, después el botón de play.
         SettingsGroup(
             listOf<@Composable (ListItemShapes) -> Unit>(
-                // Fondo del reproductor: color sólido tonal vs degradado según la carátula.
+                // Fondo del reproductor. Dejó de ser un switch al aparecer el tercer modo: son
+                // tres presentaciones EXCLUSIVAS de la misma superficie, no dos interruptores.
                 { shapes ->
-                    SettingsSwitchTile(
-                        icon = "gradient",
-                        title = stringResource(R.string.settings_solid_bg),
-                        description = stringResource(R.string.settings_solid_bg_desc),
-                        checked = nowPlayingSolidBackground,
+                    NowPlayingBackgroundTile(
+                        selected = nowPlayingBackground,
                         shapes = shapes,
-                        onCheckedChange = { viewModel.setNowPlayingSolidBackground(it) }
+                        onSelect = { viewModel.setNowPlayingBackground(it) }
                     )
                 },
                 // Forma de la barra flotante: píldora (diseño original) o rectángulo redondeado.
@@ -1935,6 +1934,78 @@ private fun ProgressThicknessSetting(
             )
         }
     }
+}
+
+/**
+ * Los tres fondos del reproductor, en el orden en que se muestran: valor persistido, etiqueta y
+ * descripción de qué hace.
+ */
+private val NowPlayingBackgroundOptions = listOf(
+    NowPlayingBackground.GRADIENT to
+        (R.string.settings_np_bg_gradient to R.string.settings_np_bg_gradient_desc),
+    NowPlayingBackground.SOLID to
+        (R.string.settings_np_bg_solid to R.string.settings_np_bg_solid_desc),
+    NowPlayingBackground.BLUR to
+        (R.string.settings_np_bg_blur to R.string.settings_np_bg_blur_desc)
+)
+
+/**
+ * Fondo del reproductor: fila de grupo que despliega los tres modos.
+ *
+ * Mismo idiom de menú que [ThemePaletteStyleSetting] —selección EXCLUSIVA, con `selected`, el
+ * check en `selectedLeadingIcon` y la explicación en `supportingText`— pero como ítem de
+ * [SettingsGroup], porque esto vive junto al resto de la presentación del reproductor y la forma
+ * se la da el grupo.
+ */
+@Composable
+private fun NowPlayingBackgroundTile(
+    selected: NowPlayingBackground,
+    shapes: ListItemShapes,
+    onSelect: (NowPlayingBackground) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = NowPlayingBackgroundOptions.firstOrNull { it.first == selected }
+        ?: NowPlayingBackgroundOptions.first()
+
+    SegmentedListItem(
+        onClick = { expanded = true },
+        shapes = shapes,
+        colors = appSegmentedListItemColors(AppColors.surfaceContainerHigh),
+        leadingContent = { MaterialSymbol("gradient", size = 24.sp) },
+        trailingContent = {
+            Box {
+                MaterialSymbol("expand_more", size = 24.sp, color = AppColors.onSurfaceVariant)
+                AppMenuPopup(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    AppMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                        NowPlayingBackgroundOptions.forEachIndexed { index, (mode, labels) ->
+                            DropdownMenuItem(
+                                colors = appSelectableMenuItemColors(),
+                                selected = mode == current.first,
+                                onClick = {
+                                    expanded = false
+                                    onSelect(mode)
+                                },
+                                text = { Text(stringResource(labels.first)) },
+                                shapes = MenuDefaults.itemShape(
+                                    index = index,
+                                    count = NowPlayingBackgroundOptions.size
+                                ),
+                                selectedLeadingIcon = { MenuItemIcon("check") },
+                                supportingText = { Text(stringResource(labels.second)) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        content = {
+            SettingsTileText(
+                title = stringResource(R.string.settings_np_bg),
+                description = stringResource(current.second.first)
+            )
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 /** Selector del estilo de paleta: fila con el valor actual que despliega el menú de opciones. */

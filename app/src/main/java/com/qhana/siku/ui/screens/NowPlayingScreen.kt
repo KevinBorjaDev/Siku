@@ -27,6 +27,7 @@ import androidx.core.graphics.ColorUtils
 import android.content.res.Configuration
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.PlaybackOrigin
 import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.model.PlayerToolbarConfig
@@ -186,7 +187,8 @@ fun NowPlayingScreen(
     currentIndexFlow: StateFlow<Int>,
     isFavorite: Boolean,
     keepScreenOn: Boolean,
-    solidBackground: Boolean,
+    /** Ajustes -> Apariencia: degradado del album, color solido o caratula desenfocada. */
+    background: NowPlayingBackground,
     /** Ajustes → Reproducción: barra de progreso ondulada (Expressive) en vez de la píldora. */
     wavyProgress: Boolean,
     /** Ajustes -> Apariencia: grosor de la barra de progreso (vale para los dos modos). */
@@ -327,24 +329,44 @@ fun NowPlayingScreen(
     // Fondo según el ajuste del usuario: color SÓLIDO tonal M3 Expressive (surfaceContainer,
     // que ya viene teñido por el seed del álbum vía theme) o el degradado vertical clásico
     // (Color Profundo -> Fondo Neutro).
-    val backgroundBrush = remember(albumPrimary, surfaceColor, solidBackgroundColor, solidBackground) {
-        if (solidBackground) {
-            SolidColor(solidBackgroundColor)
-        } else {
+    //
+    // El modo BLUR comparte el pincel SÓLIDO: en él este color es la base sobre la que se pinta la
+    // carátula desenfocada, o sea lo que se ve mientras se decodifica y en las canciones sin
+    // carátula. Por eso son dos modos y no tres aquí.
+    val backgroundBrush = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
+        if (background == NowPlayingBackground.GRADIENT) {
             Brush.verticalGradient(
                 colors = listOf(
                     albumPrimary,
                     surfaceColor
                 )
             )
+        } else {
+            SolidColor(solidBackgroundColor)
         }
     }
+
+    // Carátula desenfocada del fondo. Se decodifica SOLO en su modo (el `enabled`), pero sin
+    // esperar a que el reproductor esté a la vista: ver el KDoc de `rememberBlurredArtwork`.
+    val blurredArtwork by rememberBlurredArtwork(
+        artUri = song.albumArtUriString,
+        enabled = background == NowPlayingBackground.BLUR
+    )
+    // El velo se tiñe con el MISMO color que el fondo sólido, que ya viene del seed del álbum: así
+    // el modo desenfocado no estrena una segunda familia de color propia.
+    val scrim = rememberScrimSpec(solidBackgroundColor)
 
     // Color que hay REALMENTE bajo la barra superior, sea cual sea el modo de fondo: en degradado es
     // su primera parada (arriba es justo donde vive la barra). Lo consume el chip de origen, que
     // deriva de él su relleno. Se calcula AQUÍ, pegado al brush, porque son la misma decisión: si
     // algún día el degradado arranca en otro color, el chip lo sigue solo.
-    val topBackgroundColor = if (solidBackground) solidBackgroundColor else albumPrimary
+    val topBackgroundColor = when (background) {
+        NowPlayingBackground.GRADIENT -> albumPrimary
+        NowPlayingBackground.SOLID -> solidBackgroundColor
+        // Con una imagen detrás no hay UN color de fondo, así que se compone el que queda de
+        // verdad: el velo sobre la banda superior de la carátula.
+        NowPlayingBackground.BLUR -> scrim.topColorOver(blurredArtwork, solidBackgroundColor)
+    }
 
     val contentColor = AppColors.onSurface
     val variantColor = AppColors.onSurfaceVariant
@@ -573,11 +595,19 @@ fun NowPlayingScreen(
         // Sigue separada del Scaffold —y no como su `containerColor`— porque el gesto de cierre
         // traslada y atenúa el reproductor ENTERO desde el `graphicsLayer` de arriba, fondo
         // incluido: pintarlo dentro del Scaffold lo dejaría quieto y se vería el hueco al arrastrar.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundBrush)
-        )
+        if (background == NowPlayingBackground.BLUR) {
+            BlurredArtworkBackground(
+                artwork = blurredArtwork,
+                baseColor = solidBackgroundColor,
+                scrim = scrim
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(backgroundBrush)
+            )
+        }
 
         // Capa 2 (CONTENIDO): layout normal, encima del fondo y transparente. El alpha del morph va
         // AQUÍ —topBar incluida— y NO en la Capa 1: esa es la superficie del contenedor y tiene que

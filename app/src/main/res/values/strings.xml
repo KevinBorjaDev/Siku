@@ -718,8 +718,13 @@
     <string name="settings_regenerate_confirm_title">¿Regenerar los colores?</string>
     <string name="settings_regenerate_confirm_message">Se volverán a analizar todas las carátulas. Los colores que hayas elegido a mano se perderán y no se pueden recuperar.</string>
     <string name="settings_regenerate_confirm_action">Regenerar</string>
-    <string name="settings_solid_bg">Fondo sólido en el reproductor</string>
-    <string name="settings_solid_bg_desc">Usa un color sólido del tema en lugar del degradado de la carátula.</string>
+    <string name="settings_np_bg">Fondo del reproductor</string>
+    <string name="settings_np_bg_gradient">Degradado del álbum</string>
+    <string name="settings_np_bg_gradient_desc">Del color de la carátula al fondo de la app.</string>
+    <string name="settings_np_bg_solid">Color sólido</string>
+    <string name="settings_np_bg_solid_desc">Un solo tono del tema, también teñido por la carátula.</string>
+    <string name="settings_np_bg_blur">Carátula desenfocada</string>
+    <string name="settings_np_bg_blur_desc">La portada ampliada y difuminada, con un velo para que se lea el texto.</string>
     <string name="settings_wavy_progress">Barra de progreso ondulada</string>
     <string name="settings_wavy_progress_desc">Usa la onda animada de Material 3 en el reproductor. El miniplayer mantiene la barra fina.</string>
     <string name="settings_progress_bar_header">Barra de progreso</string>

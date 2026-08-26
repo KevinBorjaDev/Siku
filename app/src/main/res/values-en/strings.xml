@@ -657,8 +657,13 @@
     <string name="settings_regenerate_confirm_title">Regenerate colors?</string>
     <string name="settings_regenerate_confirm_message">All album art will be analyzed again. Any colors you picked manually will be lost and cannot be recovered.</string>
     <string name="settings_regenerate_confirm_action">Regenerate</string>
-    <string name="settings_solid_bg">Solid background in the player</string>
-    <string name="settings_solid_bg_desc">Uses a solid theme color instead of the album art gradient.</string>
+    <string name="settings_np_bg">Player background</string>
+    <string name="settings_np_bg_gradient">Album gradient</string>
+    <string name="settings_np_bg_gradient_desc">From the artwork color down to the app background.</string>
+    <string name="settings_np_bg_solid">Solid color</string>
+    <string name="settings_np_bg_solid_desc">A single theme tone, also tinted by the artwork.</string>
+    <string name="settings_np_bg_blur">Blurred artwork</string>
+    <string name="settings_np_bg_blur_desc">The cover art enlarged and blurred, with a veil so the text stays legible.</string>
     <string name="settings_wavy_progress">Wavy progress bar</string>
     <string name="settings_wavy_progress_desc">Uses the animated Material 3 wave in the player. The mini player keeps the thin bar.</string>
     <string name="settings_progress_bar_header">Progress bar</string>

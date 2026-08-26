@@ -21,6 +21,7 @@ import com.qhana.siku.data.lyrics.LyricsSaveResult
 import com.qhana.siku.data.model.EqProfile
 import com.qhana.siku.data.model.EqSettings
 import com.qhana.siku.data.model.LyricsSaveMode
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.PlaybackContext
 import com.qhana.siku.data.model.PlaybackErrorInfo
 import com.qhana.siku.data.model.PlaybackState
@@ -158,11 +159,12 @@ class PlaybackViewModel @Inject constructor(
     private val _keepScreenOn = MutableStateFlow(musicPreferences.loadKeepScreenOn())
     val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
 
-    // Fondo del NowPlaying (sólido vs degradado). Observado desde DataStore porque el ajuste
-    // se cambia en Ajustes (LibraryViewModel, otra instancia) y debe reflejarse en vivo aquí.
-    val nowPlayingSolidBackground: StateFlow<Boolean> =
-        musicPreferences.nowPlayingSolidBackgroundFlow
-            .stateIn(viewModelScope, SharingStarted.Eagerly, musicPreferences.loadNowPlayingSolidBackground())
+    // Fondo del NowPlaying (degradado, sólido o carátula desenfocada). Observado desde DataStore
+    // porque el ajuste se cambia en Ajustes (LibraryViewModel, otra instancia) y debe reflejarse
+    // en vivo aquí.
+    val nowPlayingBackground: StateFlow<NowPlayingBackground> =
+        musicPreferences.nowPlayingBackgroundFlow
+            .stateIn(viewModelScope, SharingStarted.Eagerly, musicPreferences.loadNowPlayingBackground())
 
     /** Barra de progreso ondulada del NowPlaying (mismo motivo de observación que el fondo). */
     val nowPlayingWavyProgress: StateFlow<Boolean> =

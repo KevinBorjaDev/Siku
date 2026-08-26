@@ -2,6 +2,7 @@ package com.qhana.siku.ui.state
 
 import androidx.compose.runtime.Stable
 import com.qhana.siku.data.model.LyricsSaveMode
+import com.qhana.siku.data.model.NowPlayingBackground
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.ReplayGainMode
 import com.qhana.siku.data.model.Song
@@ -45,7 +46,8 @@ data class ColorTuningState(
 data class PlaybackSettingsState(
     val replayGainMode: ReplayGainMode = ReplayGainMode.TRACK,
     val replayGainPreamp: Float = 0f,
-    val nowPlayingSolidBackground: Boolean = false,
+    /** Fondo del reproductor grande: degradado del álbum, color sólido o carátula desenfocada. */
+    val nowPlayingBackground: NowPlayingBackground = NowPlayingBackground.GRADIENT,
     val nowPlayingWavyProgress: Boolean = false,
     /** Grosor de la barra de progreso del NowPlaying, en dp (vale para los dos modos). */
     val nowPlayingProgressThickness: Int = MusicPreferences.DEFAULT_PROGRESS_THICKNESS_DP,
@@ -91,7 +93,7 @@ data class LibraryUiState(
     val isRegeneratingColors: Boolean get() = colorTuning.isRegeneratingColors
     val replayGainMode: ReplayGainMode get() = playbackSettings.replayGainMode
     val replayGainPreamp: Float get() = playbackSettings.replayGainPreamp
-    val nowPlayingSolidBackground: Boolean get() = playbackSettings.nowPlayingSolidBackground
+    val nowPlayingBackground: NowPlayingBackground get() = playbackSettings.nowPlayingBackground
     val nowPlayingWavyProgress: Boolean get() = playbackSettings.nowPlayingWavyProgress
     val nowPlayingProgressThickness: Int get() = playbackSettings.nowPlayingProgressThickness
     val nowPlayingProgressHandle: Boolean get() = playbackSettings.nowPlayingProgressHandle
