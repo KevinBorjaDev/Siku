@@ -12,7 +12,6 @@ import androidx.compose.ui.res.stringResource
 import com.qhana.siku.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
@@ -39,6 +38,7 @@ import com.qhana.siku.ui.components.*
 import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.model.toUiModel
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.tonalVerticalGradient
 import com.qhana.siku.ui.theme.appTextButtonColors
 import com.qhana.siku.ui.util.shareSong
 import com.qhana.siku.ui.state.NowPlayingUiState
@@ -335,12 +335,10 @@ fun NowPlayingScreen(
     // carátula. Por eso son dos modos y no tres aquí.
     val backgroundBrush = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
         if (background == NowPlayingBackground.GRADIENT) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    albumPrimary,
-                    surfaceColor
-                )
-            )
+            // Por `tonalVerticalGradient` y NO por `Brush.verticalGradient` con los dos extremos: ese
+            // interpola en sRGB y el tramo del medio -el que ocupa media pantalla- se lava. Los
+            // extremos son los mismos de siempre, así que el contraste de lo que va encima no cambia.
+            tonalVerticalGradient(from = albumPrimary, to = surfaceColor)
         } else {
             SolidColor(solidBackgroundColor)
         }
