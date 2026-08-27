@@ -21,12 +21,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
@@ -41,14 +46,19 @@ import com.qhana.siku.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.repository.LyricsCandidate
+import com.qhana.siku.data.util.LrcSyntax
+import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.LyricsSearchSheet
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.maxContrastOn
+import com.qhana.siku.ui.components.MIN_STEP_MS
+import com.qhana.siku.ui.components.pixelPacedClock
 import com.qhana.siku.ui.state.LyricsFailure
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.LyricLine
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -77,6 +87,9 @@ private enum class LyricsViewMode {
  * apelmazan y cuesta seguir cuál está sonando.
  */
 private val LyricLineHeight = 34.sp
+
+/** Nanosegundos en un milisegundo: la conversión del reloj del barrido. */
+private const val NANOS_PER_MILLI = 1_000_000L
 
 /**
  * Transporte flotante de las letras: la MISMA gramática que el del NowPlaying (ver
@@ -346,6 +359,7 @@ fun LyricsScreen(
                             LyricsViewMode.SYNCED -> SyncedLyricsView(
                                 lines = lyricLines,
                                 currentPositionFlow = currentPositionFlow,
+                                playbackState = playbackState,
                                 contentColor = contentColor,
                                 accentColor = accentColor,
                                 backgroundColor = backgroundColor,
@@ -607,6 +621,14 @@ private val LYRICS_VIEW_MODES = listOf(LyricsViewMode.SYNCED, LyricsViewMode.PLA
 private fun SyncedLyricsView(
     lines: List<LyricLine>,
     currentPositionFlow: StateFlow<Long>,
+    /**
+     * Estado de reproducción, SOLO para saber si la posición avanza sola: es lo que decide si el
+     * barrido del karaoke se interpola entre ticks o se limita a seguir los saltos. No es el
+     * `isPlaying` de los controles, que cuenta `BUFFERING` como "sonando" para no parpadear el
+     * botón — mientras se rellena el búfer la canción NO avanza, y extrapolar ahí adelantaría el
+     * resaltado sobre lo que se oye.
+     */
+    playbackState: PlaybackState,
     contentColor: Color,
     accentColor: Color,
     backgroundColor: Color,
@@ -622,6 +644,62 @@ private fun SyncedLyricsView(
     val topPaddingPx = with(density) { SyncedTopPadding.toPx().toInt() }
     val bottomPaddingPx = with(density) { SyncedBottomPadding.toPx().toInt() }
 
+    // --- Karaoke palabra a palabra -------------------------------------------------------------
+    //
+    // Solo lo tienen las letras que traen tiempos por palabra (enhanced LRC), o sea las que el
+    // usuario aporta en un `.lrc` o en los tags de su archivo: LrcLib sincroniza por verso y ahí
+    // esto no se enciende ni cuesta nada.
+    val hasWordTiming = remember(lines) { lines.any(LyricLine::hasWordTiming) }
+
+    // Posición interpolada del barrido. `mutableLongState` y no un parámetro: sus DOS lectores son
+    // diferidos —el `drawWithContent` del verso activo y el `derivedStateOf` del verso en curso—,
+    // así que moverla invalida el dibujo de UN `Text` y nada más. Ningún composable la lee directa,
+    // que es lo que la separa del tick de posición y evita recomponer la lista a 120 Hz.
+    //
+    // Arranca en la posición real y no en cero: es el valor del primer frame, antes de que el efecto
+    // de abajo llegue a correr, y con un cero el karaoke abriría en el verso 1 para saltar acto
+    // seguido al que suena.
+    val karaokeMillis = remember { mutableLongStateOf(currentPositionFlow.value) }
+
+    // **Éste es el ÚNICO reloj de la app al que la regla del píxel no le compra nada, y va con el
+    // suelo a propósito.** Los otros tres calculan su intervalo con `stepMillisFor` porque mueven
+    // uno o dos píxeles por segundo y así duermen entre medias; el barrido de un verso recorre
+    // cientos, de modo que ese cálculo devuelve siempre menos de un frame y `coerceAtLeast` lo sube
+    // igualmente a [MIN_STEP_MS]. Dárselo ya calculado sería un número que no llega a usarse
+    // fingiendo que decide algo.
+    //
+    // Lo que sí acota el gasto es el GATE: sin tiempos por palabra no corre, en pausa tampoco, y con
+    // el reproductor guardado tampoco. Fuera de esos tres casos este reloj no existe.
+    val onScreen = LocalPlayerOnScreen.current
+    LaunchedEffect(hasWordTiming, playbackState, onScreen, currentPositionFlow) {
+        if (!hasWordTiming) return@LaunchedEffect
+        // ¿Avanza la canción sola? Es lo único que decide si hay algo que interpolar. Con el
+        // reproductor guardado detrás de la biblioteca tampoco: nadie está mirando el barrido.
+        val advancing = playbackState == PlaybackState.PLAYING && onScreen
+        if (!advancing) {
+            // En reposo el barrido no se interpola, pero SÍ tiene que seguir los saltos: en pausa
+            // se puede buscar, y el resaltado tiene que aterrizar donde aterrice la canción.
+            currentPositionFlow.collect { karaokeMillis.longValue = it }
+        } else {
+            coroutineScope {
+                var baseMillis = currentPositionFlow.value
+                var baseNanos = System.nanoTime()
+                // El tick de posición llega una vez por segundo, y cada uno REANCLA la
+                // extrapolación: es lo que impide que el barrido acumule deriva a lo largo de la
+                // canción y acabe adelantado respecto a lo que se oye.
+                launch {
+                    currentPositionFlow.collect {
+                        baseMillis = it
+                        baseNanos = System.nanoTime()
+                    }
+                }
+                pixelPacedClock(MIN_STEP_MS) { now ->
+                    karaokeMillis.longValue = baseMillis + (now - baseNanos) / NANOS_PER_MILLI
+                }
+            }
+        }
+    }
+
     // Línea activa.
     //
     // `collectAsStateWithLifecycle()` SIN `by`: se quiere el `State`, no su valor. Leerlo aquí
@@ -636,9 +714,19 @@ private fun SyncedLyricsView(
     // la vez la leía dentro, así que el derivado se destruía y se reconstruía en cada tick sin
     // cachear nada. La clave correcta es el `State` (identidad estable) y no su valor.
     val position = currentPositionFlow.collectAsStateWithLifecycle()
-    val activeIndex by remember(lines, position) {
+    val activeIndex by remember(lines, position, karaokeMillis, hasWordTiming) {
         derivedStateOf {
-            val index = lines.indexOfLast { it.startTime <= position.value }
+            // **Con tiempos por palabra el verso activo lo marca el reloj del BARRIDO**, no el tick
+            // de un segundo. Si no, el resaltado llegaría al final del verso y se quedaría parado
+            // hasta un segundo esperando a que el foco y el scroll lo siguieran — un desfase que
+            // sin karaoke no se nota (el foco salta de verso en verso y no hay nada que lo delate) y
+            // con él es justo lo que se está mirando.
+            //
+            // El cambio de ritmo lo absorbe el propio `derivedStateOf`: recalcula al ritmo del reloj
+            // —un `indexOfLast` sobre la lista de versos, nada— pero solo NOTIFICA cuando el índice
+            // cambia de verdad, o sea las mismas veces que antes.
+            val millis = if (hasWordTiming) karaokeMillis.longValue else position.value
+            val index = lines.indexOfLast { it.startTime <= millis }
             if (index < 0) 0 else index
         }
     }
@@ -748,13 +836,28 @@ private fun SyncedLyricsView(
             // golpe de `activeLineColor` (acento) a `contentColor` (blanco/negro) mientras
             // el alpha aún estaba alto -> destello blanco. Con la transición de color el
             // cambio es gradual y el flash desaparece.
+            //
+            // **En un verso que se barre palabra a palabra el destino es `contentColor`, no el
+            // acento**: ahí el acento no lo pinta esta animación sino el barrido, y teñir además el
+            // verso entero al activarse dejaría el resaltado sin nada contra lo que leerse — se vería
+            // el acento sobre el acento. El destello que este `animateColor` evita tampoco puede
+            // ocurrir en ese caso, porque el color de base ya es el mismo activo que inactivo.
+            val sweeping = isActive && line.hasWordTiming
             val animatedColor by animateColorAsState(
-                targetValue = if (isActive) activeLineColor else contentColor,
+                targetValue = if (isActive && !sweeping) activeLineColor else contentColor,
                 animationSpec = appSlowEffectsSpec(),
                 label = "lyricColor"
             )
 
             val interactionSource = remember { MutableInteractionSource() }
+
+            // Layout del verso ya compuesto: de él sale DÓNDE cae cada carácter, que es lo que
+            // convierte un tiempo por palabra en una x de la pantalla. Solo se guarda en los versos
+            // que se pueden barrer; en los demás el `Text` no paga ni el callback.
+            val textLayout = remember(line) { mutableStateOf<TextLayoutResult?>(null) }
+            // Un `Path` por verso, reutilizado: el barrido lo reescribe en cada frame y asignar uno
+            // nuevo ahí dentro sería una asignación por frame en el hilo de dibujo.
+            val sungPath = remember(line) { Path() }
 
             // El verso es `titleLarge`, que YA son los 22sp que aquí se ponían a mano sobre un
             // `headlineSmall` (24sp) — o sea que de aquel rol no quedaba nada salvo la familia. El
@@ -765,14 +868,19 @@ private fun SyncedLyricsView(
             // Lo ÚNICO que sigue apartándose del token es el `lineHeight` (34 frente a 28): es aire
             // ENTRE VERSOS, no tipografía — con el interlineado del rol las líneas del karaoke se
             // apelmazan y cuesta seguir cuál está sonando.
-            Text(
-                text = line.text,
-                color = animatedColor,
-                textAlign = TextAlign.Center,
-                style = (
-                    if (isActive) MaterialTheme.typography.titleLargeEmphasized
-                    else MaterialTheme.typography.titleLarge
-                ).copy(lineHeight = LyricLineHeight),
+            val verseStyle = (
+                if (isActive) MaterialTheme.typography.titleLargeEmphasized
+                else MaterialTheme.typography.titleLarge
+            ).copy(lineHeight = LyricLineHeight)
+
+            // El verso se dibuja DOS VECES cuando se barre: abajo el texto normal y encima el mismo
+            // texto en acento, recortado a lo ya cantado. Es la forma de que el resaltado corte a
+            // mitad de palabra sin partir el texto en trozos — un `Text` por palabra reordenaría los
+            // saltos de renglón y haría bailar el verso entero cada vez que avanza el barrido.
+            //
+            // Las dos copias comparten `verseStyle` y ancho, así que sus layouts son el MISMO: por
+            // eso basta con medir una y el recorte cae exactamente sobre los glifos de la otra.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(
@@ -798,16 +906,121 @@ private fun SyncedLyricsView(
                         //
                         // `ModulateAlpha` aplica la opacidad a los draw ops directamente, sin buffer.
                         // Su única pega es que da un resultado distinto si el contenido se SOLAPA
-                        // consigo mismo, y un `Text` de uno o dos renglones no lo hace. Pierde también
-                        // el recorte implícito a los bounds que trae la capa offscreen — irrelevante
-                        // aquí: la línea que se agranda (`scale` 1.12) es la ACTIVA, y ésa va a alpha
-                        // 1, así que hoy tampoco tiene capa ni recorte.
+                        // consigo mismo. **Desde el karaoke sí se solapa** —el verso barrido son dos
+                        // `Text` encajados—, pero solo en el ACTIVO, que va a alpha 1: ahí modular no
+                        // hace nada y las dos copias se componen como si no hubiera capa. Los versos
+                        // con alpha < 1 nunca llevan la segunda copia, así que el caso malo no existe.
+                        // Pierde también el recorte implícito a los bounds que trae la capa offscreen
+                        // — irrelevante aquí por lo mismo: el que se agranda (`scale` 1.12) es el
+                        // activo, y ése no tiene capa.
                         compositingStrategy = CompositingStrategy.ModulateAlpha
                     }
                     .padding(vertical = 12.dp, horizontal = 32.dp)
-            )
+            ) {
+                Text(
+                    text = line.text,
+                    color = animatedColor,
+                    textAlign = TextAlign.Center,
+                    style = verseStyle,
+                    modifier = Modifier.fillMaxWidth(),
+                    // Medir cuesta lo mismo, pero guardarlo solo lo piden los versos que se barren.
+                    onTextLayout = { if (line.hasWordTiming) textLayout.value = it }
+                )
+
+                if (sweeping) {
+                    Text(
+                        text = line.text,
+                        color = activeLineColor,
+                        textAlign = TextAlign.Center,
+                        style = verseStyle,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .drawWithContent {
+                                val layout = textLayout.value ?: return@drawWithContent
+                                // Lectura del reloj en fase de DIBUJO: mover el barrido invalida
+                                // este `Text` y nada más — ni el item, ni la lista, ni la pantalla.
+                                val hasSung = buildSungPath(
+                                    sungPath, layout, line, karaokeMillis.longValue
+                                )
+                                if (!hasSung) return@drawWithContent
+                                val content = this
+                                clipPath(sungPath) { content.drawContent() }
+                            }
+                    )
+                }
+            }
         }
     }
+}
+
+/**
+ * Escribe en [path] la parte del verso que YA se cantó en [positionMillis], y devuelve si había
+ * algo que pintar.
+ *
+ * El recorte no es un rectángulo porque un verso puede ocupar dos renglones: los anteriores al del
+ * cursor van enteros y el del cursor se corta por su x. Con un solo rectángulo de ancho creciente,
+ * un verso de dos renglones se iluminaría por columnas en vez de por lectura.
+ */
+private fun buildSungPath(
+    path: Path,
+    layout: TextLayoutResult,
+    line: LyricLine,
+    positionMillis: Long
+): Boolean {
+    val offset = line.sungOffsetAt(positionMillis)
+    if (offset <= 0f) return false
+
+    path.rewind()
+    val lastOffset = line.text.length
+    val cursorLine = layout.getLineForOffset(offset.toInt().coerceIn(0, lastOffset))
+    for (index in 0 until cursorLine) {
+        path.addRect(
+            Rect(
+                left = layout.getLineLeft(index),
+                top = layout.getLineTop(index),
+                right = layout.getLineRight(index),
+                bottom = layout.getLineBottom(index)
+            )
+        )
+    }
+    path.addRect(
+        Rect(
+            left = layout.getLineLeft(cursorLine),
+            top = layout.getLineTop(cursorLine),
+            right = layout.cursorX(offset, cursorLine, lastOffset),
+            bottom = layout.getLineBottom(cursorLine)
+        )
+    )
+    return true
+}
+
+/**
+ * Cuántos caracteres del verso se han cantado en [positionMillis], con decimales: la parte
+ * fraccionaria es lo que hace que el resaltado ATRAVIESE la palabra en curso en vez de encenderla
+ * de golpe.
+ *
+ * En los huecos entre palabras el resultado se queda en el final de la última cantada, que es lo
+ * correcto: el archivo no dice que ahí se cante nada.
+ */
+private fun LyricLine.sungOffsetAt(positionMillis: Long): Float {
+    val word = words.lastOrNull { it.startTime <= positionMillis } ?: return 0f
+    return word.startIndex + (word.endIndex - word.startIndex) * word.progressAt(positionMillis)
+}
+
+/**
+ * La x donde cae un [offset] con decimales, interpolando entre el carácter y el siguiente.
+ *
+ * Si el siguiente ya está en otro renglón su x RETROCEDE (empieza por la izquierda), y entonces se
+ * corta en el borde del renglón actual: lo que falta lo pinta el renglón de abajo en cuanto el
+ * cursor llegue.
+ */
+private fun TextLayoutResult.cursorX(offset: Float, line: Int, lastOffset: Int): Float {
+    val index = offset.toInt().coerceIn(0, lastOffset)
+    val from = getHorizontalPosition(index, usePrimaryDirection = true)
+    val nextIndex = (index + 1).coerceAtMost(lastOffset)
+    val to = getHorizontalPosition(nextIndex, usePrimaryDirection = true)
+    if (to < from || getLineForOffset(nextIndex) != line) return getLineRight(line).coerceAtLeast(from)
+    return from + (to - from) * (offset - index)
 }
 
 @Composable
@@ -816,12 +1029,14 @@ private fun PlainLyricsView(
     contentColor: Color
 ) {
     val scrollState = rememberScrollState()
-    
-    // Clean timestamps [00:00.00] for readability
-    val cleanText = remember(text) {
-        text.replace(Regex("\\[\\d{2}:\\d{2}(\\.\\d{2,3})?\\] ?"), "")
-    }
-    
+
+    // La letra corrida es la MISMA de la vista sincronizada, sin ninguna de sus marcas. Quien sabe
+    // cuáles son es [LrcSyntax] y nadie más: aquí vivía una copia del regex que solo conocía las de
+    // línea, así que un archivo con tiempos por palabra pintaba los `<00:00.04>` como si fueran
+    // letra — y en modo karaoke ese mismo archivo se ve perfecto, que es lo que hacía difícil de
+    // creer el informe.
+    val cleanText = remember(text) { LrcSyntax.stripTags(text) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()

@@ -402,6 +402,17 @@ interface SongDao {
     @Query("UPDATE songs SET playCount = playCount + 1, lastPlayedAt = :at WHERE id = :songId")
     suspend fun incrementPlayStats(songId: String, at: Long)
 
+    /**
+     * Lo que hace falta para escribir el evento del log (v28) en la MISMA transacción que el
+     * agregado: el artista que se copia al evento y la duración con la que se acota `playedMs`.
+     *
+     * Se lee de la BD y no de `SongCacheManager` a propósito: el caché puede devolver `null` (la
+     * rama existe hoy en `maybeRecordPlay`) y eso metería eventos con artista vacío que
+     * envenenarían los `GROUP BY artist` del resumen.
+     */
+    @Query("SELECT artist, duration FROM songs WHERE id = :songId")
+    suspend fun getPlaySnapshot(songId: String): PlaySnapshot?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<SongEntity>)
 
@@ -983,6 +994,72 @@ interface SongDao {
     )
     fun getTopAlbumsFlow(limit: Int): Flow<List<AlbumSummary>>
 
+    // ============ ESTADÍSTICAS, periodo "Siempre" (v28) ============
+    // El log de eventos empieza el día de la actualización, así que "Siempre" NO sale de él: sale
+    // de estos agregados, que sí llevan todo el pasado. Es una fuente distinta a la de mes y año, y
+    // por eso este periodo no ofrece tiempo escuchado ni racha — son justo las dos métricas que
+    // `playCount` no tiene, y la pantalla lo dice en vez de inventarlas. NO "unificar" esto después.
+
+    /**
+     * Totales de siempre. A diferencia del resumen por periodo, aquí todo sale de la biblioteca
+     * VIVA: una canción borrada se llevó su `playCount` con ella y no hay dónde recuperarlo.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(playCount), 0) AS plays,
+               COUNT(*) AS distinctSongs,
+               COUNT(DISTINCT artist) AS distinctArtists
+        FROM songs WHERE playCount > 0
+        """
+    )
+    fun getAllTimeTotalsFlow(): Flow<AllTimeTotals>
+
+    /** Top de artistas de siempre. Mismo filtro de nombre que [getTopPlayedArtistFlow]. */
+    @Query(
+        """
+        SELECT artist AS name, SUM(playCount) AS plays, COUNT(*) AS songCount,
+               MAX(albumArtUriString) AS fallbackArtUri
+        FROM songs
+        WHERE playCount > 0 AND TRIM(artist) != '' AND artist != :unknownArtist
+        GROUP BY artist
+        ORDER BY plays DESC, songCount DESC
+        LIMIT :limit
+        """
+    )
+    fun getAllTimeTopArtistsFlow(unknownArtist: String, limit: Int): Flow<List<AllTimeArtist>>
+
+    /**
+     * Top de álbumes de siempre. No reutiliza [getTopAlbumsFlow] porque aquélla ordena por
+     * `SUM(playCount)` pero no lo devuelve, y esta pantalla enseña la cifra: mostrar el ranking sin
+     * el número que lo ordena obligaría a inventarlo. Mismo filtro de álbum desconocido que el
+     * ranking por periodo.
+     */
+    @Query(
+        """
+        SELECT album AS name, MIN(artist) AS artist, SUM(playCount) AS plays,
+               MAX(albumArtUriString) AS albumArtUri
+        FROM songs
+        WHERE playCount > 0 AND TRIM(album) != '' AND album != :unknownAlbum COLLATE NOCASE
+        GROUP BY album
+        ORDER BY plays DESC
+        LIMIT :limit
+        """
+    )
+    fun getAllTimeTopAlbumsFlow(unknownAlbum: String, limit: Int): Flow<List<AllTimeAlbum>>
+
+    /** Top de géneros de siempre. `genre` NULL = sin leer, "" = analizado sin género. */
+    @Query(
+        """
+        SELECT genre AS name, SUM(playCount) AS plays
+        FROM songs
+        WHERE playCount > 0 AND genre IS NOT NULL AND TRIM(genre) != ''
+        GROUP BY genre
+        ORDER BY plays DESC
+        LIMIT :limit
+        """
+    )
+    fun getAllTimeTopGenresFlow(limit: Int): Flow<List<AllTimeGenre>>
+
     /** Nº de canciones cuya ÚLTIMA escucha cae dentro de [since..now] (stat del saludo del inicio). */
     @Query("SELECT COUNT(*) FROM songs WHERE lastPlayedAt IS NOT NULL AND lastPlayedAt >= :since")
     fun getPlayedSinceCountFlow(since: Long): Flow<Int>
@@ -1057,6 +1134,43 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE playCount > 0 AND lastPlayedAt IS NOT NULL AND lastPlayedAt < :before ORDER BY lastPlayedAt ASC LIMIT :limit")
     fun getRediscoverFlow(before: Long, limit: Int): Flow<List<SongEntity>>
 }
+
+/** Totales del periodo "Siempre": ver [SongDao.getAllTimeTotalsFlow]. */
+data class AllTimeTotals(
+    val plays: Int,
+    val distinctSongs: Int,
+    val distinctArtists: Int
+)
+
+/** Artista del ranking de siempre. */
+data class AllTimeArtist(
+    val name: String,
+    val plays: Int,
+    val songCount: Int,
+    val fallbackArtUri: String?
+)
+
+/** Álbum del ranking de siempre. */
+data class AllTimeAlbum(
+    val name: String,
+    val artist: String,
+    val plays: Int,
+    val albumArtUri: String?
+)
+
+/** Género del ranking de siempre. */
+data class AllTimeGenre(
+    val name: String,
+    val plays: Int
+)
+
+/**
+ * Lo mínimo de la fila viva que necesita [SongDao.getPlaySnapshot] para registrar una escucha.
+ */
+data class PlaySnapshot(
+    val artist: String,
+    val duration: Long
+)
 
 /**
  * Proyección id+tamaño para el gate del tope de almacenamiento (LRU): evita cargar la

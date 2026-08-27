@@ -710,7 +710,10 @@ enum class PlayerLayerState { Hidden, Collapsed, Expanded }
 /** Rutas en las que la píldora puede aparecer. Fuera de ellas —onboarding, ajustes— la capa queda [PlayerLayerState.Hidden]. */
 fun isPillRoute(route: String?): Boolean = when (route) {
     Screen.Library.route, Screen.PlaylistDetail.route, Screen.Favorites.route,
-    Screen.ArtistDetail.route, Screen.AlbumDetail.route, Screen.GenreDetail.route -> true
+    Screen.ArtistDetail.route, Screen.AlbumDetail.route, Screen.GenreDetail.route,
+    // Estadísticas es contenido SOBRE la biblioteca y sus filas reproducen, del mismo género que
+    // artista/álbum/género — no una pantalla de configuración como Ajustes o el gestor de descargas.
+    Screen.Stats.route -> true
     else -> false
 }
 

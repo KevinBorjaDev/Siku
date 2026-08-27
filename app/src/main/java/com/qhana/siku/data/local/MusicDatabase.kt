@@ -12,8 +12,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * constante de la clase que ella misma anota.
  *
  * v27: `songs.lightTagsAttemptedAt` (sello de la metadata ligera sin tags).
+ * v28: tabla `play_events` (log de escuchas con fecha; ver [PlayEventEntity]).
  */
-const val MUSIC_DB_VERSION = 27
+const val MUSIC_DB_VERSION = 28
 
 /**
  * Base de datos Room para cache local de canciones y colores.
@@ -37,7 +38,8 @@ const val MUSIC_DB_VERSION = 27
         SongEntity::class,
         PlaylistEntity::class,
         PlaylistSongCrossRef::class,
-        ArtistEntity::class
+        ArtistEntity::class,
+        PlayEventEntity::class
     ],
     version = MUSIC_DB_VERSION,
     exportSchema = true
@@ -47,6 +49,7 @@ abstract class MusicDatabase : RoomDatabase() {
     abstract fun songDao(): SongDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun artistDao(): ArtistDao
+    abstract fun playEventDao(): PlayEventDao
 
     companion object {
         @Volatile
@@ -125,6 +128,36 @@ abstract class MusicDatabase : RoomDatabase() {
             }
         }
 
+        // v27 -> v28: log de escuchas (`play_events`). Aditiva —una tabla NUEVA, no toca ninguna
+        // existente— y deliberadamente SIN BACKFILL.
+        //
+        // De `playCount`/`lastPlayedAt` solo se puede afirmar honestamente esto: hubo N escuchas, y
+        // de todas ellas se conoce la fecha de UNA, la última. Sintetizar N eventos ahí dibujaría un
+        // pico de cientos de reproducciones en un solo día, inventaría una racha y —como `playedMs`
+        // no existe para el pasado— habría que inventar también el tiempo escuchado. Un backfill
+        // equivocado PASA la validación de esquema sin despeinarse (la columna existe y es del tipo
+        // correcto), y éste además pasaría desapercibido porque los números "se ven razonables".
+        //
+        // El historial por fecha arranca vacío y la pantalla de estadísticas lo dice con una nota
+        // fechada; el pasado sigue disponible en su periodo "Siempre", que sale de `songs.playCount`
+        // — que por eso NO se sustituye (alimenta además el inicio, los sorts y el LRU de desalojo).
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `play_events` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`songId` TEXT NOT NULL, " +
+                        "`playedAt` INTEGER NOT NULL, " +
+                        "`playedMs` INTEGER NOT NULL, " +
+                        "`artist` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_play_events_playedAt` " +
+                        "ON `play_events` (`playedAt`)"
+                )
+            }
+        }
+
         /**
          * Todas las migraciones, en una sola lista. La consumen el builder y
          * `MusicDatabaseMigrationTest`: si el test declarara la suya, una migración nueva podría
@@ -136,7 +169,8 @@ abstract class MusicDatabase : RoomDatabase() {
             MIGRATION_23_24,
             MIGRATION_24_25,
             MIGRATION_25_26,
-            MIGRATION_26_27
+            MIGRATION_26_27,
+            MIGRATION_27_28
         )
 
         fun getInstance(context: Context): MusicDatabase {

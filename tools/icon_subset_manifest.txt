@@ -4,6 +4,7 @@ arrow_back
 arrow_drop_down
 arrow_forward
 artist
+bar_chart
 bluetooth
 bottom_navigation
 brand_awareness
@@ -49,6 +50,7 @@ keyboard_arrow_down
 library_music
 line_weight
 linear_scale
+local_fire_department
 logout
 low_priority
 lyrics

@@ -214,8 +214,14 @@ interface ISongRepository {
     suspend fun getAllSongs(): List<Song>
     suspend fun updateSongUrl(songId: String, newUrl: String)
     suspend fun updateReplayGain(songId: String, trackGainDb: Float?, trackPeak: Float?, albumGainDb: Float?, albumPeak: Float?)
-    /** Historial (v22): registra una escucha contada (+1 playCount, lastPlayedAt = at). */
-    suspend fun recordPlay(songId: String, at: Long)
+    /**
+     * Historial: registra una escucha contada. Escribe el agregado de la v22 (+1 `playCount`,
+     * `lastPlayedAt = at`) Y el evento del log de la v28, en una sola transacción.
+     *
+     * [playedMs] es lo que sonó en esta pasada; se acota a la duración de la pista al guardarlo.
+     * El criterio de qué cuenta como escucha vive en `MusicController.maybeRecordPlay`.
+     */
+    suspend fun recordPlay(songId: String, at: Long, playedMs: Long)
     suspend fun markSongAsCorrupted(songId: String)
     /** Camino de vuelta de [markSongAsCorrupted]; se llama tras una descarga exitosa. */
     suspend fun clearCorrupted(songId: String)

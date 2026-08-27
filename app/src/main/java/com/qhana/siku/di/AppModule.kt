@@ -257,6 +257,12 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun providePlayEventDao(db: com.qhana.siku.data.local.MusicDatabase): com.qhana.siku.data.local.PlayEventDao {
+        return db.playEventDao()
+    }
+
+    @Provides
+    @Singleton
     @Named("lyrics")
     fun provideLyricsOkHttpClient(): OkHttpClient {
         // LrcLib pide explícitamente que los clientes se identifiquen con un User-Agent
@@ -307,9 +313,10 @@ object AppModule {
     fun provideSongRepository(
         @ApplicationContext context: Context,
         songDao: com.qhana.siku.data.local.SongDao,
+        playEventDao: com.qhana.siku.data.local.PlayEventDao,
         database: com.qhana.siku.data.local.MusicDatabase
     ): ISongRepository {
-        return SongRepository(context, songDao, database)
+        return SongRepository(context, songDao, playEventDao, database)
     }
 
     @Provides
@@ -334,9 +341,12 @@ object AppModule {
         songRepository: ISongRepository,
         playlistRepository: IPlaylistRepository,
         localMetadataRepository: ILocalMetadataRepository,
-        browseRepository: BrowseRepository
+        browseRepository: BrowseRepository,
+        statsRepository: StatsRepository
     ): IMusicRepository {
-        return MusicRepository(songRepository, playlistRepository, localMetadataRepository, browseRepository)
+        return MusicRepository(
+            songRepository, playlistRepository, localMetadataRepository, browseRepository, statsRepository
+        )
     }
 
     @Provides

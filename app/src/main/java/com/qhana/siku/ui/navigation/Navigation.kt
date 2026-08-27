@@ -47,6 +47,9 @@ sealed class Screen(val route: String) {
 
     data object DownloadManager : Screen("download_manager")
 
+    /** Estadísticas de escucha. Se llega desde la tarjeta del inicio. */
+    data object Stats : Screen("stats")
+
     data object PlaylistDetail : Screen("playlist_detail/{playlistId}/{playlistName}") {
         const val ARG_PLAYLIST_ID = "playlistId"
         const val ARG_PLAYLIST_NAME = "playlistName"

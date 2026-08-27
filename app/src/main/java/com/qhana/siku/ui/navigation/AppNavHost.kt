@@ -31,6 +31,7 @@ import com.qhana.siku.ui.screens.SettingsProgressBarScreen
 import com.qhana.siku.ui.screens.SettingsScreen
 import com.qhana.siku.ui.screens.SettingsSourcesScreen
 import com.qhana.siku.ui.screens.SettingsTabsScreen
+import com.qhana.siku.ui.screens.StatsScreen
 import com.qhana.siku.ui.theme.appNavBackEnter
 import com.qhana.siku.ui.theme.appNavBackExit
 import com.qhana.siku.ui.theme.appNavFadeEnter
@@ -150,6 +151,7 @@ fun AppNavHost(
                 onArtistClick = { name -> navController.navigate(Screen.ArtistDetail.createRoute(name)) },
                 onAlbumClick = { name -> navController.navigate(Screen.AlbumDetail.createRoute(name)) },
                 onGenreClick = { name -> navController.navigate(Screen.GenreDetail.createRoute(name)) },
+                onStatsClick = { navController.navigate(Screen.Stats.route) },
                 onNavigateToNowPlaying = { origin -> appState.openPlayer(origin) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 playbackViewModel = playbackViewModel,
@@ -497,6 +499,22 @@ fun AppNavHost(
 
         composable(Screen.DownloadManager.route) {
             DownloadManagerScreen(onBackClick = { navController.popBackStack() })
+        }
+
+        composable(Screen.Stats.route) {
+            StatsScreen(
+                currentSong = currentSong,
+                onBackClick = { navController.popBackStack() },
+                // Reproduce el ranking entero como cola desde la tocada, igual que los carruseles
+                // del inicio. `ROW` porque la fila es la punta de origen del container transform.
+                onPlaySongs = { songs, index ->
+                    playbackViewModel.playSongs(songs, index)
+                    appState.openPlayer(PlayerArtOrigin.ROW)
+                },
+                onArtistClick = { name -> navController.navigate(Screen.ArtistDetail.createRoute(name)) },
+                onAlbumClick = { name -> navController.navigate(Screen.AlbumDetail.createRoute(name)) },
+                onGenreClick = { name -> navController.navigate(Screen.GenreDetail.createRoute(name)) }
+            )
         }
     }
 }

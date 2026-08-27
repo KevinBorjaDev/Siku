@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,8 +55,10 @@ import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.onContainerColor
 import com.qhana.siku.ui.components.QuickActionChip
+import com.qhana.siku.ui.components.formatListeningTime
 import com.qhana.siku.ui.components.vividAccentColor
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.HomeArtistPick
 import com.qhana.siku.ui.viewmodel.RelatedArtistUi
 import com.qhana.siku.ui.viewmodel.HomeStats
@@ -149,6 +152,8 @@ fun HomeScreen(
     // Géneros (chips extra tras los fijos): cada uno reproduce ese género en aleatorio.
     genres: List<String>,
     onShuffleGenre: (String) -> Unit,
+    /** Abre la pantalla de estadísticas. Es su ÚNICA puerta en toda la app. */
+    onStatsClick: () -> Unit,
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
@@ -200,6 +205,11 @@ fun HomeScreen(
                 onShuffleGenre = onShuffleGenre
             )
         }
+
+        // Justo tras las acciones rápidas y ANTES de los carruseles: es un DESTINO, no contenido,
+        // así que pertenece con las acciones. Y es la única puerta a una pantalla entera — bajo
+        // seis carruseles sería indescubrible.
+        item(key = "stats_entry") { StatsEntryCard(stats = stats, onClick = onStatsClick) }
 
         if (recentContexts.isNotEmpty()) {
             item(key = "continue") {
@@ -369,6 +379,73 @@ private fun HomeQuickActions(
             }
         }
     }
+}
+
+/**
+ * Entrada a las estadísticas. COMPLEMENTA al saludo, no lo sustituye: reemplazarlo cambiaría la
+ * bienvenida por un panel de números.
+ *
+ * Su número protagonista es el TIEMPO escuchado del mes, que es justo lo que el subtítulo del
+ * saludo no dice (ése cuenta canciones de la semana) — dos datos, dos ventanas, ninguna repetición.
+ * Sin nada escuchado aún enseña su invitación en vez de un "0 min", que no invita a entrar.
+ */
+@Composable
+private fun StatsEntryCard(stats: HomeStats, onClick: () -> Unit) {
+    val hasData = stats.monthPlays > 0
+    AppSurface(
+        color = AppColors.surface,
+        shape = HomeCardShape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HomeContentPadding, vertical = 4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            MaterialSymbol("bar_chart", size = 24.sp, color = AppColors.primary)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.stats_home_card_title),
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    color = AppColors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (hasData) {
+                        stringResource(
+                            R.string.stats_home_card_summary,
+                            homeListeningTimeText(stats.monthListenedMs),
+                            pluralStringResource(R.plurals.stats_plays, stats.monthPlays, stats.monthPlays)
+                        )
+                    } else {
+                        stringResource(R.string.stats_home_card_empty)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppColors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            MaterialSymbol("chevron_right", size = 24.sp, color = AppColors.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun homeListeningTimeText(millis: Long): String {
+    val hoursAndMinutes = stringResource(R.string.stats_time_hours_minutes)
+    val minutesOnly = stringResource(R.string.stats_time_minutes)
+    return formatListeningTime(
+        millis,
+        hoursAndMinutes = { hours, minutes -> hoursAndMinutes.format(hours, minutes) },
+        minutesOnly = { minutes -> minutesOnly.format(minutes) }
+    )
 }
 
 @Composable

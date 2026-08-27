@@ -836,8 +836,6 @@
     </plurals>
     <string name="home_empty_title">Tu música aparecerá aquí</string>
     <string name="home_empty_subtitle">Reproduce algo o agrega una fuente para empezar</string>
-    <!-- %1$d = número de reproducciones -->
-    <string name="home_play_count">%1$d reproducciones</string>
     <string name="logout_confirm">Se eliminarán todas las canciones descargadas y datos locales. ¿Deseas continuar?</string>
     <!-- Banners de sincronización. %1$d/%2$d = contadores; %1$s/%2$s/%3$s = texto -->
     <string name="sync_downloading">Descargando canciones</string>
@@ -954,4 +952,48 @@
     <string name="sync_failed_network">No se pudo sincronizar: problema de conexión</string>
     <string name="sync_failed_server">No se pudo sincronizar: OneDrive no responde</string>
     <string name="sync_failed_generic">No se pudo sincronizar tu biblioteca</string>
+
+    <!-- ==================== ESTADÍSTICAS DE ESCUCHA ==================== -->
+    <string name="stats_title">Estadísticas</string>
+    <!-- Tarjeta de entrada en el inicio -->
+    <string name="stats_home_card_title">Tu mes en música</string>
+    <!-- %1$s = tiempo escuchado, %2$s = reproducciones (ya en plural) -->
+    <string name="stats_home_card_summary">%1$s · %2$s</string>
+    <string name="stats_home_card_empty">Escucha algo y aquí verás tu resumen</string>
+    <!-- Selector de periodo -->
+    <string name="stats_period_month">Mes</string>
+    <string name="stats_period_year">Año</string>
+    <string name="stats_period_all">Siempre</string>
+    <string name="stats_period_previous">Periodo anterior</string>
+    <string name="stats_period_next">Periodo siguiente</string>
+    <!-- Resumen -->
+    <string name="stats_summary_plays">Reproducciones</string>
+    <string name="stats_summary_time">Tiempo escuchado</string>
+    <string name="stats_summary_songs">Canciones</string>
+    <string name="stats_summary_artists">Artistas</string>
+    <!-- %1$d = horas, %2$d = minutos -->
+    <string name="stats_time_hours_minutes">%1$d h %2$d min</string>
+    <string name="stats_time_minutes">%1$d min</string>
+    <!-- Racha de días seguidos escuchando -->
+    <string name="stats_streak_title">Racha</string>
+    <string name="stats_streak_none">Sin racha activa</string>
+    <plurals name="stats_streak_days">
+        <item quantity="one">%1$d día seguido</item>
+        <item quantity="other">%1$d días seguidos</item>
+    </plurals>
+    <!-- Rankings -->
+    <string name="stats_section_top_songs">Tus canciones</string>
+    <string name="stats_section_top_artists">Tus artistas</string>
+    <string name="stats_section_top_albums">Tus álbumes</string>
+    <string name="stats_section_top_genres">Tus géneros</string>
+    <plurals name="stats_plays">
+        <item quantity="one">%1$d reproducción</item>
+        <item quantity="other">%1$d reproducciones</item>
+    </plurals>
+    <!-- Estados vacíos y nota del periodo "Siempre". %1$s = fecha del primer registro -->
+    <string name="stats_empty_title">Todavía no hay nada que contar</string>
+    <string name="stats_empty_subtitle">Escucha algo y aquí verás tu historial</string>
+    <string name="stats_empty_period">No escuchaste nada en este periodo</string>
+    <string name="stats_all_time_note">Cuenta todo tu historial. El tiempo escuchado y la racha se registran desde el %1$s.</string>
+    <string name="stats_all_time_note_pending">Cuenta todo tu historial. El tiempo escuchado y la racha empiezan a registrarse ahora.</string>
 </resources>

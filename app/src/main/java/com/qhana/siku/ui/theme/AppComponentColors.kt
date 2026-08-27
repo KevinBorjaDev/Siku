@@ -359,12 +359,24 @@ fun appSegmentedListItemColors(
     draggedSupportingContentColor = AppColors.onTertiaryContainer
 )
 
-/** Top app bar (`AppBarTokens`), incluido el color al que vira con el scroll. */
+/**
+ * Top app bar (`AppBarTokens`), incluido el color al que vira con el scroll.
+ *
+ * Los defaults son los de una pantalla cuyo fondo es `surface` (Ajustes, gestor de descargas). **Una
+ * pantalla con el fondo en `surfaceContainer` —el nivel MEDIO, como los detalles y estadísticas—
+ * tiene que pasar `surfaceContainerHigh`**: la horquilla de color dice que el contenido SUBE y las
+ * barras BAJAN, así que dejar la barra en `surface` la deja por ENCIMA del fondo y se lee como una
+ * banda clara pegada arriba. Los dos parámetros van juntos a propósito: si la barra base baja, el
+ * color al que vira con el scroll no puede quedarse por encima de ella.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun appTopAppBarColors() = TopAppBarDefaults.topAppBarColors(
-    containerColor = AppColors.surface,
-    scrolledContainerColor = AppColors.surfaceContainer,
+fun appTopAppBarColors(
+    containerColor: Color = AppColors.surface,
+    scrolledContainerColor: Color = AppColors.surfaceContainer
+) = TopAppBarDefaults.topAppBarColors(
+    containerColor = containerColor,
+    scrolledContainerColor = scrolledContainerColor,
     navigationIconContentColor = AppColors.onSurface,
     titleContentColor = AppColors.onSurface,
     actionIconContentColor = AppColors.onSurfaceVariant

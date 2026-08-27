@@ -21,12 +21,12 @@ import org.junit.runner.RunWith
  *
  * Qué cubre cada test, y por qué ese reparto:
  *
- * - [migratesAllTheWayUp] recorre 21 → 27 en cadena. `runMigrationsAndValidate` compara el esquema
+ * - [migratesAllTheWayUp] recorre 21 → 28 en cadena. `runMigrationsAndValidate` compara el esquema
  *   resultante contra el JSON de destino, así que de una sola pasada cubre el error más fácil de
  *   cometer —una columna con otro tipo, otro default o sin su índice— en todas las migraciones.
- * - Los otros dos van a los ÚNICOS dos sitios donde una migración toca DATOS y no solo la forma de
- *   la tabla. Un backfill equivocado pasa la validación de esquema sin despeinarse: la columna
- *   existe y es del tipo correcto, solo que con el contenido mal.
+ * - Los otros van a los sitios donde una migración toca DATOS —o decide NO tocarlos— y no solo la
+ *   forma de la tabla. Un backfill equivocado pasa la validación de esquema sin despeinarse: la
+ *   columna existe y es del tipo correcto, solo que con el contenido mal.
  *
  * Es un test INSTRUMENTADO porque necesita un SQLite de verdad; corre con
  * `./gradlew :app:connectedDebugAndroidTest`. **No toca los datos del dispositivo**: la base que
@@ -119,6 +119,46 @@ class MusicDatabaseMigrationTest {
         assertEquals("nunca se preguntó: sigue teniendo foto por ganar", 0, attempts["NuncaPreguntado"])
         assertEquals("lo rechazó el usuario a mano, no Deezer", 0, attempts["Rechazado"])
         assertEquals("ya tiene foto", 0, attempts["ConFoto"])
+    }
+
+    /**
+     * v27 → v28 crea `play_events` VACÍA y deja los agregados intactos.
+     *
+     * **El no-backfill es la decisión, no un olvido**: de `playCount` solo se conoce la fecha de la
+     * ÚLTIMA escucha, así que cualquier evento sintético llevaría una fecha inventada — y ese error
+     * pasaría desapercibido porque los números "se ven razonables".
+     *
+     * Se comprueba además que la tabla **no tiene foreign key**: Room abre con
+     * `PRAGMA foreign_keys = ON`, así que este INSERT para una canción inexistente fallaría si
+     * alguien se la añadiera. Y esa FK, con `clearSourceData` en el logout, borraría el historial de
+     * la nube entera en silencio.
+     */
+    @Test
+    fun startsPlayHistoryEmptyAndKeepsAggregates() {
+        helper.createDatabase(TEST_DB, 27).use { db ->
+            db.insertSong(id = "onedrive:ABC123", sourceType = "ONEDRIVE")
+            db.execSQL("UPDATE songs SET playCount = 7, lastPlayedAt = 1700000000000")
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 28, true, *MusicDatabase.ALL_MIGRATIONS)
+
+        db.query("SELECT COUNT(*) FROM play_events").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("el historial arranca vacío: no hay fechas que inventar", 0, cursor.getInt(0))
+        }
+        db.query("SELECT playCount FROM songs").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("el agregado sigue vivo: alimenta el inicio, los sorts y el LRU", 7, cursor.getInt(0))
+        }
+        // Un evento cuya canción NO existe tiene que poder insertarse: es la ausencia de FK.
+        db.execSQL(
+            "INSERT INTO play_events (songId, playedAt, playedMs, artist) " +
+                "VALUES ('onedrive:BORRADA', 1, 1, 'A')"
+        )
+        db.query("SELECT COUNT(*) FROM play_events").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("un evento colgado es legítimo: es un hecho, no una referencia", 1, cursor.getInt(0))
+        }
     }
 
     // --- Inserción por SQL crudo -----------------------------------------------------------------

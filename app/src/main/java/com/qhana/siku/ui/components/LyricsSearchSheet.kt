@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.R
 import com.qhana.siku.data.repository.LyricsCandidate
+import com.qhana.siku.data.util.LrcSyntax
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.appButtonColors
 import com.qhana.siku.ui.theme.appTextButtonColors
@@ -199,7 +200,7 @@ private fun LyricsPreviewDialog(
 ) {
     val previewText = when {
         candidate.instrumental -> "[INSTRUMENTAL]"
-        !candidate.syncedLyrics.isNullOrBlank() -> stripTimestamps(candidate.syncedLyrics)
+        !candidate.syncedLyrics.isNullOrBlank() -> LrcSyntax.stripTags(candidate.syncedLyrics)
         !candidate.plainLyrics.isNullOrBlank() -> candidate.plainLyrics
         else -> "(Sin contenido)"
     }
@@ -282,9 +283,6 @@ private fun LyricsCandidate.badgeColors(): BadgeColors = when {
         AppColors.onSurfaceVariant
     )
 }
-
-private fun stripTimestamps(text: String): String =
-    text.replace(Regex("""\[\d{2}:\d{2}(\.\d{2,3})?] ?"""), "")
 
 private fun formatDuration(seconds: Double): String {
     val total = seconds.toInt()

@@ -580,6 +580,27 @@ fun formatTime(millis: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+/**
+ * Tiempo escuchado ACUMULADO, para las estadísticas: "12 h 30 min" o "45 min".
+ *
+ * No sirve [formatTime] aquí: un total de escucha llega a decenas de horas y `m:ss` las escribiría
+ * como "2400:00". Y al revés, los segundos sobran — nadie lee un acumulado al segundo.
+ *
+ * Redondea a minuto hacia abajo, así que por debajo de un minuto devuelve "0 min" en lugar de
+ * fingir precisión que no aporta.
+ */
+fun formatListeningTime(
+    millis: Long,
+    hoursAndMinutes: (hours: Long, minutes: Long) -> String,
+    minutesOnly: (minutes: Long) -> String
+): String {
+    val safeMillis = millis.coerceAtLeast(0L)
+    val totalMinutes = TimeUnit.MILLISECONDS.toMinutes(safeMillis)
+    val hours = TimeUnit.MINUTES.toHours(totalMinutes)
+    val minutes = totalMinutes - TimeUnit.HOURS.toMinutes(hours)
+    return if (hours > 0) hoursAndMinutes(hours, minutes) else minutesOnly(totalMinutes)
+}
+
 
 /**
  * La **única** petición de la carátula grande del reproductor: la que hace el `AsyncImage` del

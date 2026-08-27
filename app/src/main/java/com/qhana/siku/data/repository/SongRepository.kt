@@ -7,9 +7,12 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
 import androidx.room.InvalidationTracker
+import androidx.room.withTransaction
 import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.data.local.DuplicatePair
 import com.qhana.siku.data.local.MusicDatabase
+import com.qhana.siku.data.local.PlayEventDao
+import com.qhana.siku.data.local.PlayEventEntity
 import com.qhana.siku.data.local.SongDao
 import com.qhana.siku.data.util.FuzzyMatch
 import com.qhana.siku.data.local.SongEntity
@@ -31,7 +34,8 @@ import javax.inject.Inject
 class SongRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val songDao: SongDao,
-    database: MusicDatabase
+    private val playEventDao: PlayEventDao,
+    private val database: MusicDatabase
 ) : ISongRepository {
 
     // Caché del snapshot de cola (toda la biblioteca en el orden/búsqueda actual). Evita
@@ -228,8 +232,20 @@ class SongRepository @Inject constructor(
     override suspend fun getRelativePathsOfOtherSources(sourceType: SourceType): Set<String> =
         withContext(Dispatchers.IO) { songDao.getRelativePathsOfOtherSources(sourceType.name).toHashSet() }
 
+    /**
+     * Fusiona el historial de la perdedora en la ganadora: el agregado Y el log de eventos, en una
+     * transacción. El repunte de eventos va DENTRO de esta función y no como una llamada suelta al
+     * lado de cada `mergePlayStats`: hay dos call sites hoy (el dedupe entre fuentes y la migración
+     * de ids locales viejos) y un tercero futuro se olvidaría de ella. Sin FK, el UPDATE del id no
+     * viola nada — mismo motivo por el que existe `repointSongRefs`.
+     */
     override suspend fun mergePlayStats(loserId: String, winnerId: String) =
-        withContext(Dispatchers.IO) { songDao.mergePlayStats(loserId, winnerId) }
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                songDao.mergePlayStats(loserId, winnerId)
+                playEventDao.repointEvents(loserId, winnerId)
+            }
+        }
 
     override suspend fun getSongIdsByAlbum(album: String): List<String> = withContext(Dispatchers.IO) {
         songDao.getSongIdsByAlbum(album)
@@ -500,7 +516,35 @@ class SongRepository @Inject constructor(
     override suspend fun updateReplayGain(songId: String, trackGainDb: Float?, trackPeak: Float?, albumGainDb: Float?, albumPeak: Float?) =
         withContext(Dispatchers.IO) { songDao.updateReplayGain(songId, trackGainDb, trackPeak, albumGainDb, albumPeak) }
 
-    override suspend fun recordPlay(songId: String, at: Long) = withContext(Dispatchers.IO) { songDao.incrementPlayStats(songId, at) }
+    /**
+     * Registra una escucha contada: el agregado de la v22 y el evento del log de la v28.
+     *
+     * **UNA sola transacción**, porque son el MISMO hecho a dos resoluciones. Si pudieran divergir,
+     * el saludo del inicio ("escuchaste N canciones esta semana", que sale de `lastPlayedAt`) y la
+     * pantalla de estadísticas se contradirían y nadie podría decir cuál miente — la familia de
+     * bugs de "dos verdades" de la convención 14. Efecto colateral buscado: UNA sola ráfaga de
+     * invalidación de Room en lugar de dos.
+     *
+     * Si la canción se borró entre el play y este registro, no se escribe nada (ni evento ni
+     * agregado): hoy `incrementPlayStats` sobre una fila inexistente ya es un no-op.
+     */
+    override suspend fun recordPlay(songId: String, at: Long, playedMs: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val snapshot = songDao.getPlaySnapshot(songId) ?: return@withTransaction
+            songDao.incrementPlayStats(songId, at)
+            playEventDao.insert(
+                PlayEventEntity(
+                    songId = songId,
+                    playedAt = at,
+                    // Acotado a la duración: `playedMs` es la POSICIÓN alcanzada, así que un salto
+                    // hacia adelante inflaría el tiempo escuchado del periodo.
+                    playedMs = if (snapshot.duration > 0) playedMs.coerceIn(0L, snapshot.duration)
+                    else playedMs.coerceAtLeast(0L),
+                    artist = snapshot.artist
+                )
+            )
+        }
+    }
     override suspend fun markSongAsCorrupted(songId: String) = withContext(Dispatchers.IO) { songDao.markSongAsCorrupted(songId) }
     override suspend fun clearCorrupted(songId: String) = withContext(Dispatchers.IO) { songDao.clearCorrupted(songId) }
     override suspend fun getCorruptedSongs(): List<Song> = withContext(Dispatchers.IO) { songDao.getCorruptedSongs().map { it.toSong() } }

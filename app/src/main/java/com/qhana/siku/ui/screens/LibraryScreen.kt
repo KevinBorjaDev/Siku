@@ -161,6 +161,8 @@ fun LibraryScreen(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onGenreClick: (String) -> Unit,
+    /** Estadísticas de escucha; se llega solo desde la tarjeta del inicio. */
+    onStatsClick: () -> Unit,
     onNavigateToNowPlaying: (PlayerArtOrigin) -> Unit,
     onNavigateToSettings: () -> Unit,
     // Scopes para los shared elements foto/carátula → header del detalle (artista/álbum).
@@ -796,6 +798,7 @@ fun LibraryScreen(
                                 // al detalle, no reproduce.
                                 onArtistClick = onArtistClick,
                                 onAlbumClick = onAlbumClick,
+                                onStatsClick = onStatsClick,
                                 onResumeContext = { ctx -> resumeContext(
                                     ctx, scope, browseViewModel, libraryViewModel, playbackViewModel,
                                     uiState.favoriteSongs, onNavigateToNowPlaying

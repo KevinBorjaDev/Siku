@@ -18,7 +18,8 @@ class MusicRepository @Inject constructor(
     private val songRepository: ISongRepository,
     private val playlistRepository: IPlaylistRepository,
     private val localMetadataRepository: ILocalMetadataRepository,
-    private val browseRepository: BrowseRepository
+    private val browseRepository: BrowseRepository,
+    private val statsRepository: StatsRepository
 ) : IMusicRepository {
 
     // --- Song ---
@@ -114,7 +115,8 @@ class MusicRepository @Inject constructor(
     override suspend fun getAllSongs(): List<Song> = songRepository.getAllSongs()
     override suspend fun updateSongUrl(songId: String, newUrl: String) = songRepository.updateSongUrl(songId, newUrl)
     override suspend fun updateReplayGain(songId: String, trackGainDb: Float?, trackPeak: Float?, albumGainDb: Float?, albumPeak: Float?) = songRepository.updateReplayGain(songId, trackGainDb, trackPeak, albumGainDb, albumPeak)
-    override suspend fun recordPlay(songId: String, at: Long) = songRepository.recordPlay(songId, at)
+    override suspend fun recordPlay(songId: String, at: Long, playedMs: Long) =
+        songRepository.recordPlay(songId, at, playedMs)
     override suspend fun markSongAsCorrupted(songId: String) = songRepository.markSongAsCorrupted(songId)
     override suspend fun clearCorrupted(songId: String) = songRepository.clearCorrupted(songId)
     override suspend fun getCorruptedSongs(): List<Song> = songRepository.getCorruptedSongs()
@@ -145,11 +147,20 @@ class MusicRepository @Inject constructor(
         playlistRepository.deleteAllPlaylists()
         localMetadataRepository.resetAllColors()
         browseRepository.clearArtistCache()
+        // El historial de escucha ES un dato del usuario: "borrar todo" lo incluye. Es el ÚNICO
+        // sitio que lo toca; ver el contraste con clearSourceData justo abajo.
+        statsRepository.clearHistory()
     }
 
     override suspend fun clearSourceData(sourceType: SourceType) {
         // deleteSongs (no un DELETE crudo): además de las filas, borra el audio descargado
         // (`file://`) y las carátulas en disco. Un DELETE dejaría los FLAC huérfanos.
+        //
+        // NO toca `play_events`, y eso es deliberado (convención 8: desconectar una fuente ≠ borrar
+        // la biblioteca). Las escuchas de la música que se va siguen contando en los TOTALES de las
+        // estadísticas; lo que desaparece son sus entradas de los rankings, porque ésos salen de un
+        // JOIN con `songs`. Con una FK en CASCADE, este logout habría borrado el historial de la
+        // nube entera en silencio.
         songRepository.deleteSongs(songRepository.getSongIdsBySourceType(sourceType))
     }
 

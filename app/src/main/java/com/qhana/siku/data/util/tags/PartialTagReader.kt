@@ -1,5 +1,7 @@
 package com.qhana.siku.data.util.tags
 
+import com.qhana.siku.data.util.LrcSyntax
+
 /**
  * Lectura de tags SIN traerse el archivo completo.
  *
@@ -117,22 +119,33 @@ data class TagFragment(
 }
 
 /**
- * Marca de tiempo LRC al principio de una línea: `[mm:ss.xx]`. Sirve para distinguir una letra
- * sincronizada de uno de texto plano cuando el archivo trae varias.
- */
-private val LRC_TIMESTAMP = Regex("""\[\d{1,2}:\d{2}([.:]\d{1,3})?]""")
-
-/**
  * Elige la mejor letra entre las claves que un mismo archivo puede traer (`LYRICS`,
- * `UNSYNCEDLYRICS`, …). Gana la que tenga marcas de tiempo: una letra sincronizada es
- * estrictamente mejor que la misma en plano, y el orden de las claves en el archivo es arbitrario.
- * A igualdad, la primera de la lista.
+ * `UNSYNCEDLYRICS`, …).
+ *
+ * Gana la MÁS sincronizada, y eso son TRES escalones y no dos: tiempos por palabra > tiempos por
+ * verso > texto plano. El escalón de arriba es lo que hace posible el karaoke, y hace falta
+ * ordenarlos porque quien trae una letra palabra a palabra suele traer TAMBIÉN la misma por líneas
+ * en otra clave del mismo archivo — sin ordenar por riqueza, tener karaoke o no dependía de cuál
+ * hubiera escrito primero su tagger. A igualdad, la primera de la lista.
+ *
+ * La sintaxis la conoce [LrcSyntax] y solo él: aquí vivía una CUARTA copia del regex de la marca de
+ * tiempo, que además no sabía nada de las marcas de palabra.
  */
-internal fun pickBestLyrics(vararg candidates: String?): String? {
-    val usable = candidates.mapNotNull { it?.takeIf(String::isNotBlank) }
-    if (usable.isEmpty()) return null
-    return usable.firstOrNull { LRC_TIMESTAMP.containsMatchIn(it) } ?: usable.first()
+internal fun pickBestLyrics(vararg candidates: String?): String? =
+    candidates.filterNotNull()
+        .filter { it.isNotBlank() }
+        .maxByOrNull { it.syncRichness() }
+
+/** Cuánta sincronización trae la letra. Es el criterio de [pickBestLyrics] y no significa nada más. */
+private fun String.syncRichness(): Int = when {
+    LrcSyntax.hasWordTiming(this) -> RICHNESS_WORD_TIMED
+    LrcSyntax.hasLineTiming(this) -> RICHNESS_LINE_TIMED
+    else -> RICHNESS_PLAIN
 }
+
+private const val RICHNESS_PLAIN = 0
+private const val RICHNESS_LINE_TIMED = 1
+private const val RICHNESS_WORD_TIMED = 2
 
 /** Registro de lectores: rutea por extensión. Sin coincidencia, `null` (el llamador hace fallback). */
 class PartialTagReaders(private val readers: List<PartialTagReader>) {

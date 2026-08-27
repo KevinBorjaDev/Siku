@@ -43,12 +43,26 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.qhana.siku.data.model.StatsSelection
+import com.qhana.siku.data.repository.StatsSummary
 import java.time.LocalDate
 import kotlin.random.Random
 import javax.inject.Inject
 
-/** Dato de bienvenida del inicio: escuchas de la semana + tamaño de biblioteca (respaldo). */
-data class HomeStats(val playedThisWeek: Int, val librarySize: Int)
+/**
+ * Datos del inicio: el subtítulo del saludo (escuchas de la semana, con el tamaño de biblioteca de
+ * respaldo) y el resumen del MES que enseña la tarjeta de estadísticas.
+ *
+ * El mes y la semana conviven a propósito: el saludo ya dice "escuchaste N canciones esta semana",
+ * así que la tarjeta lleva otro dato y otra ventana — si no, serían dos formas de decir lo mismo
+ * a dos centímetros una de otra.
+ */
+data class HomeStats(
+    val playedThisWeek: Int,
+    val librarySize: Int,
+    val monthPlays: Int = 0,
+    val monthListenedMs: Long = 0L
+)
 
 /** Sección generada del inicio: catálogo del artista más escuchado. */
 /**
@@ -137,6 +151,8 @@ class LibraryViewModel @Inject constructor(
     // Solo para lo que "Seguir escuchando" resuelve EN VIVO (fotos de artista y carátulas de
     // género); el resto del browse vive en BrowseViewModel.
     private val browseRepository: com.qhana.siku.data.repository.BrowseRepository,
+    // Solo para el resumen del mes de la tarjeta de estadísticas del inicio.
+    private val statsRepository: com.qhana.siku.data.repository.StatsRepository,
     private val musicPreferences: MusicPreferences,
     private val musicController: MusicController,
     private val syncManager: SyncManager,
@@ -427,11 +443,26 @@ class LibraryViewModel @Inject constructor(
     // reiniciar el proceso), suficiente para un dato de bienvenida.
     val homeStats: StateFlow<HomeStats> = combine(
         repository.getPlayedSinceCount(System.currentTimeMillis() - WEEK_MILLIS),
-        repository.getLibrarySize()
-    ) { week, size -> HomeStats(week, size) }
+        repository.getLibrarySize(),
+        // El resumen del mes EN CURSO, de calendario: es el periodo con el que abre la pantalla de
+        // estadísticas, así que la tarjeta enseña exactamente lo que se va a encontrar al tocarla.
+        currentMonthSummary()
+    ) { week, size, month ->
+        HomeStats(week, size, month.plays, month.listenedMs ?: 0L)
+    }
         .sampledDuringSync(libraryIsSettling)
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, WhileUiSubscribed, HomeStats(0, 0))
+
+    /**
+     * Resumen del mes en curso. La ventana se calcula aquí y no al construir el ViewModel porque el
+     * inicio sobrevive al cambio de mes: el proceso de una app de música vive días.
+     */
+    private fun currentMonthSummary(): Flow<StatsSummary> {
+        val zone = java.time.ZoneId.systemDefault()
+        val selection = StatsSelection.current(zone, java.time.Instant.now())
+        return statsRepository.summary(selection.sinceMillis(zone), selection.untilMillis(zone))
+    }
 
     // Sección generada "Porque escuchaste a X": OTROS artistas que comparten género con el que más
     // escuchas. Reactiva en tres niveles — cambia de artista semilla cuando el historial lo hace,

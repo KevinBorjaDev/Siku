@@ -1370,7 +1370,9 @@ class MusicController @Inject constructor(
         if (playedMs < threshold) return
         playRecordedForSongId = songId
         scope.launch(Dispatchers.IO) {
-            runCatching { musicRepository.recordPlay(songId, System.currentTimeMillis()) }
+            // `playedMs` viaja hasta la BD desde la v28: es el tiempo escuchado del log de eventos.
+            // Hasta entonces se usaba solo para comparar con el umbral y se descartaba.
+            runCatching { musicRepository.recordPlay(songId, System.currentTimeMillis(), playedMs) }
                 .onFailure { appLogger.error("recordPlay falló: ${it.message}") }
         }
     }
