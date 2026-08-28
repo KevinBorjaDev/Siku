@@ -48,6 +48,8 @@ import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.repository.LyricsCandidate
 import com.qhana.siku.data.util.LrcSyntax
 import com.qhana.siku.ui.LocalPlayerOnScreen
+import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.LyricsSearchSheet
 import com.qhana.siku.ui.components.MaterialSymbol
@@ -247,8 +249,25 @@ fun LyricsScreen(
                 indication = null
             ) { /* No-op to block touches */ }
             .statusBarsPadding()
+            // En horizontal la perforación cae en un costado: el fondo llega al borde (va antes),
+            // el contenido se aparta.
+            .safeSidePadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        // **Ancho acotado y centrado** (27 ago 2026): girado, los versos se dibujaban sobre líneas
+        // de ~825dp —el peor caso de medida de línea de la app— y el header dejaba el botón de
+        // cerrar y las acciones a media pantalla de distancia. El tope es el mismo que el de las
+        // hojas y en vertical no cambia nada.
+        //
+        // OJO al tocar esto: el karaoke recorta el barrido por ÍNDICE de carácter preguntándole al
+        // `TextLayoutResult` dónde cae cada uno, así que cambiar el ancho cambia los saltos de
+        // renglón y hay que mirar el resaltado en device.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
+                .fillMaxWidth()
+        ) {
             
             // Header
             Row(

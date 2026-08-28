@@ -24,16 +24,20 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.ToggleButtonColors
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.qhana.siku.ui.components.ensureContrast
+import com.qhana.siku.ui.components.tonalLayerContainer
 
 /**
  * El color de contenido que le toca a [color], resuelto contra [AppColors].
@@ -518,22 +522,54 @@ fun appTonalToggleButtonColors() = ToggleButtonDefaults.tonalToggleButtonColors(
 )
 
 /**
- * Floating toolbar NEUTRO: el del selector de la biblioteca cuando vive abajo
- * (`LibraryBottomToolbar`).
+ * Separación tonal (HCT) del **contenedor** del toolbar de la biblioteca respecto del fondo de
+ * página sobre el que flota: el [TONAL_LAYER_DELTA] de siempre, o sea el recorrido COMPLETO de la
+ * escala de contenedores de M3.
+ *
+ * Es SUYA y no la constante compartida —aunque hoy valgan lo mismo— por el mismo motivo que
+ * `ROW_ACTIVE_TONE_DELTA` tiene la suya: calibrar cuánto se despega esta barra no puede mover la
+ * píldora del ⋮ ni el chip de origen.
+ */
+private const val LIBRARY_TOOLBAR_TONE_DELTA = 8.0
+
+/**
+ * Lo mismo para el **indicador del destino activo**, que se deriva del MISMO fondo con el DOBLE de
+ * separación en vez de derivarse del contenedor.
+ *
+ * **Es deliberado y es lo que impide el fallo que `rememberTonalLayerColors` documenta**: encadenar
+ * fondo → contenedor → indicador es apilar tres capas con la regla "aléjate del extremo", y un fondo
+ * de tono medio hace que el segundo paso invierta el sentido y devuelva el indicador al color del
+ * contenedor. Pidiéndole a los dos su distancia al MISMO fondo, la dirección la decide una sola vez
+ * el tono medido de ese fondo y las dos capas apilan hacia el mismo lado — el criterio de
+ * `MiniPlayerSurfaces`.
+ */
+private const val LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA = LIBRARY_TOOLBAR_TONE_DELTA * 2
+
+/**
+ * Floating toolbar del selector de la biblioteca cuando vive abajo (`LibraryBottomToolbar`):
+ * contenedor DERIVADO de [background], el fondo de página real sobre el que flota.
  *
  * **No es el vibrant** ([appVibrantFloatingToolbarColors], el del NowPlaying y la hoja de la cola):
- * allí el toolbar es la pieza protagonista de una pantalla teñida, y aquí flota sobre la biblioteca
- * a un palmo del MiniPlayer, que ya lleva `primaryContainer` — dos píldoras del mismo color
- * apiladas se leen como una sola pieza partida por la mitad.
+ * allí el toolbar es la pieza protagonista de una pantalla teñida, y aquí flota a un palmo del
+ * MiniPlayer, que ya lleva `primaryContainer` — dos píldoras del mismo color apiladas se leen como
+ * una sola pieza partida por la mitad. Por eso el rol del que salen hue y croma es
+ * `secondaryContainer`: otra familia, y ~8 puntos de tono por encima de la barra del mini.
  *
- * **Pero tampoco es el token que M3 tabula para el standard**, que es `surfaceContainer`
- * (`FloatingToolbarTokens.StandardContainerColor`): en esta app ése es el **fondo de página** (ver
- * la horquilla de color en CLAUDE.md — el fondo es el nivel MEDIO de la escala, el contenido sube a
- * `surface` y las barras bajan a `surfaceContainerHigh`), así que el toolbar quedaría del color
- * exacto de lo que tiene detrás y solo lo separaría su sombra. Va al **techo de la escala neutra**,
- * que es el mismo criterio —y por el mismo motivo— que ya obligó a subir los menús en
- * `AppMenuPopup`: una pieza que puede caer sobre cualquier superficie tiene que estar por encima de
- * todas, y las de la biblioteca van de `surface` a `surfaceContainerHigh`.
+ * **Tampoco es un rol de superficie a secas, y ése fue el error que se corrigió el 27 ago 2026.**
+ * El token que M3 tabula para el standard es `surfaceContainer`
+ * (`FloatingToolbarTokens.StandardContainerColor`), que en esta app ES el fondo de página (ver la
+ * horquilla de color en CLAUDE.md), así que se subió al **techo de la escala neutra**
+ * (`surfaceContainerHighest`) con el mismo criterio que `AppMenuPopup`. Medido en device sobre una
+ * paleta poco cromática, ese techo deja **3,9 puntos de tono y croma 0** contra el fondo: por debajo
+ * del ~4 que [TONAL_LAYER_DELTA] documenta como el punto en que una capa se funde. No era el color
+ * mal elegido — es que **la escala neutra se había agotado**, que es exactamente lo que ya obligó a
+ * separar por CROMA al MiniPlayer y al resaltado de la fila que suena. Un rol fijo no puede prometer
+ * separación porque su distancia al fondo la decide el ESTILO DE PALETA; derivar del fondo REAL sí,
+ * y da lo mismo en los dos temas sin una rama por tema.
+ *
+ * El fondo de referencia es el de la PÁGINA y no lo que pase por debajo al scrollear: el toolbar
+ * flota sobre una lista que trae tarjetas y carátulas, así que "lo de debajo" no es un color — es la
+ * página la que le da su sitio en la horquilla.
  *
  * El contenido de cada destino NO sale de aquí — lo pone [appLibraryToolbarItemColors], porque un
  * destino inactivo va en `onSurfaceVariant` (el token de la navigation bar) y no en el `onSurface`
@@ -541,21 +577,44 @@ fun appTonalToggleButtonColors() = ToggleButtonDefaults.tonalToggleButtonColors(
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun appLibraryToolbarColors() = FloatingToolbarDefaults.standardFloatingToolbarColors(
-    toolbarContainerColor = AppColors.surfaceContainerHighest,
+fun appLibraryToolbarColors(background: Color) = FloatingToolbarDefaults.standardFloatingToolbarColors(
+    toolbarContainerColor = libraryToolbarContainer(background),
     toolbarContentColor = AppColors.onSurface,
     fabContainerColor = AppColors.primaryContainer,
     fabContentColor = AppColors.onPrimaryContainer
 )
 
+/** Contenedor del toolbar de la biblioteca, aparte porque lo necesitan los DOS helpers. */
+@Composable
+private fun libraryToolbarContainer(background: Color): Color {
+    val role = AppColors.secondaryContainer
+    return remember(background, role) {
+        tonalLayerContainer(background, role, LIBRARY_TOOLBAR_TONE_DELTA)
+    }
+}
+
+/** Contraste mínimo del glifo del destino activo sobre su indicador: AA de texto (la etiqueta). */
+private const val TOOLBAR_ITEM_MIN_CONTRAST = 4.5f
+
 /**
  * Destino del toolbar de la biblioteca (`LibraryBottomToolbar`), montado sobre `ToggleButton`.
  *
- * **Los mismos cuatro colores que la píldora de `LibraryTabs` y que el rail**: activo
- * `secondaryContainer`/`onSecondaryContainer`, inactivo `onSurfaceVariant` — el token de la
- * navigation bar (`NavigationBarTokens.InactiveIconColor`) — sobre contenedor TRANSPARENTE, que es
- * lo que deja ver el material del toolbar. Las tres presentaciones del selector son proyecciones
- * del mismo `pagerState.currentPage` y no pueden divergir en color.
+ * **Los mismos cuatro roles que la píldora de `LibraryTabs` y que el rail**: activo teñido con
+ * `secondaryContainer`, inactivo `onSurfaceVariant` — el token de la navigation bar
+ * (`NavigationBarTokens.InactiveIconColor`) — sobre contenedor TRANSPARENTE, que es lo que deja ver
+ * el material del toolbar. Las tres presentaciones del selector son proyecciones del mismo
+ * `pagerState.currentPage` y no pueden divergir en color.
+ *
+ * **Pero el indicador activo aquí NO es el rol crudo, y no puede serlo**: desde que el contenedor se
+ * deriva de [background] con el hue y el croma de ese mismo rol, pintar el indicador con el rol tal
+ * cual dejaría las dos capas a la distancia que la paleta quisiera —en un tema poco cromático, los
+ * ~6 puntos que separan `secondaryContainer` de su propia banda—, o sea el indicador fundido en la
+ * barra. Se deriva del MISMO fondo con el doble de separación (ver
+ * [LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA]), así que la distancia contenedor↔indicador es exactamente la
+ * misma que fondo↔contenedor en cualquier paleta.
+ *
+ * Su contenido pasa por `ensureContrast` por el mismo motivo que el del MiniPlayer: al mover el tono
+ * del contenedor, el par `on*` que M3 tabula para el rol deja de valer.
  *
  * **NO se usa `tonalToggleButtonColors`** aunque el nombre suene al caso: ése pinta el contenedor
  * también en reposo (`secondaryContainer` apagado → `secondary` encendido), o sea seis píldoras
@@ -563,12 +622,22 @@ fun appLibraryToolbarColors() = FloatingToolbarDefaults.standardFloatingToolbarC
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun appLibraryToolbarItemColors() = ToggleButtonDefaults.toggleButtonColors(
-    containerColor = Color.Transparent,
-    contentColor = AppColors.onSurfaceVariant,
-    checkedContainerColor = AppColors.secondaryContainer,
-    checkedContentColor = AppColors.onSecondaryContainer
-)
+fun appLibraryToolbarItemColors(background: Color): ToggleButtonColors {
+    val role = AppColors.secondaryContainer
+    val onRole = AppColors.onSecondaryContainer
+    val checkedContainer = remember(background, role) {
+        tonalLayerContainer(background, role, LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA)
+    }
+    val checkedContent = remember(checkedContainer, onRole) {
+        ensureContrast(onRole, checkedContainer, TOOLBAR_ITEM_MIN_CONTRAST)
+    }
+    return ToggleButtonDefaults.toggleButtonColors(
+        containerColor = Color.Transparent,
+        contentColor = AppColors.onSurfaceVariant,
+        checkedContainerColor = checkedContainer,
+        checkedContentColor = checkedContent
+    )
+}
 
 /**
  * Ítem del navigation rail de la biblioteca (horizontal).

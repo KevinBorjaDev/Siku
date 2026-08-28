@@ -7,8 +7,17 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.min
 import com.qhana.siku.ui.theme.EXPRESSIVE_DEFAULT_EFFECTS_MS
 import com.qhana.siku.ui.theme.EXPRESSIVE_FAST_EFFECTS_MS
 import com.qhana.siku.ui.theme.ExpressiveDefaultEffectsEasing
@@ -40,9 +49,67 @@ internal object ComponentConfig {
      *
      * El fade es MENOR que el alto a propósito: el título termina de pasar a la topbar antes de que
      * el header salga del todo, así que nunca hay un instante sin título en pantalla.
+     *
+     * **Los dos son el TOPE, no el valor efectivo** (27 ago 2026). Girado, el alto útil de un
+     * teléfono ronda los 360dp, así que un header de 380 era la pantalla ENTERA: al abrir un
+     * artista no se veía ni una canción ni la botonera de reproducción. Quien manda es
+     * [detailHeaderMetrics], que los acota contra el alto de la ventana; estas dos constantes
+     * siguen siendo lo que se ve en vertical.
      */
     val DetailHeaderHeight = 380.dp
     val DetailTitleFadeRange = 300.dp
+
+    /**
+     * Fracción MÁXIMA de la ventana que puede ocupar el header inmersivo.
+     *
+     * No es un número elegido: en vertical el header ya vale ~45 % de la pantalla
+     * ([DetailHeaderHeight] contra los ~850dp de un teléfono), así que a la mitad este tope **no
+     * toca nada de lo que hoy se ve** — existe solo para el caso en el que la ventana es más baja
+     * que el header, o sea horizontal y multiventana, donde deja ~180dp y el contenido vuelve a
+     * caber debajo.
+     */
+    const val DetailHeaderMaxFraction = 0.5f
+    /**
+     * Ancho MÁXIMO de una columna de contenido en una ventana ancha (horizontal, multiventana).
+     *
+     * No es un número nuevo: es el que la app ya acepta para sus hojas, porque `AppModalSheet`
+     * hereda `BottomSheetDefaults.SheetMaxWidth` de M3 y con él las hojas quedan centradas en vez
+     * de estirarse. Era el ÚNICO tope de ancho de toda la app, y llegaba gratis; el resto de las
+     * pantallas estiraba sus filas a los ~873dp de un teléfono girado, dejando el título de un
+     * ajuste a un lado y su interruptor a 840dp de distancia.
+     *
+     * Derivado y no copiado: si M3 mueve ese ancho, esto lo sigue, y las hojas y el resto del
+     * contenido no se pueden separar en silencio.
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    val ContentMaxWidth = BottomSheetDefaults.SheetMaxWidth
+
+    /**
+     * Lado MÍNIMO de una tarjeta de rejilla (álbumes, géneros) A PARTIR DE LA TERCERA COLUMNA.
+     *
+     * **No decide si hay dos columnas: eso es un SUELO** ([GridMinColumns]), y la diferencia es la
+     * corrección del 27 ago 2026. Este valor salió de despejar el lado que dan dos columnas en un
+     * teléfono de 393dp —(393 − 2×16 − 12)/2 ≈ 174—, o sea calibrado al ANCHO EXACTO de un
+     * teléfono concreto y con margen CERO. En un teléfono de 386dp (densidad 3.31, medido en device
+     * sobre una captura del usuario) la cuenta da 1.97 y `GridCells.Adaptive` caía a **una sola
+     * columna**: álbumes y géneros a pantalla completa, uno por fila. Falló por el 1,5 %.
+     *
+     * La lección, que vale más que el número: **un umbral con margen cero no puede gobernar el caso
+     * que nunca debe fallar.** "Dos columnas en un teléfono" no es algo que se espera que emerja de
+     * un mínimo bien elegido — se garantiza, y el mínimo se queda para lo que sí es una decisión
+     * blanda: cuándo aparece la tercera al ensanchar la ventana.
+     */
+    val GridTileMinWidth = 174.dp
+
+    /**
+     * Columnas que una rejilla de la biblioteca tiene SIEMPRE, quepan o no en el mínimo.
+     *
+     * Es exactamente el `GridCells.Fixed(2)` que estas rejillas tuvieron desde siempre, conservado
+     * como piso: en cualquier teléfono en vertical el resultado es el de antes, píxel por píxel, y
+     * lo adaptativo solo actúa hacia ARRIBA cuando la ventana da de sobra.
+     */
+    const val GridMinColumns = 2
+
     val SongItemCornerRadius = 8.dp
     val SongItemIconSize = 56.dp
     val SongItemIconCorner = 28.dp
@@ -372,8 +439,8 @@ internal data class ProgressMetrics(
      */
     val handleHeight: Dp,
     /**
-     * Alto que OCUPA la barra: nunca menor que el mínimo de gesto ni que el palo, que es la pieza
-     * más alta que se dibuja. Reservarle su sitio es lo que hace el `Slider` de M3 —su componente
+     * Alto que OCUPA la barra: nunca menor que el mínimo de gesto ni que el palo **cuando el palo
+     * está puesto**, que es entonces la pieza más alta que se dibuja. Reservarle su sitio es lo que hace el `Slider` de M3 —su componente
      * mide 48dp y contiene el thumb de 44—, y aquí es obligatorio desde que el palo tiene la altura
      * del spec: con la caja pegada al mínimo de gesto se salía por debajo y a mitad de canción se
      * montaba sobre el chip de formato.
@@ -409,7 +476,15 @@ internal fun progressTrackHeightMax(wavy: Boolean): Dp =
  * Amplitud = alto/4 y trazo = alto/3, así que las crestas caben siempre dentro del contenedor:
  * el margen disponible es (alto − trazo)/2 = alto/3, mayor que la amplitud para cualquier alto.
  */
-internal fun progressMetricsFor(trackHeight: Dp, wavy: Boolean): ProgressMetrics {
+internal fun progressMetricsFor(
+    trackHeight: Dp,
+    wavy: Boolean,
+    /**
+     * El palo se queda PUESTO (Ajustes → Apariencia). Solo gobierna [ProgressMetrics.touchHeight]:
+     * ver ahí por qué reservarle su alto cuando no está deja aire muerto.
+     */
+    persistentHandle: Boolean
+): ProgressMetrics {
     val height = trackHeight.coerceIn(
         ComponentConfig.ProgressTrackHeightMin,
         progressTrackHeightMax(wavy)
@@ -427,12 +502,23 @@ internal fun progressMetricsFor(trackHeight: Dp, wavy: Boolean): ProgressMetrics
         ),
         trackCorner = SliderSizeTable.trackCornerFor(height),
         handleHeight = SliderSizeTable.handleHeightFor(height),
-        // El palo domina en todo el rango del ajuste (con el riel al mínimo ya mide los 44dp del
-        // spec), así que hoy este `maxOf` siempre lo elige; el mínimo de gesto se queda como suelo
-        // declarado, que es lo que impide que un futuro palo más corto encoja la zona táctil sin que
-        // nadie lo note.
+        // La caja reserva sitio para **lo que se va a DIBUJAR**, y con el palo apagado eso es el
+        // riel y nada más. Reservarle sus 44dp igualmente dejaba (44 − 12) / 2 = **16dp de aire
+        // muerto por arriba y por abajo** con el grosor por defecto: el hueco a los chips de tiempo
+        // se leía como 24dp cuando la escala pide 8 (medido el 27 ago 2026 sobre una captura, 35dp
+        // de borde a borde contando los 12 que aporta el objetivo táctil del chip de formato).
+        // Con el palo puesto ese espacio no está vacío —lo llena él—, que es justo por lo que el
+        // fallo solo se ve con el ajuste apagado.
+        //
+        // **El suelo de gesto NO se toca**: la zona táctil de un control no es su dibujo, así que
+        // con el palo apagado la caja no baja de [ComponentConfig.ProgressTouchHeight].
+        //
+        // Que el palo siga apareciendo al ARRASTRAR y se salga de la caja es deliberado y está
+        // comprobado que no choca: asoma (44 − 24) / 2 = 10dp por lado y tiene 20 de aire a cada
+        // uno —`SectionGap` arriba, `ItemGap` más el objetivo táctil del chip de formato abajo—. La
+        // alternativa, crecer la caja al tocarla, movería los chips de sitio con el dedo encima.
         touchHeight = maxOf(
-            SliderSizeTable.handleHeightFor(height),
+            if (persistentHandle) SliderSizeTable.handleHeightFor(height) else height,
             ComponentConfig.ProgressTouchHeight
         )
     )
@@ -631,3 +717,92 @@ fun nowPlayingArtRequest(context: Context, data: Any): ImageRequest =
         .scale(Scale.FILL)
         .crossfade(false)
         .build()
+
+
+/**
+ * Geometría del header inmersivo PARA ESTA VENTANA: su alto y el recorrido de scroll en el que el
+ * título viaja a la topbar.
+ *
+ * Las cuatro pantallas de detalle aplicaban `ComponentConfig.DetailHeaderHeight` a pelo, y ese
+ * número está pensado para vertical: en horizontal el header tapaba el 97 % de la pantalla. El
+ * tope sale de [ComponentConfig.DetailHeaderMaxFraction], que en vertical es no-op.
+ *
+ * **El fade se DERIVA del alto real y no se lee de su constante**: con un header de 180dp, un
+ * recorrido de 300 significaría que el título no llega nunca a la barra. Lo que la constante
+ * describe es una PROPORCIÓN (el título termina de pasar antes de que el header salga del todo), y
+ * es esa proporción la que se conserva.
+ */
+@Immutable
+internal data class DetailHeaderMetrics(val headerHeight: Dp, val titleFadeRange: Dp)
+
+/** La proporción que las dos constantes ya tenían entre sí, para conservarla a cualquier alto. */
+private val DetailTitleFadeRatio =
+    ComponentConfig.DetailTitleFadeRange / ComponentConfig.DetailHeaderHeight
+
+/** Pura y por tanto testeable; la envuelve [rememberDetailHeaderMetrics]. */
+internal fun detailHeaderMetrics(windowHeight: Dp): DetailHeaderMetrics {
+    val height = min(ComponentConfig.DetailHeaderHeight, windowHeight * ComponentConfig.DetailHeaderMaxFraction)
+    return DetailHeaderMetrics(headerHeight = height, titleFadeRange = height * DetailTitleFadeRatio)
+}
+
+/**
+ * El alto de ventana sale de `LocalConfiguration` y **no de un `BoxWithConstraints`**, que es el
+ * idiom que el repo ya eligió para las decisiones de layout por orientación (`LibraryScreen`,
+ * `NowPlayingScreen`): es un CompositionLocal, o sea el MISMO valor en el mismo frame para todos
+ * los lectores —aquí son dos, el header y el fade del título— y no subcompone, cosa que importa
+ * porque estas pantallas se abren con un container transform en vuelo.
+ */
+@Composable
+internal fun rememberDetailHeaderMetrics(): DetailHeaderMetrics {
+    val windowHeight = LocalConfiguration.current.screenHeightDp.dp
+    return remember(windowHeight) { detailHeaderMetrics(windowHeight) }
+}
+
+
+/**
+ * `GridCells` de las rejillas de la biblioteca: **como `GridCells.Adaptive`, pero con un SUELO de
+ * columnas** ([ComponentConfig.GridMinColumns]).
+ *
+ * El reparto de anchos es el mismo que hace `GridCells.Fixed` —el sobrante en píxeles se reparte de
+ * a uno entre las primeras columnas, para que la fila cierre exacta y no quede una raya sin pintar
+ * a la derecha—; lo único propio es cómo sale el número de columnas.
+ *
+ * **Por qué existe en vez de un `Adaptive` con el mínimo bien elegido**: con `Adaptive` a secas, el
+ * caso que no puede fallar —dos columnas en un teléfono— depende de que el ancho de la ventana esté
+ * por encima de un umbral, y ese umbral es una división entera, o sea un acantilado. Un teléfono
+ * 6dp más estrecho que aquél con el que se calibró el mínimo pierde una columna entera y la
+ * pantalla cambia de aspecto (medido: pasó el 27 ago 2026). Como suelo, el mínimo deja de gobernar
+ * ese caso y solo decide cuándo aparece la tercera columna, que sí es una decisión blanda.
+ *
+ * No es `@Immutable` por decreto: `equals`/`hashCode` están escritos porque `LazyVerticalGrid` usa
+ * la instancia como clave de sus cálculos, igual que los `GridCells` de la librería.
+ */
+internal class AdaptiveGridCells(
+    private val minSize: Dp,
+    private val minColumns: Int = ComponentConfig.GridMinColumns
+) : GridCells {
+    init {
+        require(minSize > 0.dp) { "minSize debe ser > 0" }
+        require(minColumns > 0) { "minColumns debe ser > 0" }
+    }
+
+    override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> {
+        // `+ spacing` a los dos lados: n columnas de `minSize` llevan n−1 huecos, así que sumando
+        // un hueco imaginario al final la cuenta es una división limpia. Es la misma que hace
+        // `GridCells.Adaptive`.
+        val fitting = (availableSize + spacing) / (minSize.roundToPx() + spacing).coerceAtLeast(1)
+        val count = maxOf(fitting, minColumns)
+        // Acotado a 0: al forzar el suelo, una ventana más estrecha que los huecos daría un ancho
+        // NEGATIVO y la medida revienta. `Adaptive` no necesita esta guarda porque su cuenta nunca
+        // pide más columnas de las que caben; el suelo sí puede.
+        val gridSize = (availableSize - spacing * (count - 1)).coerceAtLeast(0)
+        val slotSize = gridSize / count
+        val remainder = gridSize % count
+        return List(count) { slotSize + if (it < remainder) 1 else 0 }
+    }
+
+    override fun hashCode(): Int = minSize.hashCode() * 31 + minColumns
+
+    override fun equals(other: Any?): Boolean =
+        other is AdaptiveGridCells && other.minSize == minSize && other.minColumns == minColumns
+}

@@ -27,10 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -64,6 +62,7 @@ import com.qhana.siku.ui.components.SaveLyricsDialog
 import com.qhana.siku.ui.components.PlayerGestureConfig
 import com.qhana.siku.ui.components.miniPlayerVerticalDrag
 import com.qhana.siku.ui.components.rememberPlayerDismissState
+import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.navigation.Screen
 import com.qhana.siku.ui.theme.appFadeEnter
 import com.qhana.siku.ui.theme.appFadeExit
@@ -372,9 +371,7 @@ fun BoxScope.PlayerOverlay(
                             // COSTADO, que es justo por donde la píldora llega al borde. Sin esto
                             // el mini se metía bajo el notch al girar el teléfono.
                             .windowInsetsPadding(
-                                WindowInsets.systemBars
-                                    .union(WindowInsets.displayCutout)
-                                    .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+                                SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
                             )
                             .padding(start = chromeRailInset)
                             .then(chromeShift)

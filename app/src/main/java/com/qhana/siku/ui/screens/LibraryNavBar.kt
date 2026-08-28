@@ -9,17 +9,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.MaterialSymbol
+import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.appLibraryToolbarItemColors
 import com.qhana.siku.ui.theme.appNavigationRailItemColors
@@ -70,7 +73,14 @@ import com.qhana.siku.ui.theme.appLibraryToolbarColors
  * El rail es un tercer componente porque su eje es otro: apila en vertical, y ahí no hay píldora
  * con etiqueta al lado que valga. Los colores de los tres salen del MISMO sitio
  * (`appNavigationRailItemColors` / `appLibraryToolbarItemColors` / la píldora de `LibraryTabs`):
- * son proyecciones del MISMO `pagerState.currentPage` y no pueden divergir.
+ * son proyecciones del MISMO `pagerState.currentPage` y usan el mismo lenguaje de color.
+ *
+ * **La ÚNICA divergencia es el TONO del indicador activo del toolbar, y es obligada** (27 ago 2026):
+ * la fila y el rail se apoyan en `surfaceContainerHigh`, doce puntos por encima de
+ * `secondaryContainer`, así que ahí el rol crudo se lee. El toolbar FLOTA sobre el fondo de página y
+ * por eso su contenedor se derivó de ese fondo —la escala neutra no le daba separación, ver
+ * `appLibraryToolbarColors`—, de modo que su indicador tiene que derivarse del mismo sitio o queda
+ * fundido en su propia barra. El rol y la forma son los mismos; lo que cambia es contra qué se mide.
  */
 
 /**
@@ -172,6 +182,13 @@ internal fun LibraryBottomToolbar(
     tabs: List<TabInfo>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
+    /**
+     * Fondo de PÁGINA sobre el que flota el toolbar, del que se derivan su contenedor y el
+     * indicador del destino activo (ver `appLibraryToolbarColors`). Va como parámetro y no leído
+     * aquí porque el fondo lo decide la pantalla —es el `containerColor` de su `Scaffold`—, y dos
+     * copias de ese color serían dos verdades.
+     */
+    background: Color,
     modifier: Modifier = Modifier
 ) {
     if (tabs.isEmpty()) return
@@ -185,7 +202,7 @@ internal fun LibraryBottomToolbar(
         // desplegado. El estado colapsado de este componente esconde esos dos slots, no el
         // contenido — y aquí el contenido son los destinos, que no pueden desaparecer.
         expanded = true,
-        colors = appLibraryToolbarColors(),
+        colors = appLibraryToolbarColors(background),
         // Mismo padding que el toolbar del NowPlaying: es el token del componente
         // (`FloatingToolbarTokens.ContainerLeadingSpace`), y con él los destinos de 48 caben
         // exactos en los 64 de alto.
@@ -260,7 +277,7 @@ internal fun LibraryBottomToolbar(
                             shape = CircleShape,
                             checkedShape = CircleShape
                         ),
-                        colors = appLibraryToolbarItemColors(),
+                        colors = appLibraryToolbarItemColors(background),
                         // Sin sombra propia: ya está dentro de un contenedor elevado, y una segunda
                         // sombra ahí dentro se lee como suciedad.
                         elevation = null,
@@ -299,21 +316,31 @@ internal fun LibraryBottomToolbar(
  * **Es la variante NARROW a propósito, y no el `WideNavigationRail` de 96dp.** El ítem del rail
  * ancho mide 64dp de alto AUNQUE no lleve etiqueta (`TopIconItemMinHeight`) y su `contentPadding`
  * reserva 44dp arriba y otros 44 abajo para un `header` (menú o FAB) que aquí no existe: seis
- * destinos son 492dp contra los ~369 que deja un teléfono girado, y ni poniendo el padding a cero
- * (404) entran. El narrow suma 6x56 + 5x4 + 8 = 364 y cabe, con el ítem a alto FIJO — así que no
- * se recoloca nada al cambiar de pestaña — y con `alwaysShowLabel` dando de fábrica lo que aquí se
- * quiere: etiqueta solo en la activa.
+ * destinos pasan de 490dp, muy por encima de lo que deja un teléfono girado, y ni con el padding a
+ * cero entran. El narrow ronda los 56 por ítem, y `alwaysShowLabel = false` da de fábrica lo que
+ * aquí se quiere: etiqueta solo en la activa.
+ *
+ * **Lo que NO hay que volver a escribir es una CUENTA de cuántos destinos caben** (27 ago 2026).
+ * Este KDoc decía "6x56 + 5x4 + 8 = 364 y cabe, con el ítem a alto FIJO", y las dos mitades eran
+ * falsas: (1) el presupuesto no descontaba los insets VERTICALES, que el propio `NavigationRail`
+ * consume con su `windowInsetsPadding` — barra de estado más barra o gesto de navegación, entre
+ * 24 y 48dp —, ni contaba con que el alto útil baja al subir el tamaño de pantalla del sistema
+ * (medido en device: **~360dp**, no los ~369 que suponía); y (2) los 56 son un MÍNIMO, no un alto
+ * fijo — `NavigationRailItem` aplica `defaultMinSize(minHeight = NavigationRailItemHeight)` y,
+ * como aquí la `label` NUNCA es null (`alwaysShowLabel` decide si se DIBUJA, no si existe), todos
+ * los ítems se miden con `placeLabelAndIcon`, cuyo alto es `icono + 8 + etiqueta + 2x padding`.
+ * El glifo va en **sp** ([TabIconSize]) y la etiqueta es `labelMedium`, así que el ítem CRECE con
+ * la escala tipográfica del sistema: a fontScale 1.3 ronda los 68dp y seis pasan de 430.
+ *
+ * Y el desbordamiento no degrada solo: `placeLabelAndIcon` hace su `layout` sin `constrainHeight`,
+ * de modo que el ítem reporta su alto aunque le pasen menos, y un `Arrangement.spacedBy` centrado
+ * con espacio libre negativo coloca con offset negativo — los destinos se salen por arriba y por
+ * abajo y el `Surface` del rail los recorta. En la 1.2.0 eso dejaba la sexta pestaña **cortada e
+ * inalcanzable**, porque el rail es la UNICA presentación del selector en horizontal.
+ *
+ * Por eso cuántos caben lo decide el LAYOUT y no una constante: ver [LibraryNavRail].
  */
 internal val LibraryRailWidth = 80.dp
-
-/**
- * Barras del sistema MÁS la perforación de pantalla. Es lo que de verdad hay que esquivar y lo que
- * ninguno de los dos componentes trae por defecto: sus `windowInsets` salen de
- * `systemBarsForVisualComponents`, que ignora el recorte. No es `safeDrawing` porque ése incluye
- * también el teclado, y una barra de navegación que salta al escribir no es lo que nadie espera.
- */
-internal val SafeBarInsets: WindowInsets
-    @Composable get() = WindowInsets.systemBars.union(WindowInsets.displayCutout)
 
 /**
  * Navigation rail de la biblioteca, para cuando el teléfono está girado. Va SIEMPRE en horizontal,
@@ -321,8 +348,27 @@ internal val SafeBarInsets: WindowInsets
  * búsqueda se lo come sin necesidad.
  *
  * `alwaysShowLabel = false` es exactamente el comportamiento que la barra de abajo tiene que
- * emular a mano, aquí de fábrica: la etiqueta aparece solo en la activa, el componente centra el
- * glifo cuando no la hay y el alto del ítem no cambia, así que nada se recoloca bajo el dedo.
+ * emular a mano, aquí de fábrica: la etiqueta aparece solo en la activa y el componente centra el
+ * glifo cuando no la hay.
+ *
+ * **Centrado si cabe, con scroll si no**, y la decisión la toma el LAYOUT — no una cuenta. El
+ * `BoxWithConstraints` va DENTRO del `NavigationRail`, o sea después de que el componente haya
+ * aplicado sus `windowInsets` y su padding vertical, así que su `maxHeight` es el alto útil REAL
+ * del rail en este device, con esta barra de estado, esta perforación y este tamaño de pantalla.
+ * Desde ahí, `heightIn(min = ...)` dentro de un `verticalScroll` hace las dos cosas con un solo
+ * layout: si los destinos ocupan menos que el viewport, la columna se estira hasta él y el
+ * `Arrangement.spacedBy(_, CenterVertically)` los CENTRA igual que antes (y no hay scroll posible,
+ * porque contenido y viewport miden lo mismo); si ocupan más, la columna crece y el rail scrollea.
+ * Es el mismo recurso que ya usa `OnboardingStep` para anclar contenido dentro de un scroll.
+ *
+ * **No es un adorno defensivo: hasta el 27 ago 2026 la sexta pestaña quedaba cortada fuera del
+ * `Surface` y no había forma de alcanzarla** — el rail es la única presentación del selector en
+ * horizontal, así que un destino recortado es un destino que desaparece de la app. Por qué la
+ * cuenta tabulada no podía funcionar está en el KDoc de [LibraryRailWidth].
+ *
+ * Un ítem NO se puede encoger para ganar espacio: 48dp es el mínimo táctil y su alto lo pone el
+ * contenido, que crece con la escala tipográfica del sistema. La palanca legítima sigue siendo el
+ * número de destinos, que el usuario ya controla desde Ajustes → Apariencia → Pestañas.
  */
 @Composable
 internal fun LibraryNavRail(
@@ -335,6 +381,7 @@ internal fun LibraryNavRail(
     if (tabs.isEmpty()) return
     val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
     val haptics = LocalHapticFeedback.current
+    val scrollState = rememberScrollState()
     NavigationRail(
         modifier = modifier,
         containerColor = containerColor,
@@ -344,38 +391,58 @@ internal fun LibraryNavRail(
         // contenedor llega al borde y son los ítems los que se apartan.
         windowInsets = SafeBarInsets.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)
     ) {
-        // Los destinos CENTRADOS en la altura del rail. Sin esto se apilan arriba y, con pocas
-        // pestañas visibles, la mitad de abajo queda vacía frente a una lista que sí llega al
-        // borde. `NavigationRail` no expone `verticalArrangement`, de ahí la Column de por medio.
-        Column(
-            modifier = Modifier.fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(
-                NavigationRailItemGap,
-                Alignment.CenterVertically
-            ),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            tabs.forEachIndexed { index, tab ->
-                val selected = index == safeIndex
-                NavigationRailItem(
-                    selected = selected,
-                    onClick = {
-                        if (!selected) {
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                            onTabSelected(index)
-                        }
-                    },
-                    icon = { MaterialSymbol(tab.iconName, size = TabIconSize, fill = selected) },
-                    label = {
-                        Text(
-                            text = stringResource(tab.titleRes),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    alwaysShowLabel = false,
-                    colors = appNavigationRailItemColors()
-                )
+        BoxWithConstraints(modifier = Modifier.fillMaxHeight()) {
+            // El alto útil con los insets del componente YA descontados: es lo que permite que
+            // aquí no haga falta saber cuánto mide un ítem ni cuántos hay.
+            val viewportHeight = maxHeight
+            // Los destinos CENTRADOS en la altura del rail. Sin esto se apilan arriba y, con pocas
+            // pestañas visibles, la mitad de abajo queda vacía frente a una lista que sí llega al
+            // borde. `NavigationRail` no expone `verticalArrangement`, de ahí la Column de por medio.
+            Column(
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    // `min` y no `height`: con los destinos cabiendo, la columna mide exactamente
+                    // el viewport y el arrangement los centra —el comportamiento de siempre—; al
+                    // no caber, crece y el scroll es lo que impide que se pierda ninguno.
+                    .heightIn(min = viewportHeight),
+                verticalArrangement = Arrangement.spacedBy(
+                    NavigationRailItemGap,
+                    Alignment.CenterVertically
+                ),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                tabs.forEachIndexed { index, tab ->
+                    val selected = index == safeIndex
+                    // Al cambiar de pestaña deslizando el pager, la activa puede quedar fuera del
+                    // scroll: el rail es un ESPEJO del pager y tiene que enseñar dónde estás. Con
+                    // todo cabiendo es no-op (no hay nada que desplazar), así que no se condiciona
+                    // — y condicionarlo leyendo el estado del propio scroll sería cerrar el lazo
+                    // que la regla 4 de motion prohíbe.
+                    val bringIntoView = remember { BringIntoViewRequester() }
+                    LaunchedEffect(selected) {
+                        if (selected) bringIntoView.bringIntoView()
+                    }
+                    NavigationRailItem(
+                        selected = selected,
+                        onClick = {
+                            if (!selected) {
+                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                onTabSelected(index)
+                            }
+                        },
+                        icon = { MaterialSymbol(tab.iconName, size = TabIconSize, fill = selected) },
+                        label = {
+                            Text(
+                                text = stringResource(tab.titleRes),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        alwaysShowLabel = false,
+                        colors = appNavigationRailItemColors(),
+                        modifier = Modifier.bringIntoViewRequester(bringIntoView)
+                    )
+                }
             }
         }
     }

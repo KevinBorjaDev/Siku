@@ -7,7 +7,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.qhana.siku.data.model.PlaybackOrigin
@@ -16,6 +15,7 @@ import com.qhana.siku.data.model.RepeatMode
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.ToolbarActionState
 import com.qhana.siku.ui.components.*
+import com.qhana.siku.ui.components.bleedHorizontally
 import com.qhana.siku.ui.state.NowPlayingUiState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -220,38 +220,6 @@ internal fun NowPlayingPortrait(
 }
 
 
-/**
- * Saca el contenido [bleed] por cada lado del padding del padre — **la portada del reproductor es
- * la única pieza que lo usa** (24 ago 2026).
- *
- * Mide al hijo con el ancho ENTERO (el disponible más los dos márgenes), lo coloca desplazado a
- * `-bleed` y **reporta el ancho de antes**, así que la columna sigue midiendo y alineando igual que
- * si nada: lo único que se sale es el dibujo.
- *
- * **Por qué no se reparte el padding entre los hijos**, que sería la otra forma de conseguirlo: la
- * keyline se quedaría sin dueño y el próximo bloque que alguien añada a esta columna nacería pegado
- * al borde de la pantalla, sin error de compilación y sin más síntoma que un texto descuadrado en
- * una pantalla que casi nadie mira a 393dp. Con la keyline en la columna, alinearse es lo que pasa
- * por defecto y **salirse es lo que hay que pedir explícitamente**, que es exactamente el reparto de
- * responsabilidad correcto cuando la excepción es UNA.
- *
- * Va por `Modifier.layout` y no por `offset`/`graphicsLayer` porque la portada es punta de shared
- * element: sus bounds salen del LOOKAHEAD, donde una traslación de dibujo no existe (mismo motivo
- * que `chromeShift` y el arrastre de la píldora).
- */
-private fun Modifier.bleedHorizontally(bleed: Dp): Modifier = layout { measurable, constraints ->
-    // Sin ancho acotado no hay margen del que salirse: medir "todo + 32" contra infinito no
-    // significa nada, así que el modificador se aparta y deja pasar las constraints tal cual.
-    val extra = if (constraints.hasBoundedWidth) bleed.roundToPx() else 0
-    val placeable = measurable.measure(
-        constraints.copy(maxWidth = constraints.maxWidth + extra * 2)
-    )
-    val reportedWidth = (placeable.width - extra * 2)
-        .coerceIn(constraints.minWidth, constraints.maxWidth)
-    layout(reportedWidth, placeable.height) {
-        placeable.place(-extra, 0)
-    }
-}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable

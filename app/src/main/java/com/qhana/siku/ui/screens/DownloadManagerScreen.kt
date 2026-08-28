@@ -29,6 +29,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.qhana.siku.data.coordinator.SyncStatus
 import com.qhana.siku.data.repository.FailedDownload
+import com.qhana.siku.ui.components.SafeBarInsets
+import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.DownloadStateBanner
 import com.qhana.siku.ui.components.MaterialSymbol
@@ -135,14 +137,25 @@ fun DownloadManagerScreen(
                         }
                     }
                 },
+                // El default de la barra (`systemBarsForVisualComponents`) IGNORA la perforación,
+                // que en horizontal cae en un costado: sin esto la flecha de volver queda debajo.
+                windowInsets = SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
                 scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
+        // Girado, esta pantalla repartía dos pestañas y unas filas de descarga entre ~873dp. Se
+        // acota al mismo ancho que las hojas ([ComponentConfig.ContentMaxWidth]) y se centra; en
+        // vertical el tope no toca nada. `safeSidePadding` repone la perforación, que el default
+        // del Scaffold no incluye.
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .safeSidePadding()
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
+                .fillMaxWidth()
         ) {
             // Aviso de pausa/detenido (persistente, mismo banner que el home): explica por qué
             // no se descarga y ofrece reanudar / cancelar.
@@ -244,6 +257,7 @@ fun DownloadManagerScreen(
                     }
                 }
             }
+        }
         }
     }
 }

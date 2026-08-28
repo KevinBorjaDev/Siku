@@ -31,6 +31,8 @@ import com.qhana.siku.data.model.StatsPeriodMode
 import com.qhana.siku.data.repository.StatsNameEntry
 import com.qhana.siku.data.repository.StatsSongEntry
 import com.qhana.siku.ui.components.AlbumArt
+import com.qhana.siku.ui.components.SafeBarInsets
+import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.MaterialSymbol
@@ -60,6 +62,10 @@ private val RankArtSize = 48.dp
 
 /** Ancho mínimo de una tarjeta del resumen antes de que `FlowRow` la baje de línea. */
 private val SummaryCardMinWidth = 140.dp
+
+/** Margen lateral y aire entre las tarjetas del resumen; nombrados porque el reparto por fila los lee. */
+private val SummaryGridPadding = 16.dp
+private val SummaryGridSpacing = 8.dp
 
 /**
  * Estadísticas de escucha.
@@ -129,7 +135,10 @@ fun StatsScreen(
                     IconButton(onClick = onBackClick) {
                         MaterialSymbol("arrow_back")
                     }
-                }
+                },
+                // El default de la barra (`systemBarsForVisualComponents`) IGNORA la perforación,
+                // que en horizontal cae en un costado: sin esto la flecha de volver queda debajo.
+                windowInsets = SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
             )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -139,11 +148,22 @@ fun StatsScreen(
     ) { paddingValues ->
         val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
             ComponentConfig.FloatingBarListInset
+        Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding()),
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .padding(top = paddingValues.calculateTopPadding())
+                // Girado, esta pantalla estiraba sus rankings a ~873dp de línea. El tope es el
+                // mismo que el de las hojas ([ComponentConfig.ContentMaxWidth]) y en vertical no
+                // toca nada; `safeSidePadding` repone la perforación, que el `contentWindowInsets`
+                // a cero de arriba descarta a propósito para que el contenido pase bajo la barra.
+                // `widthIn` ANTES de `fillMaxWidth`: el ancho es el mínimo entre el tope y lo que
+                // haya. Al revés, el mínimo exacto que impone `fillMaxWidth` se pelearía con él.
+                .safeSidePadding()
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
+                .fillMaxWidth(),
             contentPadding = PaddingValues(bottom = listBottomInset)
         ) {
             item(key = "period_selector") {
@@ -198,6 +218,7 @@ fun StatsScreen(
                     onClick = onGenreClick
                 )
             }
+        }
         }
     }
 }
@@ -303,13 +324,22 @@ private fun PeriodArrow(
 @Composable
 private fun SummaryGrid(state: StatsUiState) {
     val summary = state.summary
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+    // Cuántas tarjetas caben por fila, DERIVADO del ancho disponible y del mínimo que ya declara
+    // [SummaryCardMinWidth] — no un 2 escrito a mano, que en una ventana ancha dejaba dos tarjetas
+    // enormes donde caben cuatro. El suelo de 2 conserva el emparejado de vertical, donde la
+    // cuenta da 2 igual.
+    val summaryPerRow = (
+        (maxWidth - SummaryGridPadding * 2 + SummaryGridSpacing) /
+            (SummaryCardMinWidth + SummaryGridSpacing)
+        ).toInt().coerceAtLeast(2)
     FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        maxItemsInEachRow = 2
+            .padding(horizontal = SummaryGridPadding),
+        horizontalArrangement = Arrangement.spacedBy(SummaryGridSpacing),
+        verticalArrangement = Arrangement.spacedBy(SummaryGridSpacing),
+        maxItemsInEachRow = summaryPerRow
     ) {
         SummaryCard(
             icon = "play_circle",
@@ -339,6 +369,7 @@ private fun SummaryGrid(state: StatsUiState) {
             label = stringResource(R.string.stats_summary_artists),
             modifier = Modifier.weight(1f)
         )
+    }
     }
 }
 

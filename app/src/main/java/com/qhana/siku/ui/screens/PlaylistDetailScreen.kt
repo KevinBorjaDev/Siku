@@ -22,6 +22,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -37,6 +40,10 @@ import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AdaptiveCollage
 import com.qhana.siku.ui.components.CreatePlaylistDialog
 import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.safeSideInsets
+import com.qhana.siku.ui.components.safeSidePadding
+import com.qhana.siku.ui.components.bleedHorizontally
+import com.qhana.siku.ui.components.rememberDetailHeaderMetrics
 import com.qhana.siku.ui.components.DetailPlayButtons
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.SongItem
@@ -130,7 +137,11 @@ fun PlaylistDetailScreen(
 
     // Título viajero: interpola posición y escala entre el nombre del header y el hueco de la
     // topbar según el scroll (mismo mecanismo que AlbumDetailScreen).
-    val titleFadePx = with(LocalDensity.current) { ComponentConfig.DetailTitleFadeRange.toPx() }
+    // El recorrido del fade sale del alto REAL del header en esta ventana, y no de la constante:
+    // girado el header se acota, y con el recorrido de vertical el titulo no llegaria nunca a la
+    // barra. Ver `detailHeaderMetrics`.
+    val headerMetrics = rememberDetailHeaderMetrics()
+    val titleFadePx = with(LocalDensity.current) { headerMetrics.titleFadeRange.toPx() }
     val rawTitleFraction by remember {
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) 1f
@@ -180,13 +191,26 @@ fun PlaylistDetailScreen(
             } else {
                 // El MiniPlayer global FLOTA sobre esta pantalla: se reserva su alto para que
                 // el último ítem pueda scrollear por encima.
+                // EL COSTADO: en vertical no existe y en horizontal es donde cae todo — la perforación
+                // de pantalla y, con navegación de tres botones, la barra del sistema. Aquí NO se
+                // puede apartar la pantalla entera: el header inmersivo es un `item` de esta misma
+                // lista y un padding lateral le quitaría el sangrado justo a la pieza que tiene que
+                // sangrar. Así que el inset va en el `contentPadding` —o sea a todas las filas— y el
+                // header se sale de él con `bleedHorizontally`, el mismo recurso con el que la
+                // portada del reproductor se salta su keyline.
+                val layoutDirection = LocalLayoutDirection.current
+                val sideInsets = safeSideInsets()
                 val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
                     ComponentConfig.FloatingBarListInset
 
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = listBottomInset)
+                    contentPadding = PaddingValues(
+                        start = sideInsets.calculateStartPadding(layoutDirection),
+                        end = sideInsets.calculateEndPadding(layoutDirection),
+                        bottom = listBottomInset
+                    )
                 ) {
                     item(key = "header") {
                         PlaylistImmersiveHeader(
@@ -196,7 +220,14 @@ fun PlaylistDetailScreen(
                             onTitlePositioned = { pos, height ->
                                 headerTitleAnchor = pos
                                 headerTitleHeight = height
-                            }
+                            },
+                            // A SANGRE: el header es la única pieza de esta lista que llega al borde, así
+                            // que se sale del inset lateral que el `contentPadding` acaba de poner a todas
+                            // las filas. Ver [bleedHorizontally].
+                            modifier = Modifier.bleedHorizontally(
+                                start = sideInsets.calculateStartPadding(layoutDirection),
+                                end = sideInsets.calculateEndPadding(layoutDirection)
+                            )
                         )
                     }
 
@@ -432,6 +463,9 @@ fun PlaylistDetailScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
+                    // El fondo de la barra lo pinta el Box de fuera y llega al borde;
+                    // lo que se aparta de la perforación es su CONTENIDO.
+                    .safeSidePadding()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     FilledIconButton(
@@ -600,15 +634,16 @@ private fun PlaylistImmersiveHeader(
     playlistName: String,
     isFavoritesList: Boolean,
     songs: List<Song>,
-    onTitlePositioned: (Offset, Int) -> Unit
+    onTitlePositioned: (Offset, Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val arts = remember(songs) { songs.mapNotNull { it.albumArtUriString }.distinct().take(4) }
     val totalDurationMin = remember(songs) { songs.sumOf { it.duration } / 60_000 }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(ComponentConfig.DetailHeaderHeight)
+            .height(rememberDetailHeaderMetrics().headerHeight)
     ) {
         when (arts.size) {
             0 -> Box(
@@ -642,6 +677,9 @@ private fun PlaylistImmersiveHeader(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                // El header sangra hasta el borde, pero su TEXTO no: mismo reparto que en la
+                // topbar overlay — fondo hasta el borde, contenido apartado.
+                .safeSidePadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             Text(

@@ -29,6 +29,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,10 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AlbumTileCard
 import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.safeSideInsets
+import com.qhana.siku.ui.components.safeSidePadding
+import com.qhana.siku.ui.components.bleedHorizontally
+import com.qhana.siku.ui.components.rememberDetailHeaderMetrics
 import com.qhana.siku.ui.components.ArtistPickerSheet
 import com.qhana.siku.ui.components.CreatePlaylistDialog
 import com.qhana.siku.ui.components.DetailPlayButtons
@@ -157,7 +164,11 @@ fun ArtistDetailScreen(
     // Text viaja y ESCALA desde el nombre grande del header hasta el hueco de la topbar,
     // interpolando entre ambas posiciones medidas, conducido por el offset de scroll.
     val listState = rememberLazyListState()
-    val titleFadePx = with(LocalDensity.current) { ComponentConfig.DetailTitleFadeRange.toPx() }
+    // El recorrido del fade sale del alto REAL del header en esta ventana, y no de la constante:
+    // girado el header se acota, y con el recorrido de vertical el titulo no llegaria nunca a la
+    // barra. Ver `detailHeaderMetrics`.
+    val headerMetrics = rememberDetailHeaderMetrics()
+    val titleFadePx = with(LocalDensity.current) { headerMetrics.titleFadeRange.toPx() }
     val rawTitleFraction by remember {
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) 1f
@@ -208,6 +219,15 @@ fun ArtistDetailScreen(
     ) { paddingValues ->
         // El MiniPlayer global (MainActivity) FLOTA sobre esta pantalla: se reserva su
         // alto como contentPadding para que el final de la lista scrollee por encima.
+        // EL COSTADO: en vertical no existe y en horizontal es donde cae todo — la perforación
+        // de pantalla y, con navegación de tres botones, la barra del sistema. Aquí NO se
+        // puede apartar la pantalla entera: el header inmersivo es un `item` de esta misma
+        // lista y un padding lateral le quitaría el sangrado justo a la pieza que tiene que
+        // sangrar. Así que el inset va en el `contentPadding` —o sea a todas las filas— y el
+        // header se sale de él con `bleedHorizontally`, el mismo recurso con el que la
+        // portada del reproductor se salta su keyline.
+        val layoutDirection = LocalLayoutDirection.current
+        val sideInsets = safeSideInsets()
         val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + ComponentConfig.FloatingBarListInset
         Box(modifier = Modifier
             .fillMaxSize()
@@ -216,7 +236,11 @@ fun ArtistDetailScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = listBottomInset)
+            contentPadding = PaddingValues(
+                start = sideInsets.calculateStartPadding(layoutDirection),
+                end = sideInsets.calculateEndPadding(layoutDirection),
+                bottom = listBottomInset
+            )
         ) {
             // Header inmersivo: foto edge-to-edge + scrim + back/picker flotantes +
             // nombre y chips superpuestos.
@@ -238,7 +262,14 @@ fun ArtistDetailScreen(
                     onTitlePositioned = { pos, height ->
                         headerTitleAnchor = pos
                         headerTitleHeight = height
-                    }
+                    },
+                    // A SANGRE: el header es la única pieza de esta lista que llega al borde, así
+                    // que se sale del inset lateral que el `contentPadding` acaba de poner a todas
+                    // las filas. Ver [bleedHorizontally].
+                    modifier = Modifier.bleedHorizontally(
+                        start = sideInsets.calculateStartPadding(layoutDirection),
+                        end = sideInsets.calculateEndPadding(layoutDirection)
+                    )
                 )
             }
 
@@ -388,6 +419,9 @@ fun ArtistDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
+                    // El fondo de la barra lo pinta el Box de fuera y llega al borde;
+                    // lo que se aparta de la perforación es su CONTENIDO.
+                    .safeSidePadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 FilledIconButton(
@@ -512,7 +546,8 @@ private fun ArtistImmersiveHeader(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     // HOISTADO desde el parent (mismo objeto que gatea la elevación del título).
     headerImageSharedState: SharedTransitionScope.SharedContentState? = null,
-    onTitlePositioned: (Offset, Int) -> Unit = { _, _ -> }
+    onTitlePositioned: (Offset, Int) -> Unit = { _, _ -> },
+    modifier: Modifier = Modifier
 ) {
     // La foto llega volando desde la fila de la pestaña Artistas o de "Porque escuchaste a X"
     // (sharedBounds: el contenido difiere — thumb chico vs foto grande — y así cross-fadea).
@@ -527,9 +562,9 @@ private fun ArtistImmersiveHeader(
         animatedVisibilityScope = animatedVisibilityScope
     )
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(ComponentConfig.DetailHeaderHeight)
+            .height(rememberDetailHeaderMetrics().headerHeight)
             .then(sharedModifier)
     ) {
         if (imageUrl != null) {
@@ -589,6 +624,9 @@ private fun ArtistImmersiveHeader(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                // El header sangra hasta el borde, pero su TEXTO no: mismo reparto que en la
+                // topbar overlay — fondo hasta el borde, contenido apartado.
+                .safeSidePadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             Text(

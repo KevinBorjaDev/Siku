@@ -1163,6 +1163,10 @@ fun LibraryScreen(
                     tabs = tabs,
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                    // El MISMO color que el `containerColor` del Scaffold: el toolbar deriva de él
+                    // su contenedor y su indicador, así que tiene que ser el fondo REAL de la
+                    // página y no un rol repetido a mano.
+                    background = AppColors.surfaceContainer,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
@@ -2058,8 +2062,7 @@ private fun LibrarySearchHeader(
     contentEndPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Box(
         modifier = modifier
             .fillMaxWidth()
             // background ANTES del statusBarsPadding: el tinte del header pinta también
@@ -2074,11 +2077,22 @@ private fun LibrarySearchHeader(
         // SIN `shadowElevation`: se deja el default de Compose (Level0), que se aparta del
         // `SearchBarTokens.ContainerElevation` del spec (Level 3). Se implementó ese Level 3 el
         // 20 ago y se quitó el mismo día en device — el porqué, junto a `headerItemColor`.
+        //
+        // **La píldora tiene TOPE de ancho** (27 ago 2026): girado se estiraba a los ~790dp que
+        // deja el rail, un campo de texto de una línea ocupando toda la pantalla. El tope es el
+        // mismo que el del resto del contenido ([ComponentConfig.ContentMaxWidth]).
+        //
+        // `widthIn(max)` + `fillMaxWidth()` dentro de un `Box`, y no `weight(1f)` en una `Row`:
+        // así el ancho es `min(disponible, tope)`, o sea **exactamente el de antes en vertical**
+        // (donde disponible < tope) y el tope girado. Con `weight` las constraints llegan FIJAS y
+        // el `widthIn` de dentro se pelearía con ellas.
         SearchBar(
             state = searchBarState,
             inputField = searchInputField,
             colors = searchBarColors,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
+                .fillMaxWidth()
         )
     }
 }

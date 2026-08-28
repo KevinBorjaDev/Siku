@@ -220,8 +220,19 @@ fun QueueBottomSheet(
             .background(colors.backgroundColor)
             .statusBarsPadding()
             .navigationBarsPadding()
+            // La perforación cae en un costado al girar: el fondo va antes y llega al borde.
+            .safeSidePadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        // Esta hoja NO pasa por `AppModalSheet` (es un overlay a pantalla completa montado por
+        // `SheetOverlay`), así que se quedó sin el `sheetMaxWidth` que M3 le da gratis a las otras
+        // cuatro y en horizontal repartía sus filas entre ~873dp. Mismo tope, puesto a mano.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
+                .fillMaxWidth()
+        ) {
             // Top Bar
             TopAppBar(
                 title = {

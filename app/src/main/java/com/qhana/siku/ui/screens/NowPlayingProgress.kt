@@ -109,7 +109,12 @@ internal fun ProgressSlider(
     isPlaying: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val metrics = remember(trackHeight, wavy) { progressMetricsFor(trackHeight, wavy) }
+    // `showHandle` entra en la geometría porque decide cuánto alto hay que RESERVAR: con el palo
+    // apagado la barra solo dibuja su riel, y guardarle sitio al palo dejaba 16dp de aire muerto
+    // contra los chips de tiempo (ver [ProgressMetrics.touchHeight]).
+    val metrics = remember(trackHeight, wavy, showHandle) {
+        progressMetricsFor(trackHeight, wavy, persistentHandle = showHandle)
+    }
     val currentPosition by currentPositionFlow.collectAsStateWithLifecycle()
     val duration by durationFlow.collectAsStateWithLifecycle()
     val bufferedPosition by bufferedPositionFlow.collectAsStateWithLifecycle()
@@ -458,7 +463,15 @@ internal fun ProgressBarPreview(
     inactiveColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val metrics = remember(trackHeight, wavy) { progressMetricsFor(trackHeight, wavy) }
+    // **`persistentHandle = true` SIEMPRE, al revés que la barra real**, y no es un descuido: acá el
+    // palo entra y sale INTERPOLANDO cada vez que se toca el interruptor, así que la previa lo
+    // dibuja durante toda la animación y necesita su sitio. Atarlo a `showHandle` haría que la caja
+    // pegara un salto de 20dp en el mismo frame en que empieza el fundido — justo en la pantalla
+    // donde se está mirando. Allá el ajuste está quieto y el aire muerto se ve; acá está cambiando
+    // y lo que se vería es el salto.
+    val metrics = remember(trackHeight, wavy) {
+        progressMetricsFor(trackHeight, wavy, persistentHandle = true)
+    }
     // Mismo tratamiento que en la barra real: el palo entra y sale interpolando, así que conmutar
     // el switch se ve como el palo retirándose y los huecos cerrándose, no como un salto.
     val handleAlpha by animateFloatAsState(
@@ -1257,8 +1270,11 @@ internal const val POSITION_TICK_MS = 1000
  *
  * **Solo gobierna los saltos hacia adelante**: un retroceso se snapea siempre, por SENTIDO y no por
  * distancia, y por eso los cambios de pista ya no dependen de este número (ver `rememberSmoothedProgress`).
+ *
+ * `internal` porque lo comparte el anillo del MiniPlayer, que interpola con la MISMA regla: dos
+ * superficies que dibujan el mismo progreso no pueden discrepar en qué es un seek y qué es avance.
  */
-private const val PROGRESS_SNAP_THRESHOLD = 0.05f
+internal const val PROGRESS_SNAP_THRESHOLD = 0.05f
 
 /**
  * Paso de muestreo del path en píxeles. La sinusoide se dibuja como polilínea: 2px da una

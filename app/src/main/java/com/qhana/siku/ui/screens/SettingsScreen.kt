@@ -60,6 +60,12 @@ import com.qhana.siku.ui.components.DisconnectOneDriveDialog
 import com.qhana.siku.ui.components.DeviceScanSourceCard
 import com.qhana.siku.ui.components.LocalFoldersSourceCard
 import com.qhana.siku.ui.components.rememberDeviceScanActivator
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.Box
+import com.qhana.siku.ui.components.SafeBarInsets
+import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.MenuItemIcon
 import com.qhana.siku.ui.components.PlayerGestureConfig
@@ -2126,19 +2132,32 @@ private fun SettingsScaffold(
                 // esquema BASE— y la banda superior de TODA la pantalla se quedaba con el tinte del
                 // wallpaper mientras el contenido llevaba el de la carátula.
                 colors = appTopAppBarColors(),
+                // El default de la barra (`systemBarsForVisualComponents`) IGNORA la perforación,
+                // que en horizontal cae en un costado: sin esto la flecha de volver queda debajo.
+                windowInsets = SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
                 scrollBehavior = scrollBehavior
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            content = content
-        )
+        // La columna de ajustes NO se estira a lo ancho de la ventana (27 ago 2026): girado, cada
+        // fila medía ~873dp y dejaba el título de un ajuste a un lado y su interruptor a 840dp de
+        // distancia, o sea que había que barrer la pantalla con la vista para saber qué se estaba
+        // encendiendo. El tope es [ComponentConfig.ContentMaxWidth], el mismo que las hojas.
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    // `widthIn` ANTES de `fillMaxWidth`: el ancho acaba siendo el mínimo entre el
+                    // tope y lo disponible, así que en vertical no cambia nada.
+                    .widthIn(max = ComponentConfig.ContentMaxWidth)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .safeSidePadding()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+                content = content
+            )
+        }
     }
 }
 

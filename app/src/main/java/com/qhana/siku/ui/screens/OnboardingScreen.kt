@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -60,6 +61,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qhana.siku.R
+import com.qhana.siku.ui.components.safeSidePadding
+import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.OneDriveSourceCard
 import com.qhana.siku.ui.components.rememberOneDriveFolderChanger
@@ -700,9 +703,16 @@ private fun OnboardingStep(
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding()
+            // `systemBarsPadding` cubre las barras pero NO la perforación, que al girar cae en un
+            // costado: sin esto el texto del paso se mete debajo.
+            .safeSidePadding()
     ) {
         Column(
             modifier = Modifier
+                // Tope de ancho: girado, el título y el subtítulo se centraban sobre líneas de
+                // ~825dp. Es el mismo tope que el resto del contenido y en vertical no toca nada.
+                .align(Alignment.TopCenter)
+                .widthIn(max = ComponentConfig.ContentMaxWidth)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = maxHeight)

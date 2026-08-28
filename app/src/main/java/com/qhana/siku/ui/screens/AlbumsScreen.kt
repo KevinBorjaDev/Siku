@@ -1,5 +1,8 @@
 package com.qhana.siku.ui.screens
 
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -13,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -30,6 +32,8 @@ import androidx.compose.ui.res.pluralStringResource
 import com.qhana.siku.data.local.AlbumSummary
 import com.qhana.siku.data.model.AlbumSortOrder
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.ui.components.AdaptiveGridCells
+import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.AlbumTileCard
 import com.qhana.siku.ui.components.FilteredEmptyHint
 import com.qhana.siku.ui.components.MaterialSymbol
@@ -83,11 +87,16 @@ fun AlbumsScreen(
     // 2 columnas de tarjetas (Card): carátula con badge de nº de canciones arriba, y en el
     // contenido el nombre/artista + botón de play.
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        // Adaptativa CON SUELO de dos columnas, no `GridCells.Adaptive` a secas: en vertical
+        // salen siempre las dos de siempre —en cualquier teléfono, no solo en los de 393dp— y solo
+        // se añaden columnas cuando la ventana da de sobra. Ver [AdaptiveGridCells].
+        columns = AdaptiveGridCells(ComponentConfig.GridTileMinWidth),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
+            // Se SUMA lo que llega en vez de descartarlo: si el contenedor inyecta un inset lateral
+            // (la perforación en horizontal), un 16 fijo lo tiraría. Es lo que ya hace PlaylistList.
+            start = 16.dp + contentPadding.calculateStartPadding(LocalLayoutDirection.current),
+            end = 16.dp + contentPadding.calculateEndPadding(LocalLayoutDirection.current),
             // El top que llega incluye el alto del header (el contenido pasa por debajo
             // de TopBar+tabs): NO descartarlo o la cuadrícula nace tapada por las tabs.
             top = contentPadding.calculateTopPadding() + 4.dp,

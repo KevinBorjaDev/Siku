@@ -10,12 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -62,9 +58,11 @@ import com.qhana.siku.data.util.SnackbarLength
 import com.qhana.siku.data.util.SnackbarManager
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.LocalSnackbarHostState
+import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.navigation.AppNavHost
 import com.qhana.siku.ui.navigation.Screen
 import com.qhana.siku.ui.screens.LibraryBottomBarPillLift
+import com.qhana.siku.ui.screens.LibraryRailWidth
 import com.qhana.siku.ui.screens.POSITION_TICK_MS
 import com.qhana.siku.ui.viewmodel.AuthViewModel
 import com.qhana.siku.ui.viewmodel.LibraryViewModel
@@ -298,22 +296,26 @@ fun MusicPlayerScreen(
     val currentEntry = appState.currentBackStackEntry
     val currentRoute = currentEntry?.destination?.route
 
-    // Cuánto sube lo que FLOTA abajo (la píldora y el snackbar) cuando la biblioteca pone su barra
-    // de pestañas. Sale de `libraryChrome`, la misma función que consumen `LibraryScreen` —para
-    // decidir si la dibuja— y `PlayerOverlay`. Aquí no se anima: un snackbar aparece y desaparece,
+    // Cuánto tiene que apartarse lo que FLOTA abajo (la píldora y el snackbar) del cromo que pone
+    // la biblioteca. Sale de `libraryChrome`, la misma función que consumen `LibraryScreen` —para
+    // decidir cuál dibuja— y `PlayerOverlay`. Aquí no se anima: un snackbar aparece y desaparece,
     // así que no hay nada que ver moverse.
+    //
+    // **Las DOS ramas, no solo la de abajo** (27 ago 2026): hasta esa fecha esto solo miraba
+    // `BottomBar`, así que en horizontal el snackbar se extendía por debajo del rail mientras la
+    // píldora sí se apartaba de él (`PlayerOverlay` deriva su `chromeRailInset` del mismo `when`).
+    // Dos piezas flotando en la misma capa leyendo media condición cada una es exactamente lo que
+    // esta función existe para evitar.
     val libraryBottomTabs by playbackViewModel.libraryBottomTabs.collectAsStateWithLifecycle()
-    val chromeLift = if (
-        libraryChrome(
-            route = currentRoute,
-            bottomTabs = libraryBottomTabs,
-            landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-        ) == LibraryChrome.BottomBar
-    ) {
-        LibraryBottomBarPillLift
-    } else {
-        0.dp
-    }
+    val libraryChromeMode = libraryChrome(
+        route = currentRoute,
+        bottomTabs = libraryBottomTabs,
+        landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    )
+    val chromeLift =
+        if (libraryChromeMode == LibraryChrome.BottomBar) LibraryBottomBarPillLift else 0.dp
+    val chromeRailInset =
+        if (libraryChromeMode == LibraryChrome.Rail) LibraryRailWidth else 0.dp
     val requestedLayer = when {
         playerExpanded -> PlayerLayerState.Expanded
         currentSong != null && isPillRoute(currentRoute) -> PlayerLayerState.Collapsed
@@ -629,11 +631,13 @@ fun MusicPlayerScreen(
                         // Mismo criterio que la píldora: barras del sistema Y perforación, que en
                         // horizontal caen en un costado.
                         .windowInsetsPadding(
-                            WindowInsets.systemBars
-                                .union(WindowInsets.displayCutout)
-                                .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+                            SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
                         )
                         .padding(
+                            // Con el rail al lado, el snackbar arranca donde acaba el rail: si no,
+                            // se centraría respecto de la pantalla entera y su borde quedaría por
+                            // debajo de los destinos. Es lo mismo que hace la píldora.
+                            start = chromeRailInset,
                             // Con la barra de pestañas puesta, el mini se apoya sobre ELLA, así
                             // que el snackbar tiene que subir lo mismo o saldría por detrás.
                             // Misma regla que usa la píldora, no una copia de la condición.

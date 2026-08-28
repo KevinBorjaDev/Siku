@@ -361,7 +361,9 @@ fun EqualizerSheet(
                     titleContentColor = AppColors.onSurface,
                     navigationIconContentColor = AppColors.onSurface,
                     actionIconContentColor = AppColors.onSurfaceVariant
-                )
+                ),
+                // El default de la barra IGNORA la perforación, que en horizontal cae en un costado.
+                windowInsets = SafeBarInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
             )
         }
     ) { innerPadding ->
@@ -369,6 +371,11 @@ fun EqualizerSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                // La perforación cae en un costado al girar y el default del Scaffold no la
+                // incluye. **Aquí NO se acota el ancho**, al revés que en la cola o en las letras:
+                // `BandSliders` ya mide si las diez bandas caben en fila, y girado es justo el caso
+                // en el que caben — un tope las devolvería a la rejilla apretada de vertical.
+                .safeSidePadding()
                 .padding(horizontal = ContentMargin)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
