@@ -7,6 +7,7 @@ import androidx.compose.material3.MenuAnchorPosition
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.window.PopupProperties
 
 /**
@@ -63,4 +64,22 @@ fun AppMenuPopup(
     ) {
         content()
     }
+}
+
+/**
+ * Forma de una entrada de menú según su POSICIÓN en el grupo, para los menús cuyo número de items
+ * no es fijo. Es lo que hace `MenuDefaults.itemShape(index, count)`, pero devolviendo el `Shape`
+ * suelto: esa función entrega un `MenuItemShapes`, que solo aceptan las sobrecargas de
+ * `DropdownMenuItem` con estado (`selected`/`checked`) — la de acción simple recibe `shape`.
+ *
+ * Vive aquí y no en un menú concreto porque ya son dos los que cambian de tamaño: el del
+ * `SplitButton` de los detalles (dos o cinco entradas, según la pantalla tenga orden propio) y el
+ * overflow del header de la biblioteca (Estadísticas y Cerrar sesión son condicionales).
+ */
+@Composable
+internal fun menuItemShapeAt(index: Int, count: Int): Shape = when {
+    count <= 1 -> MenuDefaults.standaloneItemShape
+    index == 0 -> MenuDefaults.leadingItemShape
+    index == count - 1 -> MenuDefaults.trailingItemShape
+    else -> MenuDefaults.middleItemShape
 }

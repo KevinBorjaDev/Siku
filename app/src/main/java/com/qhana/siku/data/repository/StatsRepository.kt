@@ -20,7 +20,14 @@ data class StatsSummary(
     val plays: Int,
     val listenedMs: Long?,
     val distinctSongs: Int,
-    val distinctArtists: Int
+    val distinctArtists: Int,
+    /**
+     * `true` cuando [listenedMs] no está MEDIDO sino derivado de reproducciones x duración, que es
+     * lo único que se puede saber del pasado anterior al log de eventos (periodo "Siempre"). La
+     * pantalla lo dice en la etiqueta: presentar un estimado como si fuera un dato exacto sería
+     * peor que no darlo.
+     */
+    val listenedIsEstimate: Boolean = false
 ) {
     val isEmpty: Boolean get() = plays == 0
 }
@@ -69,11 +76,40 @@ class StatsRepository @Inject constructor(
             StatsSummary(it.plays, it.listenedMs, it.distinctSongs, it.distinctArtists)
         }
 
-    /** Totales de siempre, desde los agregados. Sin tiempo escuchado: ese dato no existe. */
+    /**
+     * Totales de siempre, desde los agregados de `songs`.
+     *
+     * El tiempo escuchado va ESTIMADO (ver [SongDao.getAllTimeTotalsFlow]): medido no existe para el
+     * pasado anterior al log de eventos. Estuvo en `null` —la pantalla directamente no pintaba la
+     * tarjeta— hasta el 28 ago 2026; el criterio de entonces era "no inventar un dato", y sigue
+     * valiendo, pero una estimación acotada y ETIQUETADA como tal informa más que un hueco.
+     */
     fun allTimeSummary(): Flow<StatsSummary> =
         songDao.getAllTimeTotalsFlow().map {
-            StatsSummary(it.plays, listenedMs = null, it.distinctSongs, it.distinctArtists)
+            StatsSummary(
+                plays = it.plays,
+                listenedMs = it.estimatedListenedMs,
+                distinctSongs = it.distinctSongs,
+                distinctArtists = it.distinctArtists,
+                listenedIsEstimate = true
+            )
         }
+
+    /**
+     * Álbumes y géneros distintos del periodo. Van APARTE de [summary] porque llevan JOIN con
+     * `songs` y aquélla es de una sola tabla a propósito (ver `PlayEventDao`): mezclarlos volvería
+     * sensible al sync un resumen que hoy no lo es.
+     */
+    fun distinctAlbums(since: Long, until: Long): Flow<Int> =
+        playEventDao.distinctAlbumsFlow(since, until, AppConfig.UNKNOWN_ALBUM)
+
+    fun distinctGenres(since: Long, until: Long): Flow<Int> =
+        playEventDao.distinctGenresFlow(since, until)
+
+    fun allTimeDistinctAlbums(): Flow<Int> =
+        songDao.getAllTimeDistinctAlbumsFlow(AppConfig.UNKNOWN_ALBUM)
+
+    fun allTimeDistinctGenres(): Flow<Int> = songDao.getAllTimeDistinctGenresFlow()
 
     fun topSongs(since: Long, until: Long, limit: Int): Flow<List<StatsSongEntry>> =
         playEventDao.topSongsFlow(since, until, limit).map { rows ->

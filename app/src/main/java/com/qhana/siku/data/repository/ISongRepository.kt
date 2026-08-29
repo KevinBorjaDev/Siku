@@ -64,14 +64,16 @@ interface ISongRepository {
     // actualizan solas al contar una escucha o entrar canciones nuevas.
     /** Últimas reproducidas (historial no nulo, más reciente primero). */
     fun getRecentlyPlayed(limit: Int): Flow<List<Song>>
-    /** Más reproducidas (por playCount, > 0). */
-    fun getMostPlayed(limit: Int): Flow<List<Song>>
     /** Recién agregadas a la biblioteca (por dateAdded). */
     fun getRecentlyAdded(limit: Int): Flow<List<Song>>
+    /** Recién agregadas desde [since], sin tope: la lista completa tras la sección del inicio. */
+    fun getRecentlyAddedSince(since: Long): Flow<List<Song>>
     /** Canciones de un artista (sección generada "Porque escuchaste a X"). */
     fun getSongsByArtist(artist: String): Flow<List<Song>>
     /** "Vuelve a escucharlas": escuchadas antes de [before], más antiguas primero. */
     fun getRediscover(before: Long, limit: Int): Flow<List<Song>>
+    /** "Aún no las escuchaste": nunca reproducidas, lo más nuevo primero. */
+    fun getNeverPlayed(limit: Int): Flow<List<Song>>
     /** Top de géneros (≥ [minCount] canciones) para los chips de acciones rápidas del inicio. */
     fun getTopGenres(minCount: Int, limit: Int): Flow<List<com.qhana.siku.data.local.GenreSummary>>
     /**
@@ -87,8 +89,6 @@ interface ISongRepository {
      * null si ninguno con historial califica.
      */
     fun getTopPlayedArtist(minSongs: Int): Flow<String?>
-    /** Nº de canciones con última escucha desde [since] (stat del saludo del inicio). */
-    fun getPlayedSinceCount(since: Long): Flow<Int>
     /** Tamaño total de la biblioteca (stat de respaldo del saludo). */
     fun getLibrarySize(): Flow<Int>
     fun getSongByIdFlow(songId: String): Flow<Song?>

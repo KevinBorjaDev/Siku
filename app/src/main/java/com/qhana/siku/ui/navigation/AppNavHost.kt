@@ -19,6 +19,7 @@ import com.qhana.siku.ui.screens.GenreDetailScreen
 import com.qhana.siku.ui.screens.LibraryScreen
 import com.qhana.siku.ui.screens.OnboardingScreen
 import com.qhana.siku.ui.screens.PlaylistDetailScreen
+import com.qhana.siku.ui.screens.RecentlyAddedScreen
 import com.qhana.siku.ui.screens.SettingsAppearanceScreen
 import com.qhana.siku.ui.screens.SettingsBackupScreen
 import com.qhana.siku.ui.screens.SettingsDownloadsScreen
@@ -31,6 +32,7 @@ import com.qhana.siku.ui.screens.SettingsProgressBarScreen
 import com.qhana.siku.ui.screens.SettingsScreen
 import com.qhana.siku.ui.screens.SettingsSourcesScreen
 import com.qhana.siku.ui.screens.SettingsTabsScreen
+import com.qhana.siku.ui.screens.StatsListScreen
 import com.qhana.siku.ui.screens.StatsScreen
 import com.qhana.siku.ui.theme.appNavBackEnter
 import com.qhana.siku.ui.theme.appNavBackExit
@@ -152,6 +154,7 @@ fun AppNavHost(
                 onAlbumClick = { name -> navController.navigate(Screen.AlbumDetail.createRoute(name)) },
                 onGenreClick = { name -> navController.navigate(Screen.GenreDetail.createRoute(name)) },
                 onStatsClick = { navController.navigate(Screen.Stats.route) },
+                onSeeAllRecentClick = { navController.navigate(Screen.RecentlyAdded.route) },
                 onNavigateToNowPlaying = { origin -> appState.openPlayer(origin) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
                 playbackViewModel = playbackViewModel,
@@ -501,12 +504,52 @@ fun AppNavHost(
             DownloadManagerScreen(onBackClick = { navController.popBackStack() })
         }
 
+        composable(Screen.RecentlyAdded.route) {
+            RecentlyAddedScreen(
+                currentSong = currentSong,
+                favorites = favorites,
+                playlists = playlists,
+                onBackClick = { navController.popBackStack() },
+                onPlaySongs = { songs, index ->
+                    playbackViewModel.playSongs(songs, index)
+                    appState.openPlayer(PlayerArtOrigin.ROW)
+                },
+                onShufflePlay = { songs ->
+                    playbackViewModel.shufflePlay(songs)
+                    appState.openPlayer()
+                },
+                onToggleFavorite = { libraryViewModel.toggleFavorite(it) },
+                onAddToQueue = { playbackViewModel.addToQueue(it) },
+                // Misma función, otra sobrecarga: la de lista cuenta cuántas entraron de verdad.
+                onAddAllToQueue = { playbackViewModel.addToQueue(it) },
+                onAddSongToPlaylist = { playlistId, songId ->
+                    libraryViewModel.addSongToPlaylist(playlistId, songId)
+                },
+                onCreatePlaylist = { name, pendingSongId ->
+                    libraryViewModel.createPlaylist(name) { id ->
+                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
+                    }
+                },
+                // El COMPARTIDO, no uno por ruta (convención 9).
+                libraryViewModel = libraryViewModel
+            )
+        }
+
         composable(Screen.Stats.route) {
             StatsScreen(
+                onBackClick = { navController.popBackStack() },
+                // La pantalla ya no reproduce ni navega a detalles: cada tarjeta abre su ranking
+                // completo, y es ahí donde se toca una fila.
+                onOpenList = { kind, mode, anchor ->
+                    navController.navigate(Screen.StatsList.createRoute(kind.name, mode, anchor))
+                }
+            )
+        }
+
+        composable(Screen.StatsList.route) {
+            StatsListScreen(
                 currentSong = currentSong,
                 onBackClick = { navController.popBackStack() },
-                // Reproduce el ranking entero como cola desde la tocada, igual que los carruseles
-                // del inicio. `ROW` porque la fila es la punta de origen del container transform.
                 onPlaySongs = { songs, index ->
                     playbackViewModel.playSongs(songs, index)
                     appState.openPlayer(PlayerArtOrigin.ROW)

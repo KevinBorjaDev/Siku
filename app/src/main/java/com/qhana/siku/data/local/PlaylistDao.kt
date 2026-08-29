@@ -17,6 +17,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE uuid = :uuid LIMIT 1")
     suspend fun getPlaylistByUuid(uuid: String): PlaylistEntity?
 
+    @Query("SELECT * FROM playlists WHERE playlistId = :playlistId LIMIT 1")
+    suspend fun getPlaylistById(playlistId: Long): PlaylistEntity?
+
     @Query("SELECT playlistId FROM playlists WHERE uuid = :uuid LIMIT 1")
     suspend fun getPlaylistIdByUuid(uuid: String): Long?
 
@@ -100,6 +103,16 @@ interface PlaylistDao {
         ORDER BY ref.orderIndex ASC
     """)
     fun getSongsForPlaylist(playlistId: Long): Flow<List<SongEntity>>
+
+    /** La misma lista, puntual: para exportar hace falta una foto, no una suscripción. */
+    @Transaction
+    @Query("""
+        SELECT s.* FROM songs s
+        INNER JOIN playlist_song_cross_ref ref ON s.id = ref.songId
+        WHERE ref.playlistId = :playlistId
+        ORDER BY ref.orderIndex ASC
+    """)
+    suspend fun getSongsForPlaylistList(playlistId: Long): List<SongEntity>
 
     @Query("""
         SELECT s.id FROM songs s

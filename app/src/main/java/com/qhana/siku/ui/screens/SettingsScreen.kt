@@ -50,6 +50,7 @@ import com.qhana.siku.data.model.PlayerToolbarConfig
 import com.qhana.siku.data.model.ReplayGainMode
 import com.qhana.siku.data.model.ToolbarActionState
 import com.qhana.siku.data.source.DeviceAudioFolder
+import com.qhana.siku.data.util.CrashReporter
 import com.qhana.siku.ui.components.AppMenuPopup
 import com.qhana.siku.ui.components.DISABLED_CONTENT_ALPHA
 import com.qhana.siku.ui.components.groupedListItemShapes
@@ -266,6 +267,12 @@ fun SettingsScreen(
 ) {
     val hasLocalSource by sourcesViewModel.hasLocalSource.collectAsStateWithLifecycle()
 
+    // Un `listFiles` sobre un directorio de como mucho cinco archivos, una vez por entrada a la
+    // pantalla: no merece un ViewModel ni un flujo. Y se consulta al COMPONER a propósito — si la
+    // app crasheó, esta composición es posterior al crash.
+    val context = LocalContext.current
+    val hasCrashReport = remember { CrashReporter.hasReport(context) }
+
     // Subtítulo dinámico de Fuentes, como el resumen de estado de Ajustes de Android.
     val sourcesSubtitle = sourcesSummary(isLoggedIn = isLoggedIn, hasLocalSource = hasLocalSource)
 
@@ -279,7 +286,7 @@ fun SettingsScreen(
             icon = "cloud",
             title = stringResource(R.string.sources_header),
             subtitle = sourcesSubtitle,
-            route = Screen.SettingsSources.route,
+            onClick = { onNavigate(Screen.SettingsSources.route) },
             iconShape = MaterialShapes.Cookie9Sided.toShape(),
             seed = Color(0xFF1976D2) // azul
         ),
@@ -289,7 +296,7 @@ fun SettingsScreen(
             icon = "cloud_upload",
             title = stringResource(R.string.backup_header),
             subtitle = stringResource(R.string.settings_cat_backup_desc),
-            route = Screen.SettingsBackup.route,
+            onClick = { onNavigate(Screen.SettingsBackup.route) },
             iconShape = MaterialShapes.Sunny.toShape(),
             seed = Color(0xFF2E7D32) // verde
         ) else null,
@@ -297,7 +304,7 @@ fun SettingsScreen(
             icon = "brand_awareness",
             title = stringResource(R.string.settings_volume_header),
             subtitle = stringResource(R.string.settings_cat_playback_desc),
-            route = Screen.SettingsPlayback.route,
+            onClick = { onNavigate(Screen.SettingsPlayback.route) },
             iconShape = MaterialShapes.Cookie7Sided.toShape(),
             seed = Color(0xFFE65100) // naranja
         ),
@@ -308,7 +315,7 @@ fun SettingsScreen(
             icon = "download",
             title = stringResource(R.string.settings_downloads_header),
             subtitle = stringResource(R.string.settings_cat_downloads_desc),
-            route = Screen.SettingsDownloads.route,
+            onClick = { onNavigate(Screen.SettingsDownloads.route) },
             iconShape = MaterialShapes.Cookie12Sided.toShape(),
             seed = Color(0xFF6A1B9A) // violeta
         ),
@@ -316,7 +323,7 @@ fun SettingsScreen(
             icon = "palette",
             title = stringResource(R.string.settings_appearance_header),
             subtitle = stringResource(R.string.settings_cat_appearance_desc),
-            route = Screen.SettingsAppearance.route,
+            onClick = { onNavigate(Screen.SettingsAppearance.route) },
             iconShape = MaterialShapes.Cookie6Sided.toShape(),
             seed = Color(0xFFC2185B) // rosa
         ),
@@ -324,10 +331,29 @@ fun SettingsScreen(
             icon = "swipe",
             title = stringResource(R.string.settings_gestures_header),
             subtitle = stringResource(R.string.settings_cat_gestures_desc),
-            route = Screen.SettingsGestures.route,
+            onClick = { onNavigate(Screen.SettingsGestures.route) },
             iconShape = MaterialShapes.Cookie4Sided.toShape(),
             seed = Color(0xFF00838F) // turquesa
-        )
+        ),
+        // Informe de fallo: SOLO si hay uno guardado, y por eso va al final. Es la segunda puerta
+        // del informe —la primera es la pantalla que el propio fallo levanta—, y existe para el
+        // crash que sí dejó volver a entrar: ahí la pantalla ya se cerró y sin esto el informe
+        // quedaría en disco sin forma de mandarlo. Permanente sería una categoría que casi siempre
+        // dice "no pasó nada".
+        if (hasCrashReport) {
+            SettingsCategory(
+                icon = "bug_report",
+                title = stringResource(R.string.settings_crash_header),
+                subtitle = stringResource(R.string.settings_crash_desc),
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(context, CrashReportActivity::class.java))
+                    }
+                },
+                iconShape = MaterialShapes.Cookie4Sided.toShape(),
+                seed = Color(0xFFB71C1C) // rojo
+            )
+        } else null
     )
 
     SettingsScaffold(
@@ -339,7 +365,7 @@ fun SettingsScreen(
             // patrón agrupado en esta pantalla y la última en montarlo a mano. El badge de forma
             // orgánica va en el slot leading, que es donde le corresponde.
             SegmentedListItem(
-                onClick = { onNavigate(category.route) },
+                onClick = category.onClick,
                 shapes = groupedListItemShapes(index = index, count = categories.size),
                 colors = appSegmentedListItemColors(AppColors.surfaceContainerHigh),
                 leadingContent = {
@@ -392,7 +418,12 @@ private data class SettingsCategory(
     val icon: String,
     val title: String,
     val subtitle: String,
-    val route: String,
+    /**
+     * Qué hace la fila. Era una RUTA, y dejó de serlo al entrar el informe de fallo: esa entrada no
+     * navega dentro del grafo, abre [CrashReportActivity]. Con una acción el hub sirve para las dos
+     * sin un segundo mecanismo en paralelo.
+     */
+    val onClick: () -> Unit,
     val iconShape: Shape,
     /** Color de acento de la categoría; el par del badge se deriva vía [rememberBadgeColors]. */
     val seed: Color

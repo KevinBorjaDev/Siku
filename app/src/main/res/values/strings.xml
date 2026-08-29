@@ -111,6 +111,25 @@
         <item quantity="other">%d canciones añadidas</item>
     </plurals>
 
+    <!-- ==================== Importar/exportar listas en M3U ==================== -->
+    <string name="playlist_import_default_name">Lista importada</string>
+    <string name="playlist_import_action">Importar</string>
+    <string name="playlist_import_menu">Importar de un archivo</string>
+    <string name="playlist_export_menu">Exportar a un archivo</string>
+    <!-- Nombre propuesto al crear el archivo; %1$s = nombre de la lista -->
+    <string name="playlist_export_file_name">%1$s.m3u8</string>
+    <!-- %1$d = canciones añadidas, %2$s = nombre de la lista creada -->
+    <string name="playlist_import_success">%1$d canciones importadas en \"%2$s\"</string>
+    <!-- Se añade al mensaje anterior; %1$d = líneas que no se pudieron casar -->
+    <string name="playlist_import_missing_suffix"> · %1$d no están en tu biblioteca</string>
+    <string name="playlist_import_empty">El archivo no tiene ninguna canción</string>
+    <string name="playlist_import_error">No se pudo importar la lista</string>
+    <!-- %1$d = canciones escritas en el archivo -->
+    <string name="playlist_export_success">%1$d canciones exportadas</string>
+    <!-- Se añade al mensaje anterior; %1$d = canciones de la nube, sin ruta en el teléfono -->
+    <string name="playlist_export_relative_suffix"> · %1$d van con ruta relativa</string>
+    <string name="playlist_export_error">No se pudo exportar la lista</string>
+
     <!-- ==================== Acciones de detalle (artista/álbum/lista) ==================== -->
     <string name="detail_play_all">Reproducir todo</string>
     <string name="detail_shuffle">Reproducir en aleatorio</string>
@@ -810,6 +829,7 @@
     <string name="home_greeting_morning">Buenos días</string>
     <string name="home_greeting_afternoon">Buenas tardes</string>
     <string name="home_greeting_evening">Buenas noches</string>
+    <!-- Subtítulo del saludo: %1$s = tiempo escuchado, %2$s = reproducciones (ya en plural) -->
     <string name="home_section_continue">Seguir escuchando</string>
     <!-- Subtítulos de tipo de cada contexto reanudable en "Seguir escuchando" -->
     <string name="home_ctx_album">Álbum</string>
@@ -819,17 +839,13 @@
     <string name="home_ctx_favorites">Favoritos</string>
     <string name="home_ctx_shuffle">Aleatorio</string>
     <string name="home_ctx_library">Toda la biblioteca</string>
-    <string name="home_section_most_played">Más reproducidas</string>
     <string name="home_section_recently_added">Recién agregadas</string>
-    <string name="home_section_top_albums">Álbumes del momento</string>
     <!-- %1$s = nombre del artista más escuchado -->
     <string name="home_section_because_you_listened">Porque escuchaste a %1$s</string>
     <string name="home_section_rediscover">Vuelve a escucharlas</string>
-    <!-- Subtítulo del saludo: %1$d = número de canciones -->
-    <plurals name="home_stats_week">
-        <item quantity="one">Escuchaste %1$d canción esta semana</item>
-        <item quantity="other">Escuchaste %1$d canciones esta semana</item>
-    </plurals>
+    <string name="home_section_never_played">Aún no las escuchaste</string>
+    <string name="home_see_all">Ver todo</string>
+    <string name="recently_added_empty">No agregaste música en los últimos 30 días</string>
     <plurals name="home_stats_library">
         <item quantity="one">%1$d canción en tu biblioteca</item>
         <item quantity="other">%1$d canciones en tu biblioteca</item>
@@ -955,27 +971,35 @@
 
     <!-- ==================== ESTADÍSTICAS DE ESCUCHA ==================== -->
     <string name="stats_title">Estadísticas</string>
-    <!-- Tarjeta de entrada en el inicio -->
-    <string name="stats_home_card_title">Tu mes en música</string>
-    <!-- %1$s = tiempo escuchado, %2$s = reproducciones (ya en plural) -->
-    <string name="stats_home_card_summary">%1$s · %2$s</string>
-    <string name="stats_home_card_empty">Escucha algo y aquí verás tu resumen</string>
+    <!-- Entrada a Estadísticas desde el inicio. %1$s = tiempo escuchado este mes -->
+    <string name="stats_home_entry_title">Tu mes en música</string>
+    <string name="stats_home_entry_empty">Escucha algo y aquí verás tu resumen</string>
     <!-- Selector de periodo -->
-    <string name="stats_period_month">Mes</string>
-    <string name="stats_period_year">Año</string>
+    <string name="stats_period_day_short">D</string>
+    <string name="stats_period_week_short">S</string>
+    <string name="stats_period_month_short">M</string>
+    <string name="stats_period_year_short">A</string>
     <string name="stats_period_all">Siempre</string>
     <string name="stats_period_previous">Periodo anterior</string>
     <string name="stats_period_next">Periodo siguiente</string>
     <!-- Resumen -->
     <string name="stats_summary_plays">Reproducciones</string>
     <string name="stats_summary_time">Tiempo escuchado</string>
+    <!-- Periodo "Siempre": el tiempo es estimado (reproducciones x duracion), no medido -->
+    <string name="stats_summary_time_estimate">Tiempo aprox.</string>
     <string name="stats_summary_songs">Canciones</string>
     <string name="stats_summary_artists">Artistas</string>
+    <string name="stats_summary_albums">Álbumes</string>
+    <string name="stats_summary_genres">Géneros</string>
     <!-- %1$d = horas, %2$d = minutos -->
     <string name="stats_time_hours_minutes">%1$d h %2$d min</string>
     <string name="stats_time_minutes">%1$d min</string>
     <!-- Racha de días seguidos escuchando -->
     <string name="stats_streak_title">Racha</string>
+    <string name="stats_streak_milestone_week">¡Una semana seguida!</string>
+    <string name="stats_streak_milestone_month">¡Mes completo!</string>
+    <string name="stats_streak_milestone_100">¡100 días seguidos!</string>
+    <string name="stats_streak_milestone_year">Sí que eres un melómano</string>
     <string name="stats_streak_none">Sin racha activa</string>
     <plurals name="stats_streak_days">
         <item quantity="one">%1$d día seguido</item>
@@ -994,6 +1018,15 @@
     <string name="stats_empty_title">Todavía no hay nada que contar</string>
     <string name="stats_empty_subtitle">Escucha algo y aquí verás tu historial</string>
     <string name="stats_empty_period">No escuchaste nada en este periodo</string>
-    <string name="stats_all_time_note">Cuenta todo tu historial. El tiempo escuchado y la racha se registran desde el %1$s.</string>
-    <string name="stats_all_time_note_pending">Cuenta todo tu historial. El tiempo escuchado y la racha empiezan a registrarse ahora.</string>
+    <string name="stats_all_time_note">Cuenta todo tu historial. El tiempo es aproximado: se calcula por la duración de cada canción. El medido y la racha se registran desde el %1$s.</string>
+    <string name="stats_all_time_note_pending">Cuenta todo tu historial. El tiempo es aproximado: se calcula por la duración de cada canción. El medido y la racha empiezan a registrarse ahora.</string>
+
+    <!-- Informe de fallo (CrashReporter / CrashReportActivity) -->
+    <string name="crash_title">La app se cerró de golpe</string>
+    <string name="crash_message">Se guardó un informe con lo que pasó. Compartirlo es lo único que permite corregirlo: la app no manda nada por su cuenta.</string>
+    <string name="crash_share">Compartir informe</string>
+    <string name="crash_close">Cerrar</string>
+    <string name="crash_share_subject">Siku Music: informe de fallo</string>
+    <string name="settings_crash_header">Informe de fallo</string>
+    <string name="settings_crash_desc">La app se cerró de golpe. Compartir lo que pasó</string>
 </resources>

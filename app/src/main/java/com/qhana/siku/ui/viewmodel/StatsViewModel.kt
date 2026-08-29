@@ -5,9 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.qhana.siku.data.coordinator.SyncManager
 import com.qhana.siku.data.model.StatsPeriodMode
 import com.qhana.siku.data.model.StatsSelection
-import com.qhana.siku.data.repository.StatsNameEntry
 import com.qhana.siku.data.repository.StatsRepository
-import com.qhana.siku.data.repository.StatsSongEntry
 import com.qhana.siku.data.repository.StatsSummary
 import com.qhana.siku.data.util.WhileUiSubscribed
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,25 +19,30 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
 
-/** Los cuatro rankings de un periodo. Viajan juntos porque se piden y se pintan juntos. */
-data class StatsTops(
-    val songs: List<StatsSongEntry> = emptyList(),
-    val artists: List<StatsNameEntry> = emptyList(),
-    val albums: List<StatsNameEntry> = emptyList(),
-    val genres: List<StatsNameEntry> = emptyList()
-) {
-    val isEmpty: Boolean get() =
-        songs.isEmpty() && artists.isEmpty() && albums.isEmpty() && genres.isEmpty()
-}
+/**
+ * Cuántos álbumes y géneros DISTINTOS hay en el periodo.
+ *
+ * **Aquí vivían también los cuatro rankings** (top canciones / artistas / álbumes / géneros), y se
+ * fueron el 28 ago 2026 con las listas que los pintaban: ahora cada categoría es una tarjeta que
+ * abre su ranking completo en [StatsListViewModel], que lo consulta cuando se entra. Dejarlos aquí
+ * habría sido correr cuatro consultas con JOIN en cada cambio de periodo para no enseñar ninguna.
+ *
+ * Los conteos de canciones y artistas NO están: el resumen ya los trae de una consulta de una sola
+ * tabla. Estos dos necesitan JOIN con `songs`, y por eso este flujo es el que se muestrea durante
+ * el sync.
+ */
+data class StatsCounts(
+    val albums: Int = 0,
+    val genres: Int = 0
+)
 
 data class StatsUiState(
     val selection: StatsSelection,
     val summary: StatsSummary = StatsSummary(0, null, 0, 0),
-    val tops: StatsTops = StatsTops(),
+    val counts: StatsCounts = StatsCounts(),
     /** Días seguidos escuchando; 0 = sin racha viva. `null` en "Siempre": ese dato no existe ahí. */
     val streakDays: Int? = null,
     /** Epoch ms del primer evento del log, o `null` si aún no hay ninguno. */
@@ -47,8 +50,14 @@ data class StatsUiState(
     val canGoPrevious: Boolean = false,
     val canGoNext: Boolean = false
 ) {
-    /** Sin historial y sin agregados: no hay absolutamente nada que contar todavía. */
-    val isCompletelyEmpty: Boolean get() = summary.isEmpty && tops.isEmpty
+    /**
+     * Sin historial y sin agregados: no hay absolutamente nada que contar todavía.
+     *
+     * Basta con el resumen: sus `plays` salen de la misma fuente que todo lo demás del periodo, así
+     * que cero reproducciones implica cero de todo. Antes se le sumaba `tops.isEmpty`, que era
+     * redundante y desapareció con los rankings.
+     */
+    val isCompletelyEmpty: Boolean get() = summary.isEmpty
 }
 
 /**
@@ -72,7 +81,6 @@ class StatsViewModel @Inject constructor(
          * se queda en anécdota y con veinte, multiplicado por cuatro categorías, la pantalla se
          * vuelve una lista larga en la que ya no destaca nada.
          */
-        const val TOP_LIMIT = 10
 
         /**
          * Tope de días que se traen para calcular la racha. Una racha de más de un año no se va a
@@ -104,7 +112,7 @@ class StatsViewModel @Inject constructor(
     }
 
     fun goToNext() {
-        _selection.value = _selection.value.next(currentMonth()) ?: return
+        _selection.value = _selection.value.next(today()) ?: return
     }
 
     private val firstEventAt: Flow<Long?> = statsRepository.firstEventAt()
@@ -117,21 +125,18 @@ class StatsViewModel @Inject constructor(
         else statsRepository.summary(selection.sinceMillis(zone), selection.untilMillis(zone))
     }
 
-    private val tops: Flow<StatsTops> = _selection.flatMapLatest { selection ->
+    private val counts: Flow<StatsCounts> = _selection.flatMapLatest { selection ->
         val zone = ZoneId.systemDefault()
         val since = selection.sinceMillis(zone)
         val until = selection.untilMillis(zone)
         val all = selection.mode == StatsPeriodMode.ALL
         combine(
-            if (all) statsRepository.allTimeTopSongs(TOP_LIMIT)
-            else statsRepository.topSongs(since, until, TOP_LIMIT),
-            if (all) statsRepository.allTimeTopArtists(TOP_LIMIT)
-            else statsRepository.topArtists(since, until, TOP_LIMIT),
-            if (all) statsRepository.allTimeTopAlbums(TOP_LIMIT)
-            else statsRepository.topAlbums(since, until, TOP_LIMIT),
-            if (all) statsRepository.allTimeTopGenres(TOP_LIMIT)
-            else statsRepository.topGenres(since, until, TOP_LIMIT)
-        ) { songs, artists, albums, genres -> StatsTops(songs, artists, albums, genres) }
+            if (all) statsRepository.allTimeDistinctAlbums()
+            else statsRepository.distinctAlbums(since, until),
+            if (all) statsRepository.allTimeDistinctGenres()
+            else statsRepository.distinctGenres(since, until)
+        ) { albums, genres -> StatsCounts(albums, genres) }
+            // Llevan JOIN con `songs`, así que se re-ejecutan con cada escritura de un sync.
             .sampledDuringSync(libraryIsSettling)
     }
 
@@ -139,19 +144,24 @@ class StatsViewModel @Inject constructor(
         .map { computeStreak(it, LocalDate.now(ZoneId.systemDefault())) }
 
     val uiState: StateFlow<StatsUiState> = combine(
-        _selection, summary, tops, streakDays, firstEventAt
-    ) { selection, summary, tops, streak, firstEvent ->
-        val floor = firstEvent?.let { monthOf(it) }
+        _selection, summary, counts, streakDays, firstEventAt
+    ) { selection, summary, counts, streak, firstEvent ->
+        val floor = firstEvent?.let { dateOf(it) }
         StatsUiState(
             selection = selection,
             summary = summary,
-            tops = tops,
-            // En "Siempre" la racha no se oculta por decisión de diseño: es que no existe. Ese
-            // periodo sale de `songs.playCount`, que nunca supo en qué días se escuchó.
-            streakDays = streak.takeIf { selection.mode != StatsPeriodMode.ALL },
+            counts = counts,
+            // La racha se enseña en TODOS los periodos, "Siempre" incluido.
+            //
+            // Estuvo oculta ahí con este argumento: "ese periodo sale de `songs.playCount`, que
+            // nunca supo en qué días se escuchó". El argumento confundía dos cosas — la racha NUNCA
+            // salió de los agregados, sale de `play_events` (ver `recentDays`), así que no depende
+            // del periodo elegido ni un poco. Se notó al subirla por encima del selector (28 ago
+            // 2026): un dato que vive fuera de ese control no puede desaparecer al moverlo.
+            streakDays = streak,
             historyStartedAt = firstEvent,
             canGoPrevious = floor != null && selection.previous(floor) != null,
-            canGoNext = selection.next(currentMonth()) != null
+            canGoNext = selection.next(today()) != null
         )
     }.stateIn(
         viewModelScope,
@@ -159,11 +169,11 @@ class StatsViewModel @Inject constructor(
         StatsUiState(selection = _selection.value)
     )
 
-    private fun currentMonth(): YearMonth = YearMonth.from(Instant.now().atZone(ZoneId.systemDefault()))
+    private fun today(): LocalDate = LocalDate.now(ZoneId.systemDefault())
 
-    private fun monthOf(epochMs: Long): YearMonth =
-        YearMonth.from(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+    private fun dateOf(epochMs: Long): LocalDate =
+        Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalDate()
 
     /** El mes del primer evento: por debajo de él no hay nada que enseñar. */
-    private fun historyFloor(): YearMonth? = uiState.value.historyStartedAt?.let { monthOf(it) }
+    private fun historyFloor(): LocalDate? = uiState.value.historyStartedAt?.let { dateOf(it) }
 }

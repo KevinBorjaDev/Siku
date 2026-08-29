@@ -1,5 +1,6 @@
 add
 album
+anchor
 arrow_back
 arrow_drop_down
 arrow_forward
@@ -8,6 +9,7 @@ bar_chart
 bluetooth
 bottom_navigation
 brand_awareness
+bug_report
 check
 check_circle
 chevron_right
@@ -56,6 +58,7 @@ low_priority
 lyrics
 manage_search
 mobile
+mode
 more_horiz
 more_vert
 music_note

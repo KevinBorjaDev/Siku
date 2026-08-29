@@ -16,13 +16,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.toShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
@@ -46,20 +51,22 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.qhana.siku.R
-import com.qhana.siku.data.local.AlbumSummary
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
 import com.qhana.siku.ui.components.AdaptiveCollage
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.onContainerColor
-import com.qhana.siku.ui.components.QuickActionChip
+import com.qhana.siku.ui.components.QuickActionButton
+import com.qhana.siku.ui.components.rememberTonalLayerColors
 import com.qhana.siku.ui.components.formatListeningTime
 import com.qhana.siku.ui.components.vividAccentColor
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
-import com.qhana.siku.ui.viewmodel.HomeArtistPick
+import com.qhana.siku.ui.viewmodel.HomeDiscover
+import com.qhana.siku.ui.viewmodel.HomeDiscoverKind
 import com.qhana.siku.ui.viewmodel.RelatedArtistUi
 import com.qhana.siku.ui.viewmodel.HomeStats
 import com.qhana.siku.data.model.PlaybackContext
@@ -67,6 +74,13 @@ import java.time.LocalTime
 
 // Tarjeta grande de los carruseles Expressive del inicio (item "grande" del multi-browse; los
 // medianos/chicos los deriva el propio carrusel). Cuadrada con etiqueta superpuesta.
+//
+// **Se probó y se DESCARTÓ la anatomía de `AlbumTileCard`** (portada arriba y texto en un
+// contenedor debajo, 27 ago 2026): sobre el papel unificaba el inicio con la pestaña Álbumes y
+// entraba una tarjeta más por pantalla, pero en device el contenedor bajo cada portada se veía
+// FEO — un carrusel es una tira de imágenes, y ponerle una banda de texto a cada una le quita
+// justo lo que la hace una tira. La etiqueta superpuesta se queda. NO reintroducir el contenedor
+// de abajo aquí; en una REJILLA (Álbumes) sigue siendo lo correcto, que es donde ya vive.
 private val HomeCardWidth = 196.dp
 private val HomeCardHeight = 196.dp
 private val HomeCardShape = RoundedCornerShape(24.dp)
@@ -86,6 +100,16 @@ private val HomeContentPadding = 16.dp
  */
 private val GreetingTopPadding = 8.dp
 
+/** Lado del distintivo de la entrada a Estadísticas. El mismo que el corazón de Favoritos. */
+private val StatsBadgeSize = 48.dp
+
+/**
+ * Lado del botón circular del chevron. Menor que el distintivo de la izquierda ([StatsBadgeSize]) a
+ * propósito: aquél es la identidad de la fila y éste solo su affordance, así que no deben pesar
+ * igual.
+ */
+private val StatsChevronSize = 40.dp
+
 /**
  * Si este carrusel tiene algo que desplazar. Load-bearing para el GESTO, no para el aspecto:
  * `HorizontalMultiBrowseCarousel` es por dentro un `HorizontalPager` y queda ANIDADO dentro del
@@ -102,20 +126,24 @@ private val Collection<*>.isScrollable: Boolean
     get() = size > 1
 
 /**
- * Pantalla de inicio (primera pestaña de la biblioteca). Carruseles horizontales Material 3
- * Expressive (multi-browse con recorte/parallax al hacer scroll) derivados del historial v22:
- * seguir escuchando, más reproducidas, recién agregadas y álbumes del momento, intercalados con
- * secciones GENERADAS ("Porque escuchaste a X", "Vuelve a escucharlas"). El saludo lleva un
- * subtítulo con un dato real del historial.
+ * Pantalla de inicio (primera pestaña de la biblioteca). **Tres secciones y no siete** (27 ago 2026).
+ *
+ * El criterio que las eligió: la biblioteca es del USUARIO y ya la conoce entera, así que un carrusel
+ * que la reordena no descubre nada — para reordenar están las pestañas y sus sorts. Sobrevive lo que
+ * quita toques hasta la música (los chips y "Seguir escuchando"), lo único que todavía no conoce de
+ * su propia biblioteca ("Recién agregadas") y UN hueco de descubrimiento que se turna entre tres
+ * candidatas, una por día (ver `LibraryViewModel.homeDiscover`).
+ *
+ * **Los rankings NO se movieron: se BORRARON porque ya existían.** "Más reproducidas" y "Álbumes del
+ * momento" eran Estadísticas → Siempre con la cifra quitada — literalmente la misma consulta, hasta
+ * el punto de que `StatsRepository` llama al mismo `SongDao.getMostPlayedFlow`.
  *
  * Tocar una tarjeta de canción reproduce ESA sección completa como cola, empezando en la tocada
  * (misma semántica que tocar una canción en la biblioteca: reproduce y abre el NowPlaying).
  */
 @Composable
 fun HomeScreen(
-    mostPlayed: List<Song>,
     recentlyAdded: List<Song>,
-    topAlbums: List<AlbumSummary>,
     recentContexts: List<PlaybackContext>,
     /** Carátulas para el collage de la tarjeta de Favoritos (ver [ContextCarousel]). */
     favoriteCovers: List<String>,
@@ -123,17 +151,23 @@ fun HomeScreen(
     // tiene carátula propia (ver LibraryViewModel.recentGenreArts).
     genreArts: Map<String, List<String>>,
     stats: HomeStats,
-    artistPick: HomeArtistPick?,
-    rediscover: List<Song>,
+    /** La sección de descubrimiento de HOY, o null si no hay ninguna con contenido. */
+    discover: HomeDiscover?,
     currentSongId: String?,
     contentPadding: PaddingValues,
     onPlaySongs: (List<Song>, Int) -> Unit,
-    // "Porque escuchaste a X" propone OTROS artistas, así que su tarjeta NAVEGA a un detalle en vez
-    // de reproducir: descubrir a alguien es entrar a ver qué tiene, no que empiece a sonar.
+    // Un contexto de descubrimiento por artistas propone OTROS artistas, así que su tarjeta NAVEGA a
+    // un detalle en vez de reproducir: descubrir a alguien es entrar a ver qué tiene.
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
     onResumeContext: (PlaybackContext) -> Unit,
-    // Acciones rápidas de la fila de chips (arriba de los carruseles). Todas ARRANCAN música al
+    /**
+     * "Ver todo" de Recién agregadas → `Screen.RecentlyAdded`, su ruta propia.
+     *
+     * Fue nullable mientras el destino era la pestaña Canciones, que se puede ocultar desde
+     * Ajustes; con una ruta propia el destino existe siempre.
+     */
+    onSeeAllRecent: () -> Unit,
+    // Acciones rápidas de la fila de chips (arriba de las secciones). Todas ARRANCAN música al
     // toque; las de una lista (favoritos, géneros) van SIEMPRE en aleatorio (para orden, el usuario
     // navega a la lista).
     canPlayAll: Boolean,
@@ -158,9 +192,7 @@ fun HomeScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
-    val isEmpty = recentContexts.isEmpty() && mostPlayed.isEmpty() &&
-        recentlyAdded.isEmpty() && topAlbums.isEmpty() &&
-        artistPick == null && rediscover.isEmpty()
+    val isEmpty = recentContexts.isEmpty() && recentlyAdded.isEmpty() && discover == null
 
     if (isEmpty) {
         HomeEmptyState(modifier = modifier, contentPadding = contentPadding)
@@ -168,11 +200,14 @@ fun HomeScreen(
     }
 
     // Carátulas para el collage de los contextos de biblioteca ("Aleatorio"/"Toda la biblioteca":
-    // no tienen una carátula propia): una muestra de la biblioteca (álbumes del momento + recién
-    // agregadas). Con menos de 4 el card cae al ícono de tipo.
-    val collageCovers = remember(topAlbums, recentlyAdded) {
-        (topAlbums.mapNotNull { it.albumArtUri } +
-            recentlyAdded.mapNotNull { it.albumArtUri?.toString() })
+    // no tienen una carátula propia): una muestra de lo que hay a mano en esta pantalla. Salía de
+    // "Álbumes del momento" + "Recién agregadas"; al desaparecer aquélla, la muestra la completan
+    // las canciones de la sección rotativa — con COLLAGE_MAX_TILES = 4 y dos secciones de 5, sobra.
+    // Con menos de 4 el card cae al ícono de tipo.
+    val collageCovers = remember(recentlyAdded, discover) {
+        val discoverSongs = (discover as? HomeDiscover.Songs)?.songs.orEmpty()
+        (recentlyAdded + discoverSongs)
+            .mapNotNull { it.albumArtUri?.toString() }
             .distinct()
             .take(COLLAGE_MAX_TILES)
     }
@@ -191,6 +226,10 @@ fun HomeScreen(
     ) {
         item(key = "greeting") { GreetingHeader(stats) }
 
+        // Justo tras el saludo y ANTES de las acciones rápidas: es un DESTINO, no contenido, y es
+        // la ÚNICA puerta a esa pantalla en toda la app — bajo las secciones sería indescubrible.
+        item(key = "stats_entry") { StatsEntry(stats = stats, onClick = onStatsClick) }
+
         item(key = "quick_actions") {
             HomeQuickActions(
                 canPlayAll = canPlayAll,
@@ -205,11 +244,6 @@ fun HomeScreen(
                 onShuffleGenre = onShuffleGenre
             )
         }
-
-        // Justo tras las acciones rápidas y ANTES de los carruseles: es un DESTINO, no contenido,
-        // así que pertenece con las acciones. Y es la única puerta a una pantalla entera — bajo
-        // seis carruseles sería indescubrible.
-        item(key = "stats_entry") { StatsEntryCard(stats = stats, onClick = onStatsClick) }
 
         if (recentContexts.isNotEmpty()) {
             item(key = "continue") {
@@ -229,51 +263,35 @@ fun HomeScreen(
                     title = stringResource(R.string.home_section_recently_added),
                     songs = recentlyAdded,
                     currentSongId = currentSongId,
-                    onPlaySongs = onPlaySongs
+                    onPlaySongs = onPlaySongs,
+                    onSeeAll = onSeeAllRecent
                 )
             }
         }
-        // Sección generada: OTROS artistas que comparten género con el que más escuchas.
-        artistPick?.let { pick ->
-            item(key = "artist_pick") {
+        // El hueco rotativo: una de las tres candidatas, la que le toque hoy.
+        when (discover) {
+            null -> Unit
+            is HomeDiscover.Artists -> item(key = "discover_artists") {
                 RelatedArtistCarousel(
-                    title = stringResource(R.string.home_section_because_you_listened, pick.seed),
-                    artists = pick.related,
+                    title = stringResource(R.string.home_section_because_you_listened, discover.seed),
+                    artists = discover.related,
                     onArtistClick = onArtistClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope
                 )
             }
-        }
-        if (mostPlayed.isNotEmpty()) {
-            item(key = "most_played") {
+            is HomeDiscover.Songs -> item(key = "discover_songs") {
                 SongCarousel(
-                    title = stringResource(R.string.home_section_most_played),
-                    songs = mostPlayed,
+                    title = stringResource(
+                        when (discover.kind) {
+                            HomeDiscoverKind.NEVER_PLAYED -> R.string.home_section_never_played
+                            HomeDiscoverKind.REDISCOVER -> R.string.home_section_rediscover
+                        }
+                    ),
+                    songs = discover.songs,
                     currentSongId = currentSongId,
-                    onPlaySongs = onPlaySongs
-                )
-            }
-        }
-        // Sección generada: música que escuchaste pero tienes olvidada.
-        if (rediscover.isNotEmpty()) {
-            item(key = "rediscover") {
-                SongCarousel(
-                    title = stringResource(R.string.home_section_rediscover),
-                    songs = rediscover,
-                    currentSongId = currentSongId,
-                    onPlaySongs = onPlaySongs
-                )
-            }
-        }
-        if (topAlbums.isNotEmpty()) {
-            item(key = "top_albums") {
-                AlbumCarousel(
-                    title = stringResource(R.string.home_section_top_albums),
-                    albums = topAlbums,
-                    onAlbumClick = onAlbumClick,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope
+                    onPlaySongs = onPlaySongs,
+                    onSeeAll = null
                 )
             }
         }
@@ -289,14 +307,11 @@ private fun GreetingHeader(stats: HomeStats) {
         in 12..19 -> R.string.home_greeting_afternoon
         else -> R.string.home_greeting_evening
     }
-    // Subtítulo con dato real: escuchas de la semana, o el tamaño de la biblioteca de respaldo.
-    val subtitle = when {
-        stats.playedThisWeek > 0 ->
-            pluralStringResource(R.plurals.home_stats_week, stats.playedThisWeek, stats.playedThisWeek)
-        stats.librarySize > 0 ->
-            pluralStringResource(R.plurals.home_stats_library, stats.librarySize, stats.librarySize)
-        else -> null
-    }
+    // El subtítulo NO repite el dato del mes: ese lo dice la fila de abajo, y dos veces en el mismo
+    // bloque serían dos formas de decir lo mismo a dos centímetros una de otra.
+    val subtitle = stats.librarySize
+        .takeIf { it > 0 }
+        ?.let { pluralStringResource(R.plurals.home_stats_library, it, it) }
     Column(
         modifier = Modifier.padding(
             start = HomeContentPadding,
@@ -323,19 +338,127 @@ private fun GreetingHeader(stats: HomeStats) {
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = AppColors.onSurfaceVariant
+                color = AppColors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 /**
- * ACCIONES RÁPIDAS del inicio en GRILLA que envuelve (máx. 3 por fila, `FlowRow`), arriba de los
- * carruseles. Reemplaza al FAB flotante de reproducción del home. Chips tonales (secondaryContainer)
- * con `AssistChip` real de M3. Las dos primeras (aleatorio / en orden) se deshabilitan si no hay
- * canciones. Todas se ven a la vez (sin scroll lateral).
+ * Entrada a Estadísticas, con la anatomía de la **píldora de Favoritos** de la pestaña Listas:
+ * superficie tonal de lados totalmente redondos, distintivo `Cookie9Sided` de acento a la
+ * izquierda, y dos renglones de texto.
+ *
+ * **Recorrido hasta aquí, para no repetirlo.** Empezó como una tarjeta de 78dp bajo el saludo; se
+ * comprimió a un glifo tonal de 48dp al lado del titular y en device "no parecía un botón" (la
+ * tarjeta decía *esto lleva a algún sitio* con tres señales —etiqueta, resumen y chevron— y de las
+ * tres solo quedaba el relleno); volvió como barra a todo el ancho con etiqueta y chevron, y esa
+ * "no parecía M3 Expressive" — con razón, porque era de los pocos controles de la app SIN morph de
+ * forma al pulsar y con un alto y un radio escritos a mano en vez de las tallas tabuladas.
+ *
+ * Lo que lo arregla no es el tamaño sino el IDIOM: una barra a todo el ancho con un chevron pegado
+ * al borde es el patrón de una fila de lista, y ninguna cantidad de morph la saca de ahí. La
+ * píldora de Favoritos ya resolvió este mismo problema —"un acceso destacado que no es una fila
+ * más"— así que esto es su segunda instancia, no un diseño nuevo.
+ *
+ * **El chevron va en un botón CIRCULAR** y no como glifo suelto: una superficie propia dice "esto
+ * se toca" sin gastar una etiqueta. Se probó como píldora vertical (el idiom de "añadir canciones"
+ * en la botonera de un detalle) y se descartó en device.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
+    // El fondo sobre el que se apoya el chevron es el contenedor de la FILA, no el de la página.
+    val chevronColors = rememberTonalLayerColors(background = AppColors.secondaryContainer)
+    AppSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = HomeContentPadding),
+        onClick = onClick,
+        // Un peldaño por debajo de la píldora completa (`RoundedCornerShape(50)`, que es lo que
+        // lleva la de Favoritos): con el alto de esta fila el radio pleno son ~36dp y se comía
+        // demasiado los extremos. `extraLarge` son 28 y es TOKEN, no un número a ojo — el MiniPlayer
+        // usa este mismo par para conmutar entre píldora y rectángulo redondeado.
+        shape = MaterialTheme.shapes.extraLarge,
+        color = AppColors.secondaryContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 16 a la izquierda, el margen normal de la app: los 20 de la píldora de
+                // Favoritos existen porque allí los lados son curva completa y el contenido se le
+                // pegaba; con `extraLarge` el lado recto empieza mucho antes y ese extra sobra.
+                .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppSurface(
+                shape = MaterialShapes.Cookie9Sided.toShape(),
+                color = AppColors.primary,
+                modifier = Modifier.size(StatsBadgeSize)
+            ) {
+                // fillMaxSize: sin él el Box se ciñe al glifo y `Center` no centra nada dentro del
+                // distintivo (el mismo detalle que ya mordió en la píldora de Favoritos).
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    MaterialSymbol("bar_chart", fill = true, size = 24.sp, color = AppColors.onPrimary)
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.stats_home_entry_title),
+                    style = MaterialTheme.typography.bodyLargeEmphasized,
+                    color = AppColors.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (stats.monthPlays > 0) {
+                        homeListeningTimeText(stats.monthListenedMs)
+                    } else {
+                        // Sin nada escuchado no se pinta un "0 min", que no invita a entrar.
+                        stringResource(R.string.stats_home_entry_empty)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AppColors.onSecondaryContainer.copy(alpha = ACCENT_SECONDARY_ALPHA),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            // NO lleva `onClick` propio: la acción es la de la fila entera, y dos objetivos táctiles
+            // para el mismo destino serían dos formas de hacer lo mismo a un centímetro. Es un
+            // AFFORDANCE, así que va sin semántica propia para que el lector de pantalla anuncie una
+            // sola acción (y por eso tampoco le aplica el mínimo táctil de 48dp).
+            //
+            // Su color se DERIVA del contenedor real de la fila y no de un rol: dos roles de la
+            // misma banda tonal pueden fundirse según lo que el estilo de paleta activo haya hecho
+            // con esa banda, mientras que fijar el tono a una distancia MEDIDA del fondo da la misma
+            // separación en cualquier paleta y en los dos temas. Ver [rememberTonalLayerColors].
+            Box(
+                modifier = Modifier
+                    .size(StatsChevronSize)
+                    .clip(CircleShape)
+                    .background(chevronColors.container),
+                contentAlignment = Alignment.Center
+            ) {
+                MaterialSymbol("chevron_right", size = 20.sp, color = chevronColors.content)
+            }
+        }
+    }
+}
+
+/**
+ * ACCIONES RÁPIDAS del inicio en GRILLA que envuelve (máx. 3 por fila, `FlowRow`). Botones tonales
+ * XSmall de M3 Expressive ([QuickActionButton]). Las dos primeras (aleatorio / en orden) se
+ * deshabilitan si no hay canciones. Todas se ven a la vez (sin scroll lateral).
+ *
+ * **Sin cabecera de sección** (27 ago 2026): era el único título del inicio que no nombraba un
+ * contenido sino una categoría de control, y unos botones con su glifo y su verbo se explican solos.
+ * Cuarenta píxeles de la primera pantalla por un rótulo que nadie necesitaba leer.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeQuickActions(
     canPlayAll: Boolean,
@@ -349,90 +472,31 @@ private fun HomeQuickActions(
     genres: List<String>,
     onShuffleGenre: (String) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(stringResource(R.string.home_section_quick_actions))
-        FlowRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = HomeContentPadding, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            maxItemsInEachRow = 3
-        ) {
-            QuickActionChip("shuffle", stringResource(R.string.home_action_shuffle), enabled = canPlayAll, onClick = onShuffleAll)
-            QuickActionChip("play_arrow", stringResource(R.string.home_action_play_order), enabled = canPlayAll, fill = true, onClick = onPlayAll)
-            QuickActionChip("favorite", stringResource(R.string.home_action_favorites), enabled = hasFavorites, fill = true, onClick = onShuffleFavorites)
-            // Acciones por ORIGEN. Solo existen mientras la biblioteca esté partida entre lo que
-            // suena sin red y lo que la necesita (misma puerta que los chips de filtro de las
-            // listas, ver [LibraryViewModel.hasSourceSplit]): con todo descargado, "Sin conexión"
-            // sería un segundo botón de "Aleatorio" y "Sin descargar" no tendría qué reproducir.
-            //
-            // `offline_pin` es el MISMO glifo con el que la fila de una canción y el chip del
-            // reproductor dicen "esto ya está en el dispositivo": tres superficies, un solo signo.
-            if (showSourceActions) {
-                QuickActionChip("offline_pin", stringResource(R.string.home_action_offline), onClick = onShuffleOffline)
-                QuickActionChip("cloud", stringResource(R.string.home_action_not_downloaded), onClick = onShuffleNotDownloaded)
-            }
-            // Chips de género (top por cantidad). El label ES el nombre del género (no un string res).
-            genres.forEach { genre ->
-                QuickActionChip("genres", label = genre, onClick = { onShuffleGenre(genre) })
-            }
-        }
-    }
-}
-
-/**
- * Entrada a las estadísticas. COMPLEMENTA al saludo, no lo sustituye: reemplazarlo cambiaría la
- * bienvenida por un panel de números.
- *
- * Su número protagonista es el TIEMPO escuchado del mes, que es justo lo que el subtítulo del
- * saludo no dice (ése cuenta canciones de la semana) — dos datos, dos ventanas, ninguna repetición.
- * Sin nada escuchado aún enseña su invitación en vez de un "0 min", que no invita a entrar.
- */
-@Composable
-private fun StatsEntryCard(stats: HomeStats, onClick: () -> Unit) {
-    val hasData = stats.monthPlays > 0
-    AppSurface(
-        color = AppColors.surface,
-        shape = HomeCardShape,
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = HomeContentPadding, vertical = 4.dp)
+            .padding(start = HomeContentPadding, end = HomeContentPadding, top = 8.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        maxItemsInEachRow = 3
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            MaterialSymbol("bar_chart", size = 24.sp, color = AppColors.primary)
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.stats_home_card_title),
-                    style = MaterialTheme.typography.titleMediumEmphasized,
-                    color = AppColors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (hasData) {
-                        stringResource(
-                            R.string.stats_home_card_summary,
-                            homeListeningTimeText(stats.monthListenedMs),
-                            pluralStringResource(R.plurals.stats_plays, stats.monthPlays, stats.monthPlays)
-                        )
-                    } else {
-                        stringResource(R.string.stats_home_card_empty)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = AppColors.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            MaterialSymbol("chevron_right", size = 24.sp, color = AppColors.onSurfaceVariant)
+        QuickActionButton("shuffle", stringResource(R.string.home_action_shuffle), enabled = canPlayAll, onClick = onShuffleAll)
+        QuickActionButton("play_arrow", stringResource(R.string.home_action_play_order), enabled = canPlayAll, fill = true, onClick = onPlayAll)
+        QuickActionButton("favorite", stringResource(R.string.home_action_favorites), enabled = hasFavorites, fill = true, onClick = onShuffleFavorites)
+        // Acciones por ORIGEN. Solo existen mientras la biblioteca esté partida entre lo que
+        // suena sin red y lo que la necesita (misma puerta que los chips de filtro de las
+        // listas, ver [LibraryViewModel.hasSourceSplit]): con todo descargado, "Sin conexión"
+        // sería un segundo botón de "Aleatorio" y "Sin descargar" no tendría qué reproducir.
+        //
+        // `offline_pin` es el MISMO glifo con el que la fila de una canción y el chip del
+        // reproductor dicen "esto ya está en el dispositivo": tres superficies, un solo signo.
+        if (showSourceActions) {
+            QuickActionButton("offline_pin", stringResource(R.string.home_action_offline), onClick = onShuffleOffline)
+            QuickActionButton("cloud", stringResource(R.string.home_action_not_downloaded), onClick = onShuffleNotDownloaded)
+        }
+        // Géneros (selección del día). El label ES el nombre del género (no un string res).
+        genres.forEach { genre ->
+            QuickActionButton("genres", label = genre, onClick = { onShuffleGenre(genre) })
         }
     }
 }
@@ -448,21 +512,52 @@ private fun homeListeningTimeText(millis: Long): String {
     )
 }
 
+/**
+ * Cabecera de sección, con su salida opcional.
+ *
+ * **"Ver todo" solo donde hay un destino que es la MISMA lista completa**, y hoy eso es una sola
+ * sección: "Recién agregadas" → la pestaña Canciones por fecha de alta. Las generadas no lo llevan
+ * porque no hay a dónde ir, y el ranking de álbumes —que parecía el candidato obvio— no lo tenía
+ * nunca: la pestaña Álbumes es otro conjunto (incluye los que nunca sonaron) en un orden que ni
+ * siquiera existe en `AlbumSortOrder`. Un "ver todo" que cambia de lista no es una salida, es un
+ * salto.
+ */
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMediumEmphasized,
-        color = AppColors.onSurface,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(
-            start = HomeContentPadding,
-            end = HomeContentPadding,
-            top = 8.dp,
-            bottom = 10.dp
+private fun SectionHeader(title: String, onSeeAll: (() -> Unit)? = null) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = HomeContentPadding, end = HomeContentPadding, top = 8.dp, bottom = 10.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMediumEmphasized,
+            color = AppColors.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // El título se queda con el ancho sobrante y la salida se pega al final. Con un título
+            // largo el que se recorta es él, que es lo correcto: "Ver todo" es un control y no se
+            // puede leer a medias ("Porque escuchaste a …" sí).
+            modifier = Modifier.weight(1f)
         )
-    )
+        if (onSeeAll != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_see_all),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppColors.primary
+                )
+                MaterialSymbol("chevron_right", size = 18.sp, color = AppColors.primary)
+            }
+        }
+    }
 }
 
 /** Carrusel Expressive de canciones. Recortado/parallaxeado por el multi-browse. */
@@ -472,10 +567,11 @@ private fun SongCarousel(
     title: String,
     songs: List<Song>,
     currentSongId: String?,
-    onPlaySongs: (List<Song>, Int) -> Unit
+    onPlaySongs: (List<Song>, Int) -> Unit,
+    onSeeAll: (() -> Unit)? = null
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title)
+        SectionHeader(title, onSeeAll)
         val state = rememberCarouselState { songs.size }
         HorizontalMultiBrowseCarousel(
             state = state,
@@ -494,18 +590,13 @@ private fun SongCarousel(
             // en el overlay del `SharedTransitionScope`, fuera del recorte del carrusel, que es lo
             // que le permite crecer más allá de su casilla.
             //
-            // **Se identifica por el id de CANCIÓN, igual que una fila, y eso admite un empate**: los
-            // carruseles del inicio son consultas independientes que no deduplican entre sí, así que
-            // la misma canción puede tener tarjeta en "Añadidas hace poco" y en "Lo que más escuchas"
-            // a la vez, y las dos tomarían el papel de origen. Se asumió el 17 ago 2026 creyendo que
-            // "da igual de cuál de las dos salga" — **y eso es FALSO**: con dos puntas declarándose
-            // destino no sale de ninguna, Compose no anima y el reproductor aparece sin morph (ver
-            // `SharedTransitionGate`, donde el mismo empate ENTRE PESTAÑAS sí dio la cara el 19 ago).
-            // Aquí sigue abierto: hace falta que una canción caiga en DOS carruseles a la vez. El
-            // arreglo, si aparece, es dar el papel a UNA sola instancia —`SongRowContainer` ya tiene
-            // identidad por instancia para `placedRows`—, y NO el id por superficie
-            // (`home:<sección>:<id>` + `PlayerMorphOrigin` con canción y superficie separadas), que
-            // se escribió entero y se descartó por complejidad.
+            // **Se identifica por el id de CANCIÓN, así que dos tarjetas de la misma canción serían
+            // dos orígenes y no morfaría ninguna** (el mismo empate que `SharedTransitionGate`
+            // resuelve entre páginas del pager). Estuvo abierto desde el 17 ago 2026, asumido con un
+            // "da igual de cuál de las dos salga" que era FALSO; se cerró el 27 ago por construcción,
+            // cuando el inicio pasó a tener DOS secciones de canciones y la rotativa empezó a
+            // descartar lo que ya sale en "Recién agregadas" (ver el dedup de
+            // `LibraryViewModel.homeDiscover`).
             SongRowContainer(
                 songId = song.id,
                 modifier = Modifier.maskClip(HomeCardShape).fillMaxSize()
@@ -640,7 +731,7 @@ private fun PlaybackContext.typeIcon(): String = when (this) {
 
 /**
  * Carrusel de "Porque escuchaste a X": otros artistas de tu biblioteca que comparten género con el
- * que más escuchas (ver `LibraryViewModel.homeArtistPick`).
+ * que más escuchas (ver `LibraryViewModel.homeDiscover`).
  *
  * A diferencia de los carruseles de canciones, sus tarjetas **navegan** al detalle del artista en vez
  * de reproducir: la sección es de descubrimiento, y descubrir a alguien es ir a ver qué tiene. Por eso
@@ -691,52 +782,6 @@ private fun RelatedArtistCarousel(
                 badgeIcon = "artist",
                 placeholderIcon = "artist",
                 onClick = { onArtistClick(artist.name) },
-                artModifier = sharedArtModifier,
-                labelAlpha = labelAlpha(),
-                modifier = Modifier.maskClip(HomeCardShape)
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
-@Composable
-private fun AlbumCarousel(
-    title: String,
-    albums: List<AlbumSummary>,
-    onAlbumClick: (String) -> Unit,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title)
-        val state = rememberCarouselState { albums.size }
-        HorizontalMultiBrowseCarousel(
-            state = state,
-            preferredItemWidth = HomeCardWidth,
-            itemSpacing = 8.dp,
-            userScrollEnabled = albums.isScrollable,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = HomeContentPadding)
-                .height(HomeCardHeight)
-        ) { i ->
-            val album = albums[i]
-            // Shared element de la carátula → header del detalle de álbum (misma key que la celda de
-            // la pestaña Álbumes). Con la FORMA de la tarjeta declarada para el vuelo: el recorte que
-            // se ve aquí es el `maskClip` del carrusel —un ANCESTRO— y el overlay del
-            // `SharedTransitionScope` se los salta todos. Ver [entityImageSharedBounds].
-            val sharedArtModifier = entityImageSharedBounds(
-                key = "album_image_${album.name}",
-                shape = HomeCardShape,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope
-            )
-            HomeCarouselCard(
-                art = album.albumArtUri,
-                title = album.name.ifBlank { stringResource(R.string.common_unknown_album) },
-                subtitle = album.artist,
-                onClick = { onAlbumClick(album.name) },
                 artModifier = sharedArtModifier,
                 labelAlpha = labelAlpha(),
                 modifier = Modifier.maskClip(HomeCardShape)

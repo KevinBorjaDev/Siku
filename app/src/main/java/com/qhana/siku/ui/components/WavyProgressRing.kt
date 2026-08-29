@@ -62,7 +62,7 @@ import kotlin.math.sin
  * la composición.
  *
  * @param progress lambda y no valor: el tick de posición repinta sin recomponer.
- * @param playing con `false` la onda se aplana y el reloj se para (anillo liso, cero producción).
+ * @param playing con `false` la onda se aplana a un aro liso. El reloj lo gobierna [animated].
  */
 @Composable
 internal fun WavyProgressRing(
@@ -72,6 +72,16 @@ internal fun WavyProgressRing(
     trackColor: Color,
     strokeWidth: Dp,
     modifier: Modifier = Modifier,
+    /**
+     * Si la onda VIAJA. Separado de [playing] porque son dos cosas distintas que hasta el 28 ago
+     * 2026 iban juntas: [playing] decide si la onda tiene RELIEVE (en pausa se aplana a un aro
+     * liso) y esto decide si además se desplaza, que es lo que cuesta un reloj por frame.
+     *
+     * El caso que obligó a separarlas es la racha de estadísticas: quiere el relieve —es lo que la
+     * distingue de un aro cualquiera— pero es un dato QUIETO, así que animarla sería un productor
+     * continuo de frames en una pantalla que no lo necesita (regla 1 de Motion).
+     */
+    animated: Boolean = playing,
 ) {
     val density = LocalDensity.current
     val wavelengthPx = with(density) { RING_WAVELENGTH.toPx() }
@@ -116,8 +126,8 @@ internal fun WavyProgressRing(
         amplitudeFactor.animateTo(if (playing) 1f else 0f, animationSpec = flattenSpec)
     }
 
-    LaunchedEffect(playing, wavelengthPx) {
-        if (!playing) {
+    LaunchedEffect(animated, wavelengthPx) {
+        if (!animated) {
             // Reencuadre a cero: en pausa la onda está plana, así que el salto no se ve.
             travelPx.floatValue = 0f
             return@LaunchedEffect
@@ -193,7 +203,9 @@ internal fun WavyProgressRing(
         if (radius <= 0f) return@Canvas
         // Sonando se dibuja el valor INTERPOLADO; en pausa, el crudo — no hay avance que suavizar y
         // el reloj está parado, así que un seek con la música detenida tiene que llegar igual.
-        val fraction = (if (playing) shownProgress.floatValue else progress()).coerceIn(0f, 1f)
+        // El valor INTERPOLADO solo existe si el reloj corre; sin él se dibuja el crudo, que es
+        // exactamente lo que quiere un progreso quieto.
+        val fraction = (if (animated) shownProgress.floatValue else progress()).coerceIn(0f, 1f)
         val amp = amplitudePx * amplitudeFactor.value
         val sweep = fraction * FULL_TURN_DEGREES
         // Longitud del arco ya reproducido. Solo se usa para encoger el hueco al principio de la

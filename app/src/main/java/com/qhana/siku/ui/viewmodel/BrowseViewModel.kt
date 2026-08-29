@@ -253,12 +253,6 @@ class BrowseViewModel @Inject constructor(
     fun getGenreSongs(genre: String): Flow<List<Song>> =
         genrePartialMatch.flatMapLatest { partial -> browseRepository.getSongsByGenre(genre, partial) }
 
-    /** Álbumes del momento (por total de reproducciones) para la sección de la home. */
-    val topAlbums: StateFlow<List<AlbumSummary>> = browseRepository.getTopAlbums(TOP_ALBUMS_LIMIT)
-        .sampledDuringSync(libraryIsSettling)
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
-
     // --- Detalle (coleccionar con collectAsStateWithLifecycle en la pantalla) ---
 
     fun getArtistSongs(artist: String): Flow<List<Song>> = browseRepository.getSongsByArtist(artist)
@@ -410,8 +404,6 @@ class BrowseViewModel @Inject constructor(
     }
 
     private companion object {
-        const val TOP_ALBUMS_LIMIT = 12
-
         /**
          * Mínimo de canciones para que un género salga en la PESTAÑA: todos. A diferencia de los
          * chips del inicio (que filtran a ≥5 para no llenarse de géneros anecdóticos), aquí una

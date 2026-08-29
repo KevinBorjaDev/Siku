@@ -686,10 +686,10 @@ class LocalMusicSource @Inject constructor(
     private fun rawVolumePathFromAbsolutePath(path: String): String {
         val externalRoot = Environment.getExternalStorageDirectory()?.absolutePath
         if (externalRoot != null && path.startsWith(externalRoot)) {
-            return "$PRIMARY_VOLUME/${path.removePrefix(externalRoot)}"
+            return "${VolumeNames.SAF_PRIMARY}/${path.removePrefix(externalRoot)}"
         }
         // Volumen secundario: /storage/<UUID>/… → el UUID hace de nombre de volumen.
-        return path.removePrefix("/storage/")
+        return path.removePrefix("${VolumeNames.STORAGE_ROOT}/")
     }
 
     /**
@@ -710,10 +710,7 @@ class LocalMusicSource @Inject constructor(
      * Nombre de volumen canónico. SAF dice `primary` y MediaStore `external_primary` para el mismo
      * almacenamiento; sin unificarlos, el mismo archivo tendría dos ids según el modo.
      */
-    private fun canonicalVolume(volume: String): String {
-        val lower = volume.lowercase(Locale.ROOT)
-        return if (lower == MEDIASTORE_PRIMARY_VOLUME) PRIMARY_VOLUME else lower
-    }
+    private fun canonicalVolume(volume: String): String = VolumeNames.canonical(volume)
 
     /** La ruta sin su primer segmento (el volumen): es lo que compara el dedup entre fuentes. */
     private fun pathWithoutVolume(volumePath: String): String = volumePath.substringAfter('/', "")
@@ -861,8 +858,6 @@ class LocalMusicSource @Inject constructor(
         ).joinToString(" AND ") { (column, comparison) ->
             "($column IS NULL OR $column $comparison)"
         }
-        private const val PRIMARY_VOLUME = "primary"
-        private const val MEDIASTORE_PRIMARY_VOLUME = "external_primary"
 
         /** Marcador literal que MediaStore usa cuando el archivo no trae el tag. */
         private const val MEDIASTORE_UNKNOWN = "<unknown>"

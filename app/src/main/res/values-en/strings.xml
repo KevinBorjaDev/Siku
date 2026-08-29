@@ -96,6 +96,25 @@
         <item quantity="other">%d songs added</item>
     </plurals>
 
+    <!-- ==================== Import/export playlists as M3U ==================== -->
+    <string name="playlist_import_default_name">Imported playlist</string>
+    <string name="playlist_import_action">Import</string>
+    <string name="playlist_import_menu">Import from a file</string>
+    <string name="playlist_export_menu">Export to a file</string>
+    <!-- Suggested file name; %1$s = playlist name -->
+    <string name="playlist_export_file_name">%1$s.m3u8</string>
+    <!-- %1$d = songs added, %2$s = name of the created playlist -->
+    <string name="playlist_import_success">%1$d songs imported into \"%2$s\"</string>
+    <!-- Appended to the message above; %1$d = lines that couldn't be matched -->
+    <string name="playlist_import_missing_suffix"> · %1$d are not in your library</string>
+    <string name="playlist_import_empty">The file has no songs</string>
+    <string name="playlist_import_error">Couldn\'t import the playlist</string>
+    <!-- %1$d = songs written to the file -->
+    <string name="playlist_export_success">%1$d songs exported</string>
+    <!-- Appended to the message above; %1$d = cloud songs with no path on this phone -->
+    <string name="playlist_export_relative_suffix"> · %1$d use a relative path</string>
+    <string name="playlist_export_error">Couldn\'t export the playlist</string>
+
     <!-- ==================== Detail actions (artist/album/playlist) ==================== -->
     <string name="detail_play_all">Play all</string>
     <string name="detail_shuffle">Shuffle</string>
@@ -753,15 +772,12 @@
     <string name="home_ctx_favorites">Favorites</string>
     <string name="home_ctx_shuffle">Shuffle</string>
     <string name="home_ctx_library">Whole library</string>
-    <string name="home_section_most_played">Most played</string>
     <string name="home_section_recently_added">Recently added</string>
-    <string name="home_section_top_albums">Albums of the moment</string>
     <string name="home_section_because_you_listened">Because you listened to %1$s</string>
     <string name="home_section_rediscover">Give them another listen</string>
-    <plurals name="home_stats_week">
-        <item quantity="one">You listened to %1$d song this week</item>
-        <item quantity="other">You listened to %1$d songs this week</item>
-    </plurals>
+    <string name="home_section_never_played">You haven\'t played these yet</string>
+    <string name="home_see_all">See all</string>
+    <string name="recently_added_empty">You haven\'t added music in the last 30 days</string>
     <plurals name="home_stats_library">
         <item quantity="one">%1$d song in your library</item>
         <item quantity="other">%1$d songs in your library</item>
@@ -881,21 +897,29 @@
 
     <!-- ==================== LISTENING STATISTICS ==================== -->
     <string name="stats_title">Statistics</string>
-    <string name="stats_home_card_title">Your month in music</string>
-    <string name="stats_home_card_summary">%1$s · %2$s</string>
-    <string name="stats_home_card_empty">Listen to something and your summary will appear here</string>
-    <string name="stats_period_month">Month</string>
-    <string name="stats_period_year">Year</string>
+    <string name="stats_home_entry_title">Your month in music</string>
+    <string name="stats_home_entry_empty">Play something and your summary shows up here</string>
+    <string name="stats_period_day_short">D</string>
+    <string name="stats_period_week_short">W</string>
+    <string name="stats_period_month_short">M</string>
+    <string name="stats_period_year_short">Y</string>
     <string name="stats_period_all">All time</string>
     <string name="stats_period_previous">Previous period</string>
     <string name="stats_period_next">Next period</string>
     <string name="stats_summary_plays">Plays</string>
     <string name="stats_summary_time">Time listened</string>
+    <string name="stats_summary_time_estimate">Approx. time</string>
     <string name="stats_summary_songs">Songs</string>
     <string name="stats_summary_artists">Artists</string>
+    <string name="stats_summary_albums">Albums</string>
+    <string name="stats_summary_genres">Genres</string>
     <string name="stats_time_hours_minutes">%1$d h %2$d min</string>
     <string name="stats_time_minutes">%1$d min</string>
     <string name="stats_streak_title">Streak</string>
+    <string name="stats_streak_milestone_week">A full week!</string>
+    <string name="stats_streak_milestone_month">A full month!</string>
+    <string name="stats_streak_milestone_100">100 days straight!</string>
+    <string name="stats_streak_milestone_year">Now that\'s a music lover</string>
     <string name="stats_streak_none">No active streak</string>
     <plurals name="stats_streak_days">
         <item quantity="one">%1$d day in a row</item>
@@ -912,6 +936,15 @@
     <string name="stats_empty_title">Nothing to show yet</string>
     <string name="stats_empty_subtitle">Listen to something and your history will appear here</string>
     <string name="stats_empty_period">You didn\'t listen to anything in this period</string>
-    <string name="stats_all_time_note">Counts your whole history. Time listened and streak are recorded from %1$s.</string>
-    <string name="stats_all_time_note_pending">Counts your whole history. Time listened and streak start being recorded now.</string>
+    <string name="stats_all_time_note">Covers your whole history. Time is approximate — it is worked out from each song\'s length. Measured time and your streak start from %1$s.</string>
+    <string name="stats_all_time_note_pending">Covers your whole history. Time is approximate — it is worked out from each song\'s length. Measured time and your streak start being recorded now.</string>
+
+    <!-- Crash report (CrashReporter / CrashReportActivity) -->
+    <string name="crash_title">The app crashed</string>
+    <string name="crash_message">A report was saved with the details. Sharing it is the only way this can be fixed — the app never sends anything on its own.</string>
+    <string name="crash_share">Share report</string>
+    <string name="crash_close">Close</string>
+    <string name="crash_share_subject">Siku Music: crash report</string>
+    <string name="settings_crash_header">Crash report</string>
+    <string name="settings_crash_desc">The app crashed. Share what happened</string>
 </resources>

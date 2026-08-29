@@ -149,17 +149,20 @@ class SongRepository @Inject constructor(
     override fun getRecentlyPlayed(limit: Int): Flow<List<Song>> =
         songDao.getRecentlyPlayedFlow(limit).map { list -> list.map { it.toSong() } }
 
-    override fun getMostPlayed(limit: Int): Flow<List<Song>> =
-        songDao.getMostPlayedFlow(limit).map { list -> list.map { it.toSong() } }
-
     override fun getRecentlyAdded(limit: Int): Flow<List<Song>> =
         songDao.getRecentlyAddedFlow(limit).map { list -> list.map { it.toSong() } }
+
+    override fun getRecentlyAddedSince(since: Long): Flow<List<Song>> =
+        songDao.getRecentlyAddedSinceFlow(since).map { list -> list.map { it.toSong() } }
 
     override fun getSongsByArtist(artist: String): Flow<List<Song>> =
         songDao.getSongsByArtistFlow(artist).map { list -> list.map { it.toSong() } }
 
     override fun getRediscover(before: Long, limit: Int): Flow<List<Song>> =
         songDao.getRediscoverFlow(before, limit).map { list -> list.map { it.toSong() } }
+
+    override fun getNeverPlayed(limit: Int): Flow<List<Song>> =
+        songDao.getNeverPlayedFlow(limit).map { list -> list.map { it.toSong() } }
 
     override fun getTopGenres(minCount: Int, limit: Int): Flow<List<com.qhana.siku.data.local.GenreSummary>> =
         songDao.getGenresFlow(minCount, limit, SongDao.ARTS_PER_GENRE, SongDao.ARTS_SEPARATOR)
@@ -180,9 +183,6 @@ class SongRepository @Inject constructor(
 
     override fun getTopPlayedArtist(minSongs: Int): Flow<String?> =
         songDao.getTopPlayedArtistFlow(AppConfig.UNKNOWN_ARTIST, minSongs)
-
-    override fun getPlayedSinceCount(since: Long): Flow<Int> =
-        songDao.getPlayedSinceCountFlow(since)
 
     override fun getLibrarySize(): Flow<Int> = songDao.getSongCountFlow()
 

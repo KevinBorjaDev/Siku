@@ -83,6 +83,28 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Pantalla del informe de fallo (ver CrashReporter).
+
+            `android:process=":crash"` es lo que la hace fiable: la lanza el handler con el proceso
+            de la app ya muriendo, y en su propio proceso no arrastra nada de lo que acaba de
+            fallar. `MusicPlayerApp.onCreate` se aparta ahí (comprueba el proceso), así que este
+            proceso levanta la Activity y nada más.
+
+            Tema del SISTEMA y no el de la app, por el mismo motivo: si el crash estuviera en el
+            tema, los recursos de la app o la fuente, la pantalla que informa de él caería también.
+
+            `excludeFromRecents` + `noHistory`: es una pantalla de un solo uso; que se quede en
+            recientes solo daría una forma de volver a un informe ya mandado.
+        -->
+        <activity
+            android:name=".ui.screens.CrashReportActivity"
+            android:exported="false"
+            android:process=":crash"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
+
         <!-- Modo Ambient Player (pantalla de reproducción dedicada) -->
         <activity
             android:name=".ui.screens.AmbientPlayerActivity"

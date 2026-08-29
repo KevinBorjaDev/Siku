@@ -163,6 +163,8 @@ fun LibraryScreen(
     onGenreClick: (String) -> Unit,
     /** Estadísticas de escucha; se llega solo desde la tarjeta del inicio. */
     onStatsClick: () -> Unit,
+    /** "Ver todo" de Recién agregadas; se llega solo desde esa sección del inicio. */
+    onSeeAllRecentClick: () -> Unit,
     onNavigateToNowPlaying: (PlayerArtOrigin) -> Unit,
     onNavigateToSettings: () -> Unit,
     // Scopes para los shared elements foto/carátula → header del detalle (artista/álbum).
@@ -222,16 +224,14 @@ fun LibraryScreen(
     val showLocalSourceChip by libraryViewModel.showLocalSourceChip.collectAsStateWithLifecycle()
     val showCloudSourceChips by libraryViewModel.showCloudSourceChips.collectAsStateWithLifecycle()
 
-    // Secciones de la pestaña Inicio (reactivas al historial).
-    val homeMostPlayed by libraryViewModel.homeMostPlayed.collectAsStateWithLifecycle()
+    // Secciones de la pestaña Inicio (reactivas al historial). Son TRES: las dos fijas y el hueco
+    // de descubrimiento, que el ViewModel resuelve a una sola candidata por día.
     val homeRecentlyAdded by libraryViewModel.homeRecentlyAdded.collectAsStateWithLifecycle()
-    val topAlbums by browseViewModel.topAlbums.collectAsStateWithLifecycle()
     val recentContexts by libraryViewModel.recentContexts.collectAsStateWithLifecycle()
     val recentGenreArts by libraryViewModel.recentGenreArts.collectAsStateWithLifecycle()
     val favoriteCovers by libraryViewModel.favoriteCovers.collectAsStateWithLifecycle()
     val homeStats by libraryViewModel.homeStats.collectAsStateWithLifecycle()
-    val homeArtistPick by libraryViewModel.homeArtistPick.collectAsStateWithLifecycle()
-    val homeRediscover by libraryViewModel.homeRediscover.collectAsStateWithLifecycle()
+    val homeDiscover by libraryViewModel.homeDiscover.collectAsStateWithLifecycle()
     val homeTopGenres by libraryViewModel.homeTopGenres.collectAsStateWithLifecycle()
 
     // Resultados de búsqueda SECCIONADOS: artistas y álbumes que matchean la query se filtran
@@ -277,6 +277,9 @@ fun LibraryScreen(
         tabsConfig.filter { it.visible }.mapNotNull { tabInfo[it.tab] }
             .ifEmpty { LibraryTabsConfig.DEFAULT.mapNotNull { tabInfo[it.tab] } }
     }
+    // Repuesto de lo que solo vive en el inicio: con Inicio oculta, Estadísticas se queda sin
+    // ninguna puerta (ver [LibraryViewModel.homeTabHidden]).
+    val homeTabHidden by libraryViewModel.homeTabHidden.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val currentTab = tabs.getOrNull(pagerState.currentPage) ?: tabs[0]
 
@@ -531,6 +534,8 @@ fun LibraryScreen(
                             isLoggedIn = isLoggedIn,
                             accountPhotoPath = accountPhotoPath,
                             accountInitial = accountInitial,
+                            showStatsEntry = homeTabHidden,
+                            onStatsClick = onStatsClick,
                             onSettingsClick = onNavigateToSettings,
                             onLogoutClick = { showLogoutDialog = true }
                         )
@@ -775,15 +780,12 @@ fun LibraryScreen(
                     when (tab.tab) {
                         LibraryTabId.HOME -> {
                             HomeScreen(
-                                mostPlayed = homeMostPlayed,
                                 recentlyAdded = homeRecentlyAdded,
-                                topAlbums = topAlbums,
                                 recentContexts = recentContexts,
                                 favoriteCovers = favoriteCovers,
                                 genreArts = recentGenreArts,
                                 stats = homeStats,
-                                artistPick = homeArtistPick,
-                                rediscover = homeRediscover,
+                                discover = homeDiscover,
                                 currentSongId = nowPlayingUiState.song?.id,
                                 contentPadding = listInsets,
                                 // `ROW` y no `NONE`: la tarjeta del carrusel es la punta de origen
@@ -797,8 +799,15 @@ fun LibraryScreen(
                                 // "Porque escuchaste a X" propone otros ARTISTAS: su tarjeta navega
                                 // al detalle, no reproduce.
                                 onArtistClick = onArtistClick,
-                                onAlbumClick = onAlbumClick,
                                 onStatsClick = onStatsClick,
+                                // "Ver todo" de Recién agregadas → su RUTA PROPIA, no la pestaña
+                                // Canciones. Esa primera versión (27 ago 2026) fijaba
+                                // `DATE_ADDED_DESC` y saltaba de página, y fallaba por tres lados:
+                                // el destino era la biblioteca ENTERA y no la ventana, el orden se
+                                // PERSISTE —así que el atajo dejaba la pestaña reordenada para
+                                // siempre— y ese cambio de sort invalidaba el `PagingSource` justo
+                                // durante la animación de la página. Ver [RecentlyAddedScreen].
+                                onSeeAllRecent = { onSeeAllRecentClick() },
                                 onResumeContext = { ctx -> resumeContext(
                                     ctx, scope, browseViewModel, libraryViewModel, playbackViewModel,
                                     uiState.favoriteSongs, onNavigateToNowPlaying
@@ -873,8 +882,8 @@ fun LibraryScreen(
                                 sortOrder = uiState.sortOrderAll,
                                 onSortOrderChange = { libraryViewModel.onSortOrderChanged(it, SongFilter.ALL) },
                                 onToggleSourceFilter = libraryViewModel::toggleSourceFilter,
-                                // Los chips de esta lista (que solo existen sin la pestaña Inicio,
-                                // ver `LibraryViewModel.showLibraryPlayChips`) reproducen LA LISTA
+                                // Las acciones de esta lista (que solo existen sin la pestaña Inicio,
+                                // ver `LibraryViewModel.homeTabHidden`) reproducen LA LISTA
                                 // QUE SE VE: su orden y sus chips de origen. No es lo que significan
                                 // los del inicio, donde no hay ninguna lista delante. `NONE` y no
                                 // `ROW`: no se pulsó ninguna fila, así que no hay superficie de la
@@ -1032,6 +1041,16 @@ fun LibraryScreen(
                                 onCreatePlaylist = { showCreatePlaylistDialog = true },
                                 onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
                                 onRenamePlaylist = { id, name -> libraryViewModel.renamePlaylist(id, name) },
+                                onImportPlaylist = { uri ->
+                                    libraryViewModel.importPlaylistFromFile(
+                                        uri,
+                                        context.getString(R.string.playlist_import_default_name)
+                                    )
+                                },
+                                onExportPlaylist = { id, uri ->
+                                    libraryViewModel.exportPlaylistToFile(id, uri)
+                                },
+                                onExportFavorites = { uri -> libraryViewModel.exportFavoritesToFile(uri) },
                                 contentPadding = listInsets
                             )
                         }
@@ -2097,12 +2116,18 @@ private fun LibrarySearchHeader(
     }
 }
 
-/** Overflow del header (Ajustes / cerrar sesión): trailing icon de la píldora de búsqueda. */
+/**
+ * Overflow del header (Estadísticas / Ajustes / cerrar sesión): trailing icon de la píldora de
+ * búsqueda. **Su número de items es variable**, así que las formas salen de [menuItemShapeAt] y no
+ * de `leading`/`trailing` escritos a mano.
+ */
 @Composable
 private fun LibraryOverflowButton(
     isLoggedIn: Boolean,
     accountPhotoPath: String?,
     accountInitial: String?,
+    showStatsEntry: Boolean,
+    onStatsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -2110,16 +2135,20 @@ private fun LibraryOverflowButton(
     // El botón de nueva lista NO va aquí: vive sobre Favoritos, en la cabecera de la pestaña
     // Listas (`PlaylistList`). (Estuvo en un FAB contextual, que ya no existe.)
     Box {
-        // Con cuenta de Microsoft: AVATAR (foto de perfil o inicial) que abre el MENÚ (Ajustes +
-        // Cerrar sesión). En solo-local no hay cuenta ni logout, así que el único destino es
-        // Ajustes: el botón muestra el engranaje y NAVEGA DIRECTO — abrir un menú de un solo ítem
-        // "Ajustes" (otro engranaje) para llegar a Ajustes era un paso vacío. Sin color explícito:
-        // la píldora es neutra, así que el icono hereda el contenido por defecto del input.
-        IconButton(onClick = { if (isLoggedIn) showOverflowMenu = true else onSettingsClick() }) {
-            if (isLoggedIn) {
-                AccountAvatar(photoPath = accountPhotoPath, initial = accountInitial)
-            } else {
-                MaterialSymbol("settings")
+        // Con cuenta de Microsoft: AVATAR (foto de perfil o inicial) que abre el MENÚ. En solo-local
+        // no hay cuenta ni logout, así que si tampoco hay que reponer Estadísticas el único destino
+        // es Ajustes: el botón muestra el engranaje y NAVEGA DIRECTO — abrir un menú de un solo ítem
+        // "Ajustes" (otro engranaje) para llegar a Ajustes era un paso vacío. La condición del menú
+        // es por tanto "hay MÁS de un destino", no "hay sesión". Sin color explícito: la píldora es
+        // neutra, así que el icono hereda el contenido por defecto del input.
+        val hasMenu = isLoggedIn || showStatsEntry
+        IconButton(onClick = { if (hasMenu) showOverflowMenu = true else onSettingsClick() }) {
+            when {
+                isLoggedIn -> AccountAvatar(photoPath = accountPhotoPath, initial = accountInitial)
+                // Sin sesión pero CON menú: un engranaje que despliega destinos que no son Ajustes
+                // prometería lo que no es, así que el glifo pasa a ser el overflow genérico.
+                hasMenu -> MaterialSymbol("more_vert")
+                else -> MaterialSymbol("settings")
             }
         }
         // Menú SEGMENTADO (popup + grupo), no el `DropdownMenu` clásico: ver la nota en SortChip.
@@ -2128,13 +2157,26 @@ private fun LibraryOverflowButton(
             onDismissRequest = { showOverflowMenu = false }
         ) {
             AppMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                // Estadísticas PRIMERO y solo con Inicio oculta: es el repuesto de la tarjeta del
+                // inicio, que es su única puerta (ver [LibraryViewModel.homeTabHidden]). Con Inicio
+                // visible serían dos controles para lo mismo, y éste es el que sobra: aquélla
+                // además muestra un DATO.
+                val itemCount = 1 + (if (showStatsEntry) 1 else 0) + (if (isLoggedIn) 1 else 0)
+                val settingsIndex = if (showStatsEntry) 1 else 0
+                if (showStatsEntry) {
+                    DropdownMenuItem(
+                        colors = appMenuItemColors(),
+                        onClick = { showOverflowMenu = false; onStatsClick() },
+                        text = { Text(stringResource(R.string.stats_title)) },
+                        shape = menuItemShapeAt(0, itemCount),
+                        leadingIcon = { MenuItemIcon("bar_chart") }
+                    )
+                }
                 DropdownMenuItem(
                     colors = appMenuItemColors(),
                     onClick = { showOverflowMenu = false; onSettingsClick() },
                     text = { Text(stringResource(R.string.settings_title)) },
-                    // Sin sesión, "Ajustes" es el ÚNICO item y por tanto una pastilla suelta; con
-                    // sesión abre el bloque y "Cerrar sesión" lo cierra.
-                    shape = if (isLoggedIn) MenuDefaults.leadingItemShape else MenuDefaults.standaloneItemShape,
+                    shape = menuItemShapeAt(settingsIndex, itemCount),
                     leadingIcon = { MenuItemIcon("settings") }
                 )
                 if (isLoggedIn) {
@@ -2142,7 +2184,7 @@ private fun LibraryOverflowButton(
                         colors = appMenuItemColors(),
                         onClick = { showOverflowMenu = false; onLogoutClick() },
                         text = { Text(stringResource(R.string.common_logout)) },
-                        shape = MenuDefaults.trailingItemShape,
+                        shape = menuItemShapeAt(itemCount - 1, itemCount),
                         leadingIcon = { MenuItemIcon("logout") }
                     )
                 }

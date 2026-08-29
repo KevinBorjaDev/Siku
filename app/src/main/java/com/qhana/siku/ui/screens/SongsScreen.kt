@@ -129,10 +129,10 @@ fun SongsScreen(
     // la misma expresión copiada, o sea dos sitios capaces de discrepar sobre cuándo hay control.
     val showLocalChip by viewModel.showLocalSourceChip.collectAsStateWithLifecycle()
     val showCloudChips by viewModel.showCloudSourceChips.collectAsStateWithLifecycle()
-    // Los chips de reproducir/aleatorio de esta fila son el REPUESTO de las acciones rápidas del
+    // Los botones de reproducir/aleatorio de esta fila son el REPUESTO de las acciones rápidas del
     // inicio: solo existen si esa pestaña no está. La regla, igual que la de los chips de origen,
-    // vive en el ViewModel (ver [LibraryViewModel.showLibraryPlayChips]).
-    val showPlayChips by viewModel.showLibraryPlayChips.collectAsStateWithLifecycle()
+    // vive en el ViewModel (ver [LibraryViewModel.homeTabHidden]).
+    val showPlayActions by viewModel.homeTabHidden.collectAsStateWithLifecycle()
 
     // Al cambiar la query, volver arriba: si no, el scroll se queda donde estaba y las
     // secciones de artistas/álbumes (que van al principio) quedan fuera de pantalla.
@@ -209,7 +209,7 @@ fun SongsScreen(
                         songCount, sortOrder, onSortOrderChange, sourceFilters,
                         showLocalChip, showCloudChips, onToggleSourceFilter,
                         // Lista vacía por los filtros: ver arriba.
-                        showPlayChips = false, onPlayAll = {}, onShuffleAll = {}
+                        showPlayActions = false, onPlayAll = {}, onShuffleAll = {}
                     )
                 }
                 item { FilteredEmptyBody() }
@@ -235,7 +235,7 @@ fun SongsScreen(
                             // Con la lista vacía no hay nada que reproducir: en la rama de "ningún
                             // resultado" quitar un filtro tiene que seguir siendo lo único que se
                             // puede hacer ahí.
-                            showPlayChips = showPlayChips && itemCount > 0,
+                            showPlayActions = showPlayActions && itemCount > 0,
                             onPlayAll = onPlayAll,
                             onShuffleAll = onShuffleAll
                         )
@@ -578,7 +578,7 @@ private fun SourceFilterRow(
     showLocalChip: Boolean,
     showCloudChips: Boolean,
     onToggle: (SongSourceFilter) -> Unit,
-    showPlayChips: Boolean,
+    showPlayActions: Boolean,
     onPlayAll: () -> Unit,
     onShuffleAll: () -> Unit
 ) {
@@ -605,16 +605,17 @@ private fun SourceFilterRow(
             )
         }
         // Detrás del conteo y delante del orden y los filtros: son lo único de esta fila que HACE
-        // algo —el resto describe o acota—, y solo existen cuando la pestaña Inicio no está para
-        // ofrecerlas (la regla vive en [LibraryViewModel.showLibraryPlayChips]). Son los MISMOS
-        // `QuickActionChip` del inicio, el mismo componente y no una copia con el mismo aspecto.
-        if (showPlayChips) {
-            QuickActionChip(
+        // algo —el resto describe o acota, y por eso el resto SÍ son chips y esto no—, y solo
+        // existen cuando la pestaña Inicio no está para ofrecerlas (la regla vive en
+        // [LibraryViewModel.homeTabHidden]). Son los MISMOS `QuickActionButton` del
+        // inicio, el mismo componente y no una copia con el mismo aspecto.
+        if (showPlayActions) {
+            QuickActionButton(
                 "shuffle",
                 stringResource(R.string.home_action_shuffle),
                 onClick = onShuffleAll
             )
-            QuickActionChip(
+            QuickActionButton(
                 "play_arrow",
                 stringResource(R.string.home_action_play_order),
                 fill = true,

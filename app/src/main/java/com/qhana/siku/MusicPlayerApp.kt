@@ -19,9 +19,11 @@ import com.qhana.siku.data.lyrics.RetagJournal
 import com.qhana.siku.data.repository.IPlaylistRepository
 import androidx.glance.appwidget.updateAll
 import com.qhana.siku.data.util.AppLogger
+import com.qhana.siku.data.util.CrashReporter
 import com.qhana.siku.widget.PlayerWidget
 import com.qhana.siku.widget.QueueWidget
 import com.qhana.siku.widget.WidgetBridge
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import com.qhana.siku.ui.components.MaterialSymbolFont
 import com.qhana.siku.ui.theme.AppFonts
@@ -67,11 +69,50 @@ class MusicPlayerApp : Application(), Configuration.Provider, SingletonImageLoad
     @Inject lateinit var widgetBridge: WidgetBridge
     @Inject lateinit var retagJournal: RetagJournal
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * Ninguna de las tareas de arranque que corren aquí es imprescindible para que la app ABRA, así
+     * que ninguna puede impedirlo: sin este handler, `SupervisorJob` aísla a las hermanas entre sí
+     * pero la excepción sigue llegando al del hilo, o sea que un fallo de disco o de base de datos
+     * en el healing de carátulas tumbaba el proceso ENTERO en el arranque. Es exactamente la forma
+     * que tiene un "crashea al abrir" de no depender de nada que el usuario pueda ver.
+     *
+     * Se registra el fallo y se sigue: quien lo necesite ya lo reintentará (el healing corre en cada
+     * arranque y en cada pull-to-refresh, y `ensureFavoritesPlaylist` es idempotente).
+     */
+    private val startupErrorHandler = CoroutineExceptionHandler { _, error ->
+        runCatching { appLogger.error("Tarea de arranque fallida: ${error.javaClass.simpleName}: ${error.message}") }
+    }
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + startupErrorHandler)
 
     private var lastNightMode = -1
 
+    /**
+     * El capturador de fallos, lo ANTES posible en la vida del proceso: aquí, y no en [onCreate],
+     * porque entre las dos corre la inicialización de Hilt y la del propio `onCreate` —el arranque
+     * más frágil que hay— y un crash ahí es el que más falta hace poder leer. Ver [CrashReporter].
+     */
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        CrashReporter.install(this)
+    }
+
     override fun onCreate() {
+        // El proceso `:crash` levanta la pantalla del informe y NADA más: si arrancara aquí el
+        // puente de widgets, el healing y el resto, la pantalla que informa del fallo podría
+        // reproducirlo — y con él, el bucle del que el usuario no puede salir.
+        //
+        // La guarda va ANTES de `super.onCreate()`, y con él dentro de un `runCatching`, porque es
+        // ESA llamada la que inyecta los campos de Hilt: construir el grafo levanta la base de
+        // datos, la red y MSAL, o sea justamente donde puede estar el fallo que vinimos a enseñar.
+        // Un crash ahí dejaría al usuario sin pantalla y con la sola guarda anti-bucle de
+        // [CrashReporter] entre él y un ciclo. La Activity del informe no usa Hilt ni Coil, así que
+        // le basta con una Application a medio inicializar.
+        if (!CrashReporter.isMainProcess(this)) {
+            runCatching { super.onCreate() }
+            return
+        }
+
         super.onCreate()
 
         lastNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK

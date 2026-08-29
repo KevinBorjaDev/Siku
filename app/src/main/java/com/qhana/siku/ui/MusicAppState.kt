@@ -713,7 +713,8 @@ fun isPillRoute(route: String?): Boolean = when (route) {
     Screen.ArtistDetail.route, Screen.AlbumDetail.route, Screen.GenreDetail.route,
     // Estadísticas es contenido SOBRE la biblioteca y sus filas reproducen, del mismo género que
     // artista/álbum/género — no una pantalla de configuración como Ajustes o el gestor de descargas.
-    Screen.Stats.route -> true
+    // Lo mismo "Recién agregadas": es una lista de canciones de la biblioteca, aunque sea virtual.
+    Screen.Stats.route, Screen.RecentlyAdded.route, Screen.StatsList.route -> true
     else -> false
 }
 

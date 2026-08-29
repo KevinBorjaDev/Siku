@@ -50,6 +50,29 @@ sealed class Screen(val route: String) {
     /** Estadísticas de escucha. Se llega desde la tarjeta del inicio. */
     data object Stats : Screen("stats")
 
+    /**
+     * El ranking completo de una categoría de estadísticas.
+     *
+     * El PERIODO viaja en la ruta y no en un estado compartido: es lo que hace que la pantalla se
+     * pueda reconstruir desde el back stack sin depender de que la de estadísticas siga viva
+     * detrás. `anchor` es un `LocalDate` ISO (`2026-08-28`); en "Siempre" no significa nada
+     * pero se manda igual para que la ruta tenga una sola forma.
+     */
+    data object StatsList : Screen("stats_list/{kind}/{mode}/{anchor}") {
+        fun createRoute(kind: String, mode: String, anchor: String): String =
+            "stats_list/$kind/$mode/$anchor"
+    }
+
+    /**
+     * "Recién agregadas" completa: el destino del "Ver todo" de esa sección del inicio.
+     *
+     * Es una lista VIRTUAL —no hay tabla ni entidad detrás, solo una consulta con ventana— igual
+     * que un género, y por eso es una ruta y no una playlist de Room: una playlist es dato del
+     * usuario (se reordena, se le quitan canciones) y una que se reescribiera sola pelearía con
+     * eso, además de no tener respuesta para "¿qué pasa cuando una canción cumple 30 días?".
+     */
+    data object RecentlyAdded : Screen("recently_added")
+
     data object PlaylistDetail : Screen("playlist_detail/{playlistId}/{playlistName}") {
         const val ARG_PLAYLIST_ID = "playlistId"
         const val ARG_PLAYLIST_NAME = "playlistName"

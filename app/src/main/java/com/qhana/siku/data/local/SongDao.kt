@@ -48,6 +48,16 @@ interface SongDao {
     suspend fun getSearchableText(): List<SongSearchText>
 
     /**
+     * Las claves con las que se puede reconocer una canción a partir de una LÍNEA de un M3U, sin
+     * traerse la fila entera. Mismo criterio que [getSearchableText]: el importador compara en
+     * memoria porque tiene que probar varias claves por entrada —ruta completa, sufijos de ruta,
+     * nombre de archivo, y por último los tags— y hacerlo con una consulta por intento serían miles
+     * de consultas para un archivo de 300 líneas.
+     */
+    @Query("SELECT id, relativePath, title, artist FROM songs")
+    suspend fun getPathKeys(): List<SongPathKey>
+
+    /**
      * Versión no paginada del mismo query dinámico (mismo builder [buildPagingQuery]):
      * la lista COMPLETA con la búsqueda + orden actuales. Se usa para construir la cola
      * de reproducción idéntica a lo que se ve en pantalla (no solo las páginas cargadas).
@@ -981,18 +991,17 @@ interface SongDao {
     fun getRecentlyAddedFlow(limit: Int): Flow<List<SongEntity>>
 
     /**
-     * Álbumes del momento: agrupados por nombre (igual que el browse) y ordenados por el total
-     * de reproducciones de sus canciones. Solo álbumes con historial (SUM(playCount) > 0).
+     * Recién agregadas DESDE una fecha, sin tope: la lista completa que hay detrás de la sección
+     * del inicio.
+     *
+     * Es la MISMA ventana que filtra esa sección (`LibraryViewModel.RECENTLY_ADDED_SECONDS`) y el
+     * mismo orden, y eso es justo lo que la convierte en su "ver todo": el destino tiene que ser
+     * la continuación de lo que se estaba mirando, no otra lista. Antes ese botón llevaba a la
+     * pestaña Canciones, que es la biblioteca ENTERA — la sección prometía cinco novedades y el
+     * destino enseñaba 765 canciones.
      */
-    @Query(
-        """
-        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
-               MAX(albumArtUriString) AS albumArtUri
-        FROM songs GROUP BY album HAVING SUM(playCount) > 0
-        ORDER BY SUM(playCount) DESC LIMIT :limit
-        """
-    )
-    fun getTopAlbumsFlow(limit: Int): Flow<List<AlbumSummary>>
+    @Query("SELECT * FROM songs WHERE dateAdded > :since ORDER BY dateAdded DESC")
+    fun getRecentlyAddedSinceFlow(since: Long): Flow<List<SongEntity>>
 
     // ============ ESTADÍSTICAS, periodo "Siempre" (v28) ============
     // El log de eventos empieza el día de la actualización, así que "Siempre" NO sale de él: sale
@@ -1003,10 +1012,24 @@ interface SongDao {
     /**
      * Totales de siempre. A diferencia del resumen por periodo, aquí todo sale de la biblioteca
      * VIVA: una canción borrada se llevó su `playCount` con ella y no hay dónde recuperarlo.
+     *
+     * **`estimatedListenedMs` es una ESTIMACIÓN, y la única posible para este periodo.** El tiempo
+     * real solo lo sabe `play_events`, que empieza el día de la v28; para todo lo anterior no hay
+     * más dato que "esta canción sonó N veces", así que se multiplica por su duración. Sesga hacia
+     * ARRIBA, y de forma acotada: `MusicController.maybeRecordPlay` cuenta una escucha a la mitad de
+     * la canción (o a los 4 min), así que una reproducción contada valió entre ese umbral y la
+     * duración entera — nunca más. Las canciones con `duration = 0` (sin analizar todavía) aportan
+     * cero y sesgan hacia abajo, lo que en la práctica compensa parte de lo anterior.
+     *
+     * NO se mezcla con la suma exacta del log: sumar `playedMs` de los eventos y estimar solo el
+     * resto exigiría saber cuántas de las N reproducciones de cada canción son posteriores al log, y
+     * ese reparto no está en ningún sitio. Una cifra mitad medida y mitad inventada es más difícil
+     * de explicar que una estimación entera y honesta — por eso la pantalla la etiqueta como aprox.
      */
     @Query(
         """
         SELECT COALESCE(SUM(playCount), 0) AS plays,
+               COALESCE(SUM(playCount * duration), 0) AS estimatedListenedMs,
                COUNT(*) AS distinctSongs,
                COUNT(DISTINCT artist) AS distinctArtists
         FROM songs WHERE playCount > 0
@@ -1029,10 +1052,12 @@ interface SongDao {
     fun getAllTimeTopArtistsFlow(unknownArtist: String, limit: Int): Flow<List<AllTimeArtist>>
 
     /**
-     * Top de álbumes de siempre. No reutiliza [getTopAlbumsFlow] porque aquélla ordena por
-     * `SUM(playCount)` pero no lo devuelve, y esta pantalla enseña la cifra: mostrar el ranking sin
-     * el número que lo ordena obligaría a inventarlo. Mismo filtro de álbum desconocido que el
-     * ranking por periodo.
+     * Top de álbumes de siempre. Fue el gemelo de la sección "Álbumes del momento" del inicio
+     * —misma agrupación, mismo orden por `SUM(playCount)`— hasta que esa sección se eliminó (27 ago
+     * 2026) justo por ser esta consulta con la cifra quitada: el inicio la enseñaba sin el número
+     * que la ordena. **Esta es la que se queda**, porque una pantalla de estadísticas no puede
+     * mostrar un ranking sin su magnitud. Mismo filtro de álbum desconocido que el ranking por
+     * periodo.
      */
     @Query(
         """
@@ -1059,6 +1084,24 @@ interface SongDao {
         """
     )
     fun getAllTimeTopGenresFlow(limit: Int): Flow<List<AllTimeGenre>>
+
+    /** Álbumes distintos con historial. Mismo filtro que [getAllTimeTopAlbumsFlow]. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT album) FROM songs
+        WHERE playCount > 0 AND TRIM(album) != '' AND album != :unknownAlbum COLLATE NOCASE
+        """
+    )
+    fun getAllTimeDistinctAlbumsFlow(unknownAlbum: String): Flow<Int>
+
+    /** Géneros distintos con historial. Mismo filtro que [getAllTimeTopGenresFlow]. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT genre) FROM songs
+        WHERE playCount > 0 AND genre IS NOT NULL AND TRIM(genre) != ''
+        """
+    )
+    fun getAllTimeDistinctGenresFlow(): Flow<Int>
 
     /** Nº de canciones cuya ÚLTIMA escucha cae dentro de [since..now] (stat del saludo del inicio). */
     @Query("SELECT COUNT(*) FROM songs WHERE lastPlayedAt IS NOT NULL AND lastPlayedAt >= :since")
@@ -1133,11 +1176,29 @@ interface SongDao {
      */
     @Query("SELECT * FROM songs WHERE playCount > 0 AND lastPlayedAt IS NOT NULL AND lastPlayedAt < :before ORDER BY lastPlayedAt ASC LIMIT :limit")
     fun getRediscoverFlow(before: Long, limit: Int): Flow<List<SongEntity>>
+
+    /**
+     * "Aún no las escuchaste": nunca reproducidas, lo más nuevo primero.
+     *
+     * Es la ÚNICA sección del inicio que descubre algo de verdad. Las demás reordenan una
+     * biblioteca que el usuario ya conoce entera —es SUYA—, mientras que en una llenada por sync
+     * masivo lo que nunca sonó es el grueso y es material propio sin estrenar. Su complementaria es
+     * [getRediscoverFlow], que exige `playCount > 0`: entre las dos parten el historial en dos
+     * mitades sin solaparse.
+     *
+     * Ordena por alta y no al azar a propósito: la variedad la pone la ROTACIÓN de la sección
+     * (ver `LibraryViewModel.homeDiscover`), no el contenido — si además bailara por dentro, dos
+     * aperturas seguidas el mismo día no enseñarían lo mismo.
+     */
+    @Query("SELECT * FROM songs WHERE playCount = 0 ORDER BY dateAdded DESC LIMIT :limit")
+    fun getNeverPlayedFlow(limit: Int): Flow<List<SongEntity>>
 }
 
 /** Totales del periodo "Siempre": ver [SongDao.getAllTimeTotalsFlow]. */
 data class AllTimeTotals(
     val plays: Int,
+    /** Estimado (reproducciones x duración), no medido. Ver [SongDao.getAllTimeTotalsFlow]. */
+    val estimatedListenedMs: Long,
     val distinctSongs: Int,
     val distinctArtists: Int
 )
@@ -1234,4 +1295,15 @@ data class SongSearchText(
     val title: String,
     val artist: String,
     val album: String
+)
+
+/**
+ * Lo que identifica a una canción cuando lo único que se tiene es una ruta de archivo. Ver
+ * `SongDao.getPathKeys`.
+ */
+data class SongPathKey(
+    val id: String,
+    val relativePath: String?,
+    val title: String,
+    val artist: String
 )

@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
@@ -561,18 +560,4 @@ fun QueueOverflowButton(
             }
         }
     }
-}
-
-/**
- * Forma de una entrada de menú según su POSICIÓN en el grupo, para los menús cuyo número de items
- * no es fijo. Es lo que hace `MenuDefaults.itemShape(index, count)`, pero devolviendo el `Shape`
- * suelto: esa función entrega un `MenuItemShapes`, que solo aceptan las sobrecargas de
- * `DropdownMenuItem` con estado (`selected`/`checked`) — la de acción simple recibe `shape`.
- */
-@Composable
-private fun menuItemShapeAt(index: Int, count: Int): Shape = when {
-    count <= 1 -> MenuDefaults.standaloneItemShape
-    index == 0 -> MenuDefaults.leadingItemShape
-    index == count - 1 -> MenuDefaults.trailingItemShape
-    else -> MenuDefaults.middleItemShape
 }

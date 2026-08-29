@@ -9,6 +9,8 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.qhana.siku.data.coordinator.SyncManager
 import com.qhana.siku.data.coordinator.SyncStatus
+import com.qhana.siku.data.model.AppError
+import com.qhana.siku.data.model.AppResult
 import com.qhana.siku.data.model.PlaybackContext
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.LyricsSaveMode
@@ -50,15 +52,17 @@ import kotlin.random.Random
 import javax.inject.Inject
 
 /**
- * Datos del inicio: el subtítulo del saludo (escuchas de la semana, con el tamaño de biblioteca de
- * respaldo) y el resumen del MES que enseña la tarjeta de estadísticas.
+ * Datos del subtítulo del saludo: el resumen del MES en curso, con el tamaño de la biblioteca como
+ * respaldo mientras no haya nada escuchado.
  *
- * El mes y la semana conviven a propósito: el saludo ya dice "escuchaste N canciones esta semana",
- * así que la tarjeta lleva otro dato y otra ventana — si no, serían dos formas de decir lo mismo
- * a dos centímetros una de otra.
+ * **Llevaba además las escuchas de la SEMANA** y las dos ventanas convivían porque eran dos piezas
+ * distintas —el saludo decía la semana y la tarjeta de estadísticas el mes—; al absorber el saludo
+ * esa tarjeta (27 ago 2026) quedaban dos formas de decir lo mismo en el mismo renglón, así que se
+ * quedó la que la pantalla de destino usa para abrir. De paso se fue un dato que envejecía mal: su
+ * ventana rodante se fijaba al construir el ViewModel y el proceso de una app de música vive días,
+ * mientras que el mes se recalcula en cada emisión (ver [currentMonthSummary]).
  */
 data class HomeStats(
-    val playedThisWeek: Int,
     val librarySize: Int,
     val monthPlays: Int = 0,
     val monthListenedMs: Long = 0L
@@ -78,6 +82,25 @@ data class HomeArtistPick(val seed: String, val related: List<RelatedArtistUi>)
 
 /** Un artista propuesto, ya con su foto resuelta (o la carátula de respaldo). Ver [HomeArtistPick]. */
 data class RelatedArtistUi(val name: String, val songCount: Int, val artUri: String?)
+
+/** Cuál de las dos secciones de canciones es. Solo decide el título; el resto es idéntico. */
+enum class HomeDiscoverKind { NEVER_PLAYED, REDISCOVER }
+
+/**
+ * La sección de DESCUBRIMIENTO del inicio, de la que se pinta **UNA sola por día**.
+ *
+ * El inicio tenía siete secciones y seis reordenaban una biblioteca que el usuario ya conoce entera
+ * —es la suya—, así que el scroll pedía llegar a sitios a los que nadie llega. Los rankings se
+ * fueron a Estadísticas, donde ya existían con la misma consulta (ver `StatsRepository`), y las tres
+ * que sí proponen algo se turnan en un único hueco: quedan las dos fijas —reanudar y lo recién
+ * llegado— más una que cambia sola. Ver `homeDiscover`.
+ */
+sealed interface HomeDiscover {
+    /** "Porque escuchaste a X": otros artistas que comparten género con el que más escuchas. */
+    data class Artists(val seed: String, val related: List<RelatedArtistUi>) : HomeDiscover
+    /** "Aún no las escuchaste" / "Vuelve a escucharlas": dos mitades del historial, sin solaparse. */
+    data class Songs(val kind: HomeDiscoverKind, val songs: List<Song>) : HomeDiscover
+}
 
 sealed class LibraryBannerState {
     data class Scanning(val progress: Int, val message: String) : LibraryBannerState()
@@ -159,7 +182,10 @@ class LibraryViewModel @Inject constructor(
     private val downloadScheduler: DownloadScheduler,
     private val workManager: WorkManager,
     private val networkManager: com.qhana.siku.data.util.NetworkManager,
-    private val sourceRegistry: com.qhana.siku.data.source.MusicSourceRegistry
+    private val sourceRegistry: com.qhana.siku.data.source.MusicSourceRegistry,
+    // Importar/exportar listas como M3U, el formato que hablan los demás reproductores. Es una
+    // operación de ARCHIVO y no de biblioteca, por eso no cuelga de `repository`.
+    private val m3uRepository: com.qhana.siku.data.playlist.M3uPlaylistRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
@@ -428,31 +454,77 @@ class LibraryViewModel @Inject constructor(
      */
     private val libraryIsSettling: Flow<Boolean> = syncManager.settlingFlow()
 
-    val homeMostPlayed: StateFlow<List<Song>> = repository.getMostPlayed(HOME_SECTION_LIMIT)
-        .sampledDuringSync(libraryIsSettling)
-        .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
+    /**
+     * Todas las canciones de la ventana de "recién agregadas", sin tope: lo que hay detrás del
+     * "Ver todo" de esa sección (`Screen.RecentlyAdded`).
+     *
+     * Misma ventana y mismo orden que [homeRecentlyAdded] — la constante es una sola a propósito:
+     * si la sección y su destino no comparten el criterio, el "ver todo" no es una salida sino un
+     * salto a otra lista. Se calcula el corte en cada emisión por lo mismo que allá.
+     *
+     * **Va con `sampledDuringSync` como el resto**, y la excepción que se le puso primero era un
+     * error de razonamiento: se argumentó que "esta pantalla es donde se mira DESPUÉS de un sync, y
+     * muestrear escondería lo que acaba de entrar". Falso — muestrear no esconde nada, cambia la
+     * suscripción permanente por una toma puntual MIENTRAS el sync corre y vuelve a la normal al
+     * terminar, así que lo recién llegado se ve igual. Y es justo la consulta que más lo necesita:
+     * `dateAdded > since` sin `LIMIT` recorre casi toda la tabla, y Room invalida por TABLA, así que
+     * con la pantalla abierta durante una descarga masiva se re-ejecutaría entera decenas de veces
+     * por segundo.
+     *
+     * El `since` se fija al ARRANCAR la suscripción y no en cada emisión, al revés que en
+     * [homeRecentlyAdded], porque aquí es un parámetro de la consulta y recalcularlo la
+     * re-suscribiría. No envejece: `WhileUiSubscribed` corta el flujo al salir de la pantalla, así
+     * que cada visita entra con la ventana recién calculada.
+     */
+    val recentlyAddedAll: StateFlow<List<Song>> =
+        flow { emit(System.currentTimeMillis() / 1000 - RECENTLY_ADDED_SECONDS) }
+            .flatMapLatest { since -> repository.getRecentlyAddedSince(since) }
+            .sampledDuringSync(libraryIsSettling)
+            .flowOn(Dispatchers.IO)
+            .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
 
+    /**
+     * "Recién agregadas", **acotada a una ventana de verdad** ([RECENTLY_ADDED_SECONDS]).
+     *
+     * Sin la ventana la sección no se apaga nunca: siempre hay cinco canciones que son las últimas
+     * de la tabla, aunque la última alta haya sido hace un año. Y eso no es una hipótesis — es el
+     * caso de la biblioteca de nube que entró ENTERA en su primera sincronización (27 ago 2026): el
+     * scan sella `dateAdded` canción a canción según avanza, así que las 765 pistas quedan repartidas
+     * por los minutos de aquel escaneo y el "orden por fecha de alta" es en realidad **el orden en
+     * que el delta de Graph las fue devolviendo**. Cinco canciones cualesquiera bajo un rótulo que
+     * promete novedad, y un "Ver todo" que lleva a la biblioteca entera en ese mismo orden arbitrario.
+     *
+     * Con la ventana la sección **desaparece sola** cuando no hay nada nuevo y **vuelve sola** al
+     * sincronizar música — que es lo que su nombre dice. En una instalación recién estrenada entra
+     * todo, y eso es correcto: ahí la biblioteca ENTERA es reciente.
+     *
+     * El corte se calcula en cada emisión y no al construir el ViewModel: el proceso de una app de
+     * música vive días, así que un `since` fijado una vez convertiría la ventana en un rango que
+     * crece. Es el mismo error que hizo envejecer mal al conteo semanal del saludo, ya retirado.
+     * Filtrar en Kotlin y no en SQL es lo que lo permite sin re-suscribir la consulta.
+     */
     val homeRecentlyAdded: StateFlow<List<Song>> = repository.getRecentlyAdded(HOME_SECTION_LIMIT)
+        .map { songs ->
+            val since = System.currentTimeMillis() / 1000 - RECENTLY_ADDED_SECONDS
+            // `dateAdded` va en SEGUNDOS (ver `Song.dateAdded`), no en millis.
+            songs.filter { it.dateAdded > since }
+        }
         .sampledDuringSync(libraryIsSettling)
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
 
-    // Datos del saludo del inicio: escuchas de la última semana + tamaño de biblioteca (respaldo
-    // cuando la semana está vacía). La ventana se fija al construir el ViewModel (se refresca al
-    // reiniciar el proceso), suficiente para un dato de bienvenida.
+    // Subtítulo del saludo + el dato que enseña su botón de estadísticas.
     val homeStats: StateFlow<HomeStats> = combine(
-        repository.getPlayedSinceCount(System.currentTimeMillis() - WEEK_MILLIS),
         repository.getLibrarySize(),
         // El resumen del mes EN CURSO, de calendario: es el periodo con el que abre la pantalla de
-        // estadísticas, así que la tarjeta enseña exactamente lo que se va a encontrar al tocarla.
+        // estadísticas, así que el saludo enseña exactamente lo que se va a encontrar al tocarla.
         currentMonthSummary()
-    ) { week, size, month ->
-        HomeStats(week, size, month.plays, month.listenedMs ?: 0L)
+    ) { size, month ->
+        HomeStats(size, month.plays, month.listenedMs ?: 0L)
     }
         .sampledDuringSync(libraryIsSettling)
         .flowOn(Dispatchers.IO)
-        .stateIn(viewModelScope, WhileUiSubscribed, HomeStats(0, 0))
+        .stateIn(viewModelScope, WhileUiSubscribed, HomeStats(0))
 
     /**
      * Resumen del mes en curso. La ventana se calcula aquí y no al construir el ViewModel porque el
@@ -468,7 +540,7 @@ class LibraryViewModel @Inject constructor(
     // escuchas. Reactiva en tres niveles — cambia de artista semilla cuando el historial lo hace,
     // refleja altas/bajas en la biblioteca, y recoge las fotos de Deezer según van llegando.
     // Ver [HomeArtistPick] para por qué ya no son canciones del propio artista.
-    val homeArtistPick: StateFlow<HomeArtistPick?> = repository.getTopPlayedArtist(MIN_ARTIST_PICK_SONGS)
+    private val homeArtistPick: StateFlow<HomeArtistPick?> = repository.getTopPlayedArtist(MIN_ARTIST_PICK_SONGS)
         .distinctUntilChanged()
         .flatMapLatest { artist ->
             if (artist.isNullOrBlank()) flowOf(null)
@@ -497,11 +569,74 @@ class LibraryViewModel @Inject constructor(
         .stateIn(viewModelScope, WhileUiSubscribed, null)
 
     // "Vuelve a escucharlas": escuchadas alguna vez pero no en las últimas ~2 semanas.
-    val homeRediscover: StateFlow<List<Song>> =
-        repository.getRediscover(System.currentTimeMillis() - REDISCOVER_MILLIS, HOME_SECTION_LIMIT)
+    private val homeRediscover: StateFlow<List<Song>> =
+        repository.getRediscover(System.currentTimeMillis() - REDISCOVER_MILLIS, HOME_DISCOVER_POOL)
             .sampledDuringSync(libraryIsSettling)
             .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
+
+    // "Aún no las escuchaste": la mitad del catálogo que `homeRediscover` no puede ver (aquélla
+    // exige playCount > 0). En una biblioteca llenada por sync masivo es el grueso, y es lo único
+    // del inicio que descubre material propio sin estrenar en vez de reordenar lo ya conocido.
+    private val homeNeverPlayed: StateFlow<List<Song>> = repository.getNeverPlayed(HOME_DISCOVER_POOL)
+        .sampledDuringSync(libraryIsSettling)
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
+
+    /**
+     * La sección de descubrimiento de HOY: una de las tres, o ninguna si no hay nada que proponer.
+     *
+     * Se combinan las tres candidatas y se elige por día, así que el hueco no depende de que una
+     * concreta tenga contenido: una biblioteca sin géneros analizados no da vecinos, una recién
+     * estrenada no tiene nada que redescubrir y una escuchada entera no tiene nada sin estrenar —
+     * y en los tres casos el inicio sigue proponiendo algo mientras quede UNA viva.
+     */
+    val homeDiscover: StateFlow<HomeDiscover?> =
+        combine(
+            homeArtistPick, homeNeverPlayed, homeRediscover, homeRecentlyAdded
+        ) { pick, never, again, added ->
+            // DEDUP contra la sección de arriba, y NO es cosmético: dos tarjetas con el mismo
+            // `songId` son dos puntas del container transform declarándose origen a la vez, y con
+            // el empate Compose no anima ninguna — el reproductor se abre sin morph (el mismo fallo
+            // que `SharedTransitionGate` resuelve entre páginas del pager). Y el caso no es raro:
+            // una canción recién agregada que todavía no sonó está en las DOS listas por
+            // definición. De ahí que las candidatas se pidan por [HOME_DISCOVER_POOL] y se recorten
+            // DESPUÉS de filtrar: pedir el tope justo dejaría la sección vacía en una biblioteca
+            // recién escaneada, que es justo cuando más tiene que decir.
+            val shown = added.mapTo(HashSet(added.size)) { it.id }
+            fun List<Song>.fresh() = filterNot { it.id in shown }.take(HOME_SECTION_LIMIT)
+            val neverFresh = never.fresh()
+            val againFresh = again.fresh()
+            // El ORDEN de esta lista es el de la ronda (ver [pickOfTheDay]), así que es estable
+            // a propósito: reordenarlo cambia qué toca cada día.
+            buildList {
+                if (neverFresh.isNotEmpty()) {
+                    add(HomeDiscover.Songs(HomeDiscoverKind.NEVER_PLAYED, neverFresh))
+                }
+                pick?.let { add(HomeDiscover.Artists(it.seed, it.related)) }
+                if (againFresh.isNotEmpty()) {
+                    add(HomeDiscover.Songs(HomeDiscoverKind.REDISCOVER, againFresh))
+                }
+            }.pickOfTheDay()
+        }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, WhileUiSubscribed, null)
+
+    /**
+     * La candidata del día, por TURNO y no al azar.
+     *
+     * Es la misma semilla del día local que [pickGenreChipsOfTheDay] —estable mientras el día lo
+     * sea, sin temporizador que mantener— pero con la aritmética al revés, y la diferencia es
+     * deliberada: allí se toman 5 de 15 y lo que se quiere es una MUESTRA, así que un `shuffled`
+     * sembrado vale; aquí se toma 1 de 3 y lo que se quiere es un CICLO. Con `random()` dos días
+     * seguidos repetirían una vez de cada tres, que es justo lo que la sección promete no hacer.
+     *
+     * Que el módulo sea sobre el tamaño VIVO significa que la ronda se reajusta cuando una
+     * candidata aparece o se agota. Es correcto: lo que no puede pasar es que el hueco se quede
+     * vacío teniendo algo que ofrecer.
+     */
+    private fun List<HomeDiscover>.pickOfTheDay(): HomeDiscover? =
+        if (isEmpty()) null else this[(LocalDate.now().toEpochDay() % size).toInt()]
 
     // Géneros para los chips de acciones rápidas del inicio (≥ GENRE_MIN_COUNT canciones).
     // Reactivo: aparecen solos a medida que el backfill puebla la columna.
@@ -1021,25 +1156,31 @@ class LibraryViewModel @Inject constructor(
         musicPreferences.saveLibraryTabsConfig(list)
 
     /**
-     * Chips de "reproducir la biblioteca" en la pestaña **Todas**: se ven SOLO cuando la pestaña
-     * **Inicio** no está, porque son el repuesto de sus acciones rápidas y no una segunda copia.
+     * **La pestaña Inicio NO está visible.** Es un HECHO sobre la configuración, no un control:
+     * de él cuelgan los REPUESTOS de lo que solo vive en el inicio, y cada superficie decide qué
+     * repone. Hoy son dos:
      *
-     * Con Inicio oculta, esas dos acciones —aleatorio y en orden sobre toda la biblioteca— no
-     * existían en ningún otro sitio de la app, y `LibraryTabsConfig.MIN_VISIBLE = 1` permite
-     * quedarse sin ella. Las demás del inicio sí tienen otra puerta: Favoritos es una lista (con su
-     * botonera) y los géneros tienen pestaña propia.
+     * - las acciones "reproducir la biblioteca" / "en aleatorio" de la pestaña **Todas**, repuesto
+     *   de las acciones rápidas del inicio;
+     * - la entrada a **Estadísticas** en el overflow del header, cuya ÚNICA puerta es la tarjeta
+     *   del inicio (`HomeScreen.StatsEntry`) — sin repuesto, la pantalla quedaba INALCANZABLE.
      *
-     * La regla vive AQUÍ y no en la pantalla por lo mismo que [hasSourceSplit]: es una decisión
+     * `LibraryTabsConfig.MIN_VISIBLE = 1` permite quedarse sin Inicio, así que esto no es un caso
+     * de laboratorio. Lo que NO necesita repuesto es lo que ya tiene otra puerta: Favoritos es una
+     * lista (con su botonera), los géneros tienen pestaña propia y "Añadidas recientemente" es el
+     * sort "Recientes primero" de Todas.
+     *
+     * La regla vive AQUÍ y no en las pantallas por lo mismo que [hasSourceSplit]: es una decisión
      * sobre cuándo existe un control, y escrita en el sitio de uso nada impediría que otra
      * superficie la interpretara distinto.
      */
-    val showLibraryPlayChips: StateFlow<Boolean> = libraryTabs
+    val homeTabHidden: StateFlow<Boolean> = libraryTabs
         .map { tabs ->
             tabs.none { it.tab == com.qhana.siku.data.model.LibraryTabId.HOME && it.visible }
         }
         .distinctUntilChanged()
-        // `false` de arranque: se asume que Inicio está (es el default de la app), así que los chips
-        // no pueden asomar un frame en la configuración normal.
+        // `false` de arranque: se asume que Inicio está (es el default de la app), así que los
+        // repuestos no pueden asomar un frame en la configuración normal.
         .stateIn(viewModelScope, WhileUiSubscribed, false)
 
     // --- Toolbar del NowPlaying ---
@@ -1219,6 +1360,82 @@ class LibraryViewModel @Inject constructor(
     }
     fun getPlaylistSongs(playlistId: Long) = repository.getSongsForPlaylist(playlistId)
 
+    /**
+     * Importa el M3U de [uri] como una lista NUEVA. [fallbackName] es el nombre del archivo, que se
+     * usa salvo que el propio M3U declare uno.
+     *
+     * El resultado se cuenta ENTERO —importadas y no encontradas— porque un M3U que casa a medias
+     * es el caso NORMAL, no el excepcional: las rutas vienen de otro dispositivo. Callar las que
+     * faltan dejaría al usuario con una lista más corta y sin saber por qué.
+     */
+    fun importPlaylistFromFile(uri: android.net.Uri, fallbackName: String) = viewModelScope.launch {
+        when (val result = m3uRepository.import(uri, fallbackName)) {
+            is AppResult.Success -> {
+                val summary = result.data
+                val base = context.getString(
+                    R.string.playlist_import_success,
+                    summary.added,
+                    summary.playlistName
+                )
+                snackbarManager.show(
+                    if (summary.missing > 0) {
+                        base + context.getString(R.string.playlist_import_missing_suffix, summary.missing)
+                    } else {
+                        base
+                    }
+                )
+            }
+            // `NotFound` aquí solo puede ser "el archivo no tiene canciones": el archivo se leyó.
+            is AppResult.Error -> snackbarManager.show(
+                context.getString(
+                    if (result.error is AppError.NotFound) R.string.playlist_import_empty
+                    else R.string.playlist_import_error
+                )
+            )
+            AppResult.Loading -> Unit
+        }
+    }
+
+    /** Exporta la lista [playlistId] al documento [uri] que el usuario acaba de crear. */
+    fun exportPlaylistToFile(playlistId: Long, uri: android.net.Uri) = viewModelScope.launch {
+        notifyExportResult(m3uRepository.export(playlistId, uri))
+    }
+
+    /**
+     * Lo mismo para FAVORITOS. Es una función aparte y no `exportPlaylistToFile(idDeFavoritos, …)`
+     * porque quien llama —la tarjeta de Favoritos— no conoce ese id: la playlist del UUID fijo se
+     * resuelve en la capa de datos, igual que en el resto de la API de favoritos.
+     */
+    fun exportFavoritesToFile(uri: android.net.Uri) = viewModelScope.launch {
+        notifyExportResult(m3uRepository.exportFavorites(uri))
+    }
+
+    /**
+     * El mensaje de un export, para los dos caminos. Menciona las rutas relativas solo si las hubo:
+     * son la parte que el usuario tiene que saber —ese archivo solo resuelve donde exista esa
+     * estructura de carpetas— y callarla dejaría un M3U que funciona a medias sin avisar.
+     */
+    private fun notifyExportResult(result: AppResult<com.qhana.siku.data.playlist.M3uExportSummary>) {
+        when (result) {
+            is AppResult.Success -> {
+                val summary = result.data
+                val base = context.getString(R.string.playlist_export_success, summary.written)
+                snackbarManager.show(
+                    if (summary.relativePaths > 0) {
+                        base + context.getString(
+                            R.string.playlist_export_relative_suffix,
+                            summary.relativePaths
+                        )
+                    } else {
+                        base
+                    }
+                )
+            }
+            is AppResult.Error -> snackbarManager.show(context.getString(R.string.playlist_export_error))
+            AppResult.Loading -> Unit
+        }
+    }
+
     /** Conteo + carátulas por playlist para los thumbnails de la pestaña Listas. */
     val playlistsCoverMeta = repository.getPlaylistsCoverMeta()
         .stateIn(viewModelScope, WhileUiSubscribed, emptyMap())
@@ -1264,9 +1481,24 @@ class LibraryViewModel @Inject constructor(
     }
 
     private companion object {
-        // Tope de ítems por carrusel de la home (canciones). Suficiente para llenar la fila
-        // horizontal sin traer listas grandes a memoria.
-        const val HOME_SECTION_LIMIT = 15
+        /**
+         * Tope de ítems por sección del inicio.
+         *
+         * Fueron 15 hasta el 27 ago 2026, con el criterio de "llenar la fila sin traer listas
+         * grandes a memoria" — o sea que medía el coste, no lo que alguien va a mirar. Con la
+         * tarjeta actual se ven dos y media de una vez: quince pedían siete arrastres hasta el
+         * final de UNA sección, y a ese final no llega nadie. Cinco son dos arrastres, y la sección
+         * pasa a ser lo que siempre fue: una muestra, no la lista.
+         */
+        const val HOME_SECTION_LIMIT = 5
+
+        /**
+         * Cuántas candidatas se piden para la sección rotativa antes de descartar las que ya salen
+         * en "Recién agregadas". El doble del tope es la cota JUSTA: lo que se puede solapar es como
+         * mucho esa sección entera, así que con `2x` siempre sobreviven [HOME_SECTION_LIMIT] si
+         * existen. Ver el dedup de [homeDiscover].
+         */
+        private const val HOME_DISCOVER_POOL = HOME_SECTION_LIMIT * 2
         // Mínimo de canciones para que un artista alimente "Porque escuchaste a X": con menos no
         // justifica un carrusel de "más de este artista" (1 sola = tarjeta suelta absurda).
         private const val MIN_ARTIST_PICK_SONGS = 3
@@ -1285,9 +1517,15 @@ class LibraryViewModel @Inject constructor(
          * ensancha bajando el umbral, no subiendo esto.
          */
         private const val GENRE_POOL_LIMIT = GENRE_CHIP_LIMIT * 3
-        // Ventanas de tiempo del inicio: "esta semana" para el stat del saludo, "no escuchada
-        // en ~2 semanas" para la sección de redescubrimiento.
-        private const val WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000
+        /**
+         * Cuánto tiempo una canción cuenta como "recién agregada". 30 días: lo bastante largo para
+         * que un disco sincronizado siga asomando un mes —que es cuando de verdad se estrena— y lo
+         * bastante corto para que una biblioteca quieta deje de fingir novedades. En SEGUNDOS
+         * porque `Song.dateAdded` lo está.
+         */
+        private const val RECENTLY_ADDED_SECONDS = 30L * 24 * 60 * 60
+
+        // Ventana de "no escuchada en ~2 semanas" para la sección de redescubrimiento.
         private const val REDISCOVER_MILLIS = 14L * 24 * 60 * 60 * 1000
 
         /**

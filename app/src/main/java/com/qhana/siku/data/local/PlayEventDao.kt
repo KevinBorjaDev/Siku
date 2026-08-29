@@ -55,8 +55,8 @@ data class TopGenreRow(
  * segundo de un sync. Las que SÍ necesitan la biblioteca (los rankings) lo dicen con un JOIN y por
  * eso son las únicas que su consumidor envuelve en `sampledDuringSync`.
  *
- * Rango siempre `[since, until)`: un mes de calendario tiene fin, al revés que las ventanas
- * rodantes del inicio (`now - WEEK_MILLIS`).
+ * Rango siempre `[since, until)`: un mes de calendario tiene fin, al revés que una ventana rodante
+ * del tipo `now - N`.
  */
 @Dao
 interface PlayEventDao {
@@ -196,4 +196,32 @@ interface PlayEventDao {
         """
     )
     fun topGenresFlow(since: Long, until: Long, limit: Int): Flow<List<TopGenreRow>>
+
+    /**
+     * Cuántos ÁLBUMES distintos sonaron en el periodo. Mismo filtro de álbum desconocido que
+     * [topAlbumsFlow]: si el ranking no cuenta esos archivos, el número que lo encabeza tampoco.
+     *
+     * Lleva JOIN, así que —al revés que [totalsFlow]— sí se re-ejecuta con cada escritura en
+     * `songs` y su consumidor la muestrea durante el sync, igual que hace con los rankings.
+     */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT s.album)
+        FROM play_events e JOIN songs s ON s.id = e.songId
+        WHERE e.playedAt >= :since AND e.playedAt < :until
+          AND TRIM(s.album) != '' AND s.album != :unknownAlbum COLLATE NOCASE
+        """
+    )
+    fun distinctAlbumsFlow(since: Long, until: Long, unknownAlbum: String): Flow<Int>
+
+    /** Cuántos GÉNEROS distintos sonaron en el periodo. Mismo filtro que [topGenresFlow]. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT s.genre)
+        FROM play_events e JOIN songs s ON s.id = e.songId
+        WHERE e.playedAt >= :since AND e.playedAt < :until
+          AND s.genre IS NOT NULL AND TRIM(s.genre) != ''
+        """
+    )
+    fun distinctGenresFlow(since: Long, until: Long): Flow<Int>
 }

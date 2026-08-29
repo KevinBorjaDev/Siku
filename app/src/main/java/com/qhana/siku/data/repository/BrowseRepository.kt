@@ -70,9 +70,6 @@ class BrowseRepository @Inject constructor(
     ): Flow<List<AlbumSummary>> =
         songDao.getAlbumsFlow(SongDao.buildAlbumsQuery(sort.name, sourceFilters))
 
-    /** Álbumes del momento (por total de reproducciones) para la home. */
-    fun getTopAlbums(limit: Int): Flow<List<AlbumSummary>> = songDao.getTopAlbumsFlow(limit)
-
     fun getAlbumsByArtist(artist: String): Flow<List<AlbumSummary>> =
         songDao.getAlbumsByArtistFlow(artist)
 

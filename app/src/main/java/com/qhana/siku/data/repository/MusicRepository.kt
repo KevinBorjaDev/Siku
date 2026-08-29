@@ -37,16 +37,16 @@ class MusicRepository @Inject constructor(
     override suspend fun getSongsSnapshot(query: String, sortOrder: SortOrder, sourceFilters: Set<SongSourceFilter>): List<Song> =
         songRepository.getSongsSnapshot(query, sortOrder, sourceFilters)
     override fun getRecentlyPlayed(limit: Int): Flow<List<Song>> = songRepository.getRecentlyPlayed(limit)
-    override fun getMostPlayed(limit: Int): Flow<List<Song>> = songRepository.getMostPlayed(limit)
     override fun getRecentlyAdded(limit: Int): Flow<List<Song>> = songRepository.getRecentlyAdded(limit)
+    override fun getRecentlyAddedSince(since: Long): Flow<List<Song>> = songRepository.getRecentlyAddedSince(since)
     override fun getSongsByArtist(artist: String): Flow<List<Song>> = songRepository.getSongsByArtist(artist)
     override fun getRediscover(before: Long, limit: Int): Flow<List<Song>> = songRepository.getRediscover(before, limit)
+    override fun getNeverPlayed(limit: Int): Flow<List<Song>> = songRepository.getNeverPlayed(limit)
     override fun getTopGenres(minCount: Int, limit: Int): Flow<List<com.qhana.siku.data.local.GenreSummary>> = songRepository.getTopGenres(minCount, limit)
     override suspend fun getSongsByGenre(genre: String, partialMatch: Boolean): List<Song> =
         songRepository.getSongsByGenre(genre, partialMatch)
     override suspend fun updateGenre(songId: String, genre: String?) = songRepository.updateGenre(songId, genre)
     override fun getTopPlayedArtist(minSongs: Int): Flow<String?> = songRepository.getTopPlayedArtist(minSongs)
-    override fun getPlayedSinceCount(since: Long): Flow<Int> = songRepository.getPlayedSinceCount(since)
     override fun getLibrarySize(): Flow<Int> = songRepository.getLibrarySize()
 
     override fun getSongByIdFlow(songId: String): Flow<Song?> = songRepository.getSongByIdFlow(songId)
