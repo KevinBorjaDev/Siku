@@ -165,18 +165,52 @@ private const val TONAL_LAYER_MID_TONE = 50.0
 internal const val DISABLED_CONTENT_ALPHA = 0.38f
 
 /**
- * Contenido SECUNDARIO sobre un contenedor de ACENTO (el color del álbum, `primaryContainer`,
- * `secondaryContainer`…): subtítulos de banners y tarjetas teñidas.
+ * Contenido SECUNDARIO sobre un contenedor: el subtítulo de una tarjeta teñida, la etiqueta de un
+ * dato, el chevron que acompaña a un título.
  *
- * **Es la excepción a "la jerarquía se hace con roles, no con alpha"**, y tiene motivo: M3 ofrece el
- * par `onSurface`/`onSurfaceVariant` para la escala neutra, pero NO hay un `onPrimaryContainerVariant`
- * ni equivalente para los contenedores de acento — y menos aún para un color derivado de la carátula
- * en vivo, que no es un rol del tema. Sin rol al que recurrir, atenuar es la única herramienta.
+ * **Devuelve un COLOR, no una opacidad** (29 ago 2026). Hasta ese día esto era
+ * `ACCENT_SECONDARY_ALPHA = 0.8f`, y su justificación era que M3 ofrece el par
+ * `onSurface`/`onSurfaceVariant` para la escala neutra pero NO un `onPrimaryContainerVariant` para
+ * los contenedores de acento — sin rol al que recurrir, atenuar parecía la única herramienta. El
+ * error de ese razonamiento es que **un rol no es más que un color a un tono concreto**: teniendo
+ * el contenido y su contenedor se puede calcular, que es lo que hace esta función, y entonces la
+ * excepción deja de existir.
  *
- * Alto a propósito (80 %): lo justo para que se lea como segundo nivel sin bajar el contraste de un
- * texto que ya vive sobre un fondo de color. Estaba escrito a mano en DIEZ sitios.
+ * No era solo cuestión de principio. Un alpha fijo produce un contraste que depende de lo que haya
+ * debajo, así que el mismo 80 % daba 5,2:1 sobre un contenedor y 2,8:1 sobre otro — por debajo del
+ * 4,5 que pide AA para `bodySmall`, medido en los banners del tema claro. Un tono, en cambio, se
+ * elige POR el contraste que produce.
+ *
+ * Cómo: se toma el tono del contenido, se acerca [SECONDARY_TONE_SHIFT] puntos al del contenedor
+ * —conservando matiz y croma, así que sigue siendo el mismo color y no un gris— y el resultado pasa
+ * por [ensureContrast] con el suelo de AA, que lo devuelve si ya lo cumple y lo reproyecta si no. El
+ * suelo es lo que hace segura la fórmula sobre un contenedor cualquiera: acercarse al fondo tiene un
+ * límite, y ese límite es el mismo en todas partes.
+ *
+ * Ojo con el orden de los argumentos: [content] es el color del texto PRIMARIO (el `on…` del
+ * contenedor), no el contenedor.
  */
-internal const val ACCENT_SECONDARY_ALPHA = 0.8f
+fun secondaryContentColor(content: Color, container: Color): Color {
+    val contentHct = Hct.fromInt(content.toArgb())
+    val containerTone = Hct.fromInt(container.toArgb()).tone
+    // Hacia el contenedor, sea cual sea el lado: sobre un contenedor claro el secundario se aclara
+    // y sobre uno oscuro se oscurece. Es lo que mantiene la regla válida en los dos temas sin una
+    // rama por tema.
+    val toward = if (containerTone > contentHct.tone) SECONDARY_TONE_SHIFT else -SECONDARY_TONE_SHIFT
+    val shifted = (contentHct.tone + toward).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
+    val dimmed = Color(Hct.from(contentHct.hue, contentHct.chroma, shifted).toInt())
+    return ensureContrast(dimmed, container, SECONDARY_MIN_CONTRAST)
+}
+
+/**
+ * Cuánto se acerca el secundario a su contenedor, en puntos de tono HCT. Suficiente para que se lea
+ * como segundo nivel de un vistazo, y no más: por encima de esto el suelo de contraste entra en
+ * juego en casi todos los contenedores y el ajuste dejaría de notarse donde sí cabía.
+ */
+private const val SECONDARY_TONE_SHIFT = 14.0
+
+/** Suelo del secundario: AA para texto pequeño, que es lo que casi siempre es. */
+private const val SECONDARY_MIN_CONTRAST = 4.5f
 
 /**
  * Pista NO recorrida de una barra de progreso teñida con el acento. El mismo color que el tramo

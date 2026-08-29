@@ -985,7 +985,7 @@
     <string name="stats_period_next">Periodo siguiente</string>
     <!-- Resumen -->
     <string name="stats_summary_plays">Reproducciones</string>
-    <string name="stats_summary_time">Tiempo escuchado</string>
+    <string name="stats_summary_time">Tiempo</string>
     <!-- Periodo "Siempre": el tiempo es estimado (reproducciones x duracion), no medido -->
     <string name="stats_summary_time_estimate">Tiempo aprox.</string>
     <string name="stats_summary_songs">Canciones</string>

@@ -61,7 +61,9 @@ mobile
 mode
 more_horiz
 more_vert
+music_cast
 music_note
+music_note_2
 music_note_add
 notifications_active
 offline_pin
@@ -111,6 +113,7 @@ swipe
 sync
 sync_arrow_down
 tab
+timer_play
 title
 travel_explore
 tune

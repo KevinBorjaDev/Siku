@@ -97,7 +97,10 @@ fun SleepTimerSheet(
                                 Text(
                                     text = stringResource(R.string.sleep_timer_then_finish_song),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = AppColors.onPrimaryContainer.copy(alpha = ACCENT_SECONDARY_ALPHA)
+                                    color = secondaryContentColor(
+                                        AppColors.onPrimaryContainer,
+                                        AppColors.primaryContainer
+                                    )
                                 )
                             }
                         }

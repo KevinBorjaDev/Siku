@@ -907,7 +907,7 @@
     <string name="stats_period_previous">Previous period</string>
     <string name="stats_period_next">Next period</string>
     <string name="stats_summary_plays">Plays</string>
-    <string name="stats_summary_time">Time listened</string>
+    <string name="stats_summary_time">Time</string>
     <string name="stats_summary_time_estimate">Approx. time</string>
     <string name="stats_summary_songs">Songs</string>
     <string name="stats_summary_artists">Artists</string>

@@ -7,7 +7,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -1747,14 +1746,18 @@ private fun LibraryTabs(
 // --- Helpers (Banner, TopBars) ---
 
 /**
- * Contenedor común de los banners de sync, M3 Expressive: tarjeta tonal SÓLIDA del scheme
- * (nada de colores hardcodeados — así siguen el tema seedeado del álbum), esquinas grandes
- * y padding generoso. El icono va en un círculo del acento para dar jerarquía.
+ * Contenedor común de los banners de sync, M3 Expressive: tarjeta sólida de una [BannerPalette],
+ * esquinas grandes y padding generoso.
+ *
+ * **El icono va SUELTO, sin el círculo de acento que llevaba** (29 ago 2026): aquel círculo existía
+ * porque el contenedor era casi negro y el color del estado no tenía dónde vivir más que en el
+ * glifo y el texto. Con el contenedor teñido, el color YA está en la tarjeta entera, así que el
+ * círculo era una segunda superficie diciendo lo mismo — y es también lo que hacen las píldoras de
+ * la documentación de M3 de las que sale la paleta: glifo desnudo junto a la etiqueta.
  */
 @Composable
 private fun BannerCard(
     icon: String,
-    iconContainer: Color,
     containerColor: Color,
     contentColor: Color,
     /**
@@ -1778,45 +1781,46 @@ private fun BannerCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AppSurface(shape = CircleShape, color = iconContainer, modifier = Modifier.size(40.dp)) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    // Giro continuo con `rememberInfiniteTransition`, que en cualquier otro sitio de
-                    // esta app sería un error (ver "CERO productores continuos" en la sección Motion
-                    // de CLAUDE.md). Aquí es legítimo por las dos razones que hacen legítimo al
-                    // shimmer: **solo existe mientras hay trabajo** —el banner se retira al terminar—
-                    // y **cada frame mueve algo**. Lo segundo es lo que lo separa de la cookie del
-                    // play, que se acotó a publicar solo al desplazarse un píxel: aquélla giraba
-                    // 0,17°/frame (un tercio de píxel, invisible), y ésta gira ~3°/frame en un glifo
-                    // de 20sp, o sea varios píxeles. Recortar por píxel aquí no ahorraría un solo
-                    // frame.
-                    val spin = if (iconSpinning) {
-                        val transition = rememberInfiniteTransition(label = "bannerIconSpin")
-                        transition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = 360f,
-                            animationSpec = infiniteRepeatable(
-                                // LINEAL y no un token del scheme: una rotación continua no acelera
-                                // ni frena, o se vería un tirón en cada vuelta. Un giro por segundo
-                                // es el ritmo del indicador de sincronización del sistema, que es la
-                                // referencia que el usuario ya conoce.
-                                animation = tween(BANNER_SPIN_PERIOD_MS, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "bannerIconAngle"
-                        )
-                    } else null
-                    MaterialSymbol(
-                        icon,
-                        color = onContainerColor(iconContainer),
-                        size = 20.sp,
-                        fill = true,
-                        // Lectura DIFERIDA dentro del `graphicsLayer`: el ángulo cambia en cada frame
-                        // y leerlo en composición recompondría el banner entero a 60fps.
-                        modifier = spin?.let { angle ->
-                            Modifier.graphicsLayer { rotationZ = angle.value }
-                        } ?: Modifier
+            // Caja de 40dp aunque el glifo mida 24: mantiene la columna del icono con el mismo
+            // ancho que cuando llevaba el círculo, así los textos de todos los banners siguen
+            // alineados entre sí y con el resto de la pantalla.
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+                // Giro continuo con `rememberInfiniteTransition`, que en cualquier otro sitio de
+                // esta app sería un error (ver "CERO productores continuos" en la sección Motion
+                // de CLAUDE.md). Aquí es legítimo por las dos razones que hacen legítimo al
+                // shimmer: **solo existe mientras hay trabajo** —el banner se retira al terminar—
+                // y **cada frame mueve algo**. Lo segundo es lo que lo separa de la cookie del
+                // play, que se acotó a publicar solo al desplazarse un píxel: aquélla giraba
+                // 0,17°/frame (un tercio de píxel, invisible), y ésta gira ~3°/frame en un glifo
+                // de 24sp, o sea varios píxeles. Recortar por píxel aquí no ahorraría un solo
+                // frame.
+                val spin = if (iconSpinning) {
+                    val transition = rememberInfiniteTransition(label = "bannerIconSpin")
+                    transition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            // LINEAL y no un token del scheme: una rotación continua no acelera
+                            // ni frena, o se vería un tirón en cada vuelta. Un giro por segundo
+                            // es el ritmo del indicador de sincronización del sistema, que es la
+                            // referencia que el usuario ya conoce.
+                            animation = tween(BANNER_SPIN_PERIOD_MS, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "bannerIconAngle"
                     )
-                }
+                } else null
+                MaterialSymbol(
+                    icon,
+                    color = contentColor,
+                    size = 24.sp,
+                    fill = true,
+                    // Lectura DIFERIDA dentro del `graphicsLayer`: el ángulo cambia en cada frame
+                    // y leerlo en composición recompondría el banner entero a 60fps.
+                    modifier = spin?.let { angle ->
+                        Modifier.graphicsLayer { rotationZ = angle.value }
+                    } ?: Modifier
+                )
             }
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f), content = content)
@@ -1829,40 +1833,14 @@ private fun BannerCard(
     }
 }
 
-// Paletas SEMÁNTICAS fijas de los banners (jerarquía natural: azul = descargando,
-// verde = ok, rojo = error). A propósito NO usan el scheme seedeado del álbum: el color
-// del banner comunica estado, no estética.
-@Immutable
-private data class BannerPalette(val container: Color, val accent: Color)
-
-@Composable
-private fun bannerBlue() = if (isSystemInDarkTheme())
-    BannerPalette(Color(0xFF1E1E1E), Color(0xFF64B5F6)) else BannerPalette(Color(0xFFE3F2FD), Color(0xFF1976D2))
-
-@Composable
-private fun bannerGreen() = if (isSystemInDarkTheme())
-    BannerPalette(Color(0xFF1E1E1E), Color(0xFF81C784)) else BannerPalette(Color(0xFFE8F5E9), Color(0xFF2E7D32))
-
-@Composable
-private fun bannerRed() = if (isSystemInDarkTheme())
-    BannerPalette(Color(0xFF3E1E1E), Color(0xFFE57373)) else BannerPalette(Color(0xFFFFEBEE), Color(0xFFC62828))
-
-// Ámbar y no rojo: quedarse sin WiFi no es un fallo de la app ni pide nada al usuario. Con la
-// paleta de error, un banner que solo dice "esto sigue solo cuando vuelvas a WiFi" se lee como
-// algo que hay que ir a arreglar.
-@Composable
-private fun bannerAmber() = if (isSystemInDarkTheme())
-    BannerPalette(Color(0xFF2A2114), Color(0xFFFFB74D)) else BannerPalette(Color(0xFFFFF3E0), Color(0xFFE65100))
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DownloadSummaryBanner(active: Int, completed: Int, total: Int, failed: Int, onClick: () -> Unit) {
-    val palette = bannerBlue()
+    val palette = BannerBlue
     BannerCard(
         icon = "download",
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent,
+        contentColor = palette.onContainer,
         onClick = onClick
     ) {
         val failedText = if (failed > 0) stringResource(R.string.sync_with_errors_suffix, failed) else ""
@@ -1873,14 +1851,14 @@ private fun DownloadSummaryBanner(active: Int, completed: Int, total: Int, faile
         Text(
             stringResource(R.string.sync_progress, completed, total, failedText),
             style = MaterialTheme.typography.bodySmall,
-            color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA)
+            color = palette.secondary
         )
         Spacer(Modifier.height(10.dp))
         // Onda expressive determinada: el progreso "vivo" de la descarga.
         LinearWavyProgressIndicator(
             progress = { if (total > 0) completed.toFloat() / total else 0f },
-            color = palette.accent,
-            trackColor = palette.accent.copy(alpha = ACCENT_TRACK_ALPHA),
+            color = palette.onContainer,
+            trackColor = palette.track,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(2.dp))
@@ -1889,12 +1867,11 @@ private fun DownloadSummaryBanner(active: Int, completed: Int, total: Int, faile
 
 @Composable
 private fun ErrorBanner(message: String, onRetry: () -> Unit) {
-    val palette = bannerRed()
+    val palette = BannerRed
     BannerCard(
         icon = "error",
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent,
+        contentColor = palette.onContainer,
         onClick = onRetry
     ) {
         Text(
@@ -1904,7 +1881,7 @@ private fun ErrorBanner(message: String, onRetry: () -> Unit) {
         Text(
             stringResource(R.string.sync_error_retry, message),
             style = MaterialTheme.typography.bodySmall,
-            color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA),
+            color = palette.secondary,
             maxLines = 2
         )
     }
@@ -1927,12 +1904,11 @@ private fun SyncCompleteBanner(newSongs: Int, downloaded: Int, failed: Int, dele
         if (failed > 0) append(failedSuffix)
     }
     val hasIssues = failed > 0
-    val palette = if (hasIssues) bannerRed() else bannerGreen()
+    val palette = if (hasIssues) BannerRed else BannerGreen
     BannerCard(
         icon = if (hasIssues) "warning" else "check_circle",
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent
+        contentColor = palette.onContainer
     ) {
         Text(
             stringResource(R.string.sync_up_to_date),
@@ -1941,7 +1917,7 @@ private fun SyncCompleteBanner(newSongs: Int, downloaded: Int, failed: Int, dele
         Text(
             text,
             style = MaterialTheme.typography.bodySmall,
-            color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA),
+            color = palette.secondary,
             maxLines = 1
         )
     }
@@ -1956,12 +1932,11 @@ private fun SyncCompleteBanner(newSongs: Int, downloaded: Int, failed: Int, dele
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PrepareProgressBanner(current: Int, total: Int, message: String) {
-    val palette = bannerGreen()
+    val palette = BannerGreen
     BannerCard(
         icon = "info",
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent
+        contentColor = palette.onContainer
     ) {
         Text(
             message,
@@ -1972,7 +1947,7 @@ private fun PrepareProgressBanner(current: Int, total: Int, message: String) {
             Text(
                 stringResource(R.string.sync_progress, current, total, ""),
                 style = MaterialTheme.typography.bodySmall,
-                color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA)
+                color = palette.secondary
             )
         }
         Spacer(Modifier.height(10.dp))
@@ -1981,14 +1956,14 @@ private fun PrepareProgressBanner(current: Int, total: Int, message: String) {
         if (total > 0) {
             LinearWavyProgressIndicator(
                 progress = { current.toFloat() / total },
-                color = palette.accent,
-                trackColor = palette.accent.copy(alpha = ACCENT_TRACK_ALPHA),
+                color = palette.onContainer,
+                trackColor = palette.track,
                 modifier = Modifier.fillMaxWidth()
             )
         } else {
             LinearWavyProgressIndicator(
-                color = palette.accent,
-                trackColor = palette.accent.copy(alpha = ACCENT_TRACK_ALPHA),
+                color = palette.onContainer,
+                trackColor = palette.track,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -2002,12 +1977,11 @@ private fun PrepareProgressBanner(current: Int, total: Int, message: String) {
  */
 @Composable
 private fun SyncPausedBanner(message: String) {
-    val palette = bannerAmber()
+    val palette = BannerAmber
     BannerCard(
         icon = "pause_circle",
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent
+        contentColor = palette.onContainer
     ) {
         Text(
             stringResource(R.string.sync_paused),
@@ -2016,7 +1990,7 @@ private fun SyncPausedBanner(message: String) {
         Text(
             message,
             style = MaterialTheme.typography.bodySmall,
-            color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA),
+            color = palette.secondary,
             maxLines = 2
         )
     }
@@ -2025,15 +1999,14 @@ private fun SyncPausedBanner(message: String) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ScanProgressBanner(count: Int, message: String) {
-    val palette = bannerGreen()
+    val palette = BannerGreen
     BannerCard(
         // `sync` girando en vez de la lupa quieta: es el glifo que el sistema usa para lo mismo, y
         // el movimiento distingue "buscando" de "terminado" sin leer el texto.
         icon = "sync",
         iconSpinning = true,
-        iconContainer = palette.accent,
         containerColor = palette.container,
-        contentColor = palette.accent
+        contentColor = palette.onContainer
     ) {
         Text(
             stringResource(R.string.sync_scanning),
@@ -2042,14 +2015,14 @@ private fun ScanProgressBanner(count: Int, message: String) {
         Text(
             if (count > 0) stringResource(R.string.sync_found, count, message) else message,
             style = MaterialTheme.typography.bodySmall,
-            color = palette.accent.copy(alpha = ACCENT_SECONDARY_ALPHA),
+            color = palette.secondary,
             maxLines = 1
         )
         Spacer(Modifier.height(10.dp))
         // Onda expressive indeterminada mientras se recorre el delta.
         LinearWavyProgressIndicator(
-            color = palette.accent,
-            trackColor = palette.accent.copy(alpha = ACCENT_TRACK_ALPHA),
+            color = palette.onContainer,
+            trackColor = palette.track,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(2.dp))

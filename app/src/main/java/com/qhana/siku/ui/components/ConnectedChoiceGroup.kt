@@ -16,9 +16,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonColors
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,6 +30,26 @@ import androidx.compose.ui.unit.sp
 import com.qhana.siku.ui.theme.appTonalToggleButtonColors
 import com.qhana.siku.ui.theme.appFilledTonalIconButtonColors
 import com.qhana.siku.ui.theme.appMenuItemColors
+
+/**
+ * Cómo reparte el ancho un [ConnectedChoiceGroup]. Ver el `@param width` de esa función: elegir mal
+ * el modo es lo que recorta etiquetas, así que es la primera palanca que hay que mirar cuando una
+ * sale con elipsis.
+ */
+enum class ChoiceGroupWidth {
+    /** Ocupa el ancho del padre y lo reparte **a partes IGUALES**. Solo vale con etiquetas de
+     *  longitud parecida: la más larga recibe el mismo hueco que la más corta y se recorta. */
+    Equal,
+
+    /** Cada botón se ciñe a su CONTENIDO y el grupo mide lo que sumen. Nunca recorta; a cambio no
+     *  llega a los bordes, así que el caller decide dónde lo pone. */
+    Content,
+
+    /** Ocupa el ancho del padre y lo reparte **en PROPORCIÓN a lo que cada etiqueta necesita**:
+     *  nadie baja de su ancho natural relativo, y el sobrante se estira sin recortar a nadie. Es el
+     *  modo para un juego de etiquetas DESIGUAL que además tenga que llegar a los bordes. */
+    Proportional
+}
 
 /**
  * Selección exclusiva de una opción entre varias: **connected button group**.
@@ -44,17 +68,28 @@ import com.qhana.siku.ui.theme.appMenuItemColors
  * @param labelFor etiqueta de cada opción; se usa igual en el botón y en el menú de overflow.
  * @param iconFor símbolo opcional. Sin icono el grupo queda más compacto, que es lo que conviene
  *        cuando es un ajuste secundario dentro de una pantalla que ya tiene otro grupo.
- * @param fillWidth true reparte el ancho del padre entre las opciones **a partes IGUALES**; false
- *        las ciñe a su contenido. Es la palanca principal para que DOS grupos en la misma pantalla
- *        no se lean como el mismo control (ver el EQ: el conmutador de sección va a ancho completo
- *        y el selector de bandas, ceñido y bajo).
+ * @param width cómo se reparte el ancho — ver [ChoiceGroupWidth]. Es la palanca principal para que
+ *        DOS grupos en la misma pantalla no se lean como el mismo control (ver el EQ: el conmutador
+ *        de sección va a ancho completo y el selector de bandas, ceñido y bajo).
  *
- *        **Con etiquetas de longitud DESIGUAL hay que ponerlo en false**: el reparto igual le da a
- *        la más larga el mismo hueco que a la más corta, y la larga se recorta. Pasó con el
- *        selector de ReplayGain ("Desactivado" contra "Por pista" y "Por álbum"): en 360dp cada
- *        botón se quedaba en ~76dp de texto útil y la primera etiqueta necesitaba ~82. Con `false`
- *        cada botón mide lo suyo y, si aun así no cupieran todos, entra el `overflowIndicator` que
- *        el `ButtonGroup` ya trae — que es justo el mecanismo que el `weight` anula.
+ *        **Con etiquetas de longitud DESIGUAL, [ChoiceGroupWidth.Equal] NO vale**: le da a la más
+ *        larga el mismo hueco que a la más corta, y la larga se recorta. Pasó con el selector de
+ *        ReplayGain ("Desactivado" contra "Por pista" y "Por álbum"): en 360dp cada botón se
+ *        quedaba en ~76dp de texto útil y la primera etiqueta necesitaba ~82. Y con las cinco del
+ *        periodo de estadísticas (D · S · M · A · Siempre), el juego más desigual de la app.
+ *        Ahí se elige entre [ChoiceGroupWidth.Content] —cada uno mide lo suyo— y
+ *        [ChoiceGroupWidth.Proportional], que además llega a los bordes.
+ *
+ *        **`Proportional` mide el texto de verdad** (`rememberTextMeasurer` con
+ *        `MaterialTheme.typography.labelLarge`, que es el estilo que el propio `ToggleButton`
+ *        aplica a su etiqueta — ToggleButton.kt:150 de material3 1.5.0-alpha24) y le suma el
+ *        padding y, si lo hay, el icono. O sea que el peso NO es una proporción escrita a mano: es
+ *        el ancho que ese botón pediría si se ciñera. Sube solo con la escala tipográfica del
+ *        sistema y con una traducción más larga.
+ *
+ *        Ojo con lo que se pierde en los dos modos de ancho completo: el `overflowIndicator` que el
+ *        `ButtonGroup` ya trae solo puede entrar cuando los botones se ciñen — el `weight` lo
+ *        anula, porque con weight siempre "caben".
  * @param buttonHeight alto de cada botón; null = el del componente.
  * @param colors override para superficies que NO son del scheme. Lo necesita la pantalla de letras,
  *        que se pinta sobre el color del álbum y calcula el contenido por luminancia; en el resto
@@ -70,21 +105,21 @@ fun <T> ConnectedChoiceGroup(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     iconFor: ((T) -> String)? = null,
-    fillWidth: Boolean = true,
+    width: ChoiceGroupWidth = ChoiceGroupWidth.Equal,
     buttonHeight: Dp? = null,
     contentPadding: PaddingValues? = null,
     colors: ToggleButtonColors? = null
 ) {
     ButtonGroup(
-        // Con `fillWidth` las opciones reparten el ancho por weight y no debería desbordar nunca;
-        // ceñidas, el overflow sí puede entrar en juego con etiquetas largas o fontScale alto. En
-        // cualquier caso el API lo exige.
+        // Con los dos modos de ancho completo las opciones reparten por weight y no desbordan
+        // nunca; ceñidas, el overflow sí puede entrar en juego con etiquetas largas o fontScale
+        // alto. En cualquier caso el API lo exige.
         overflowIndicator = { menuState ->
             FilledTonalIconButton(colors = appFilledTonalIconButtonColors(), onClick = { menuState.show() }) {
                 MaterialSymbol(icon = "more_horiz", size = OverflowIconSize)
             }
         },
-        modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
+        modifier = if (width == ChoiceGroupWidth.Content) modifier else modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
     ) {
         options.forEachIndexed { index, option ->
@@ -97,6 +132,30 @@ fun <T> ConnectedChoiceGroup(
                 buttonGroupContent = {
                     val label = labelFor(option)
                     val source = remember { MutableInteractionSource() }
+                    val padding = contentPadding ?: ToggleButtonDefaults.ContentPadding
+                    // Peso del reparto PROPORCIONAL: el ancho que este botón pediría si se ciñera,
+                    // o sea etiqueta + padding + (icono y su hueco, si lleva). Se mide con el mismo
+                    // estilo que el `ToggleButton` aplica a su `Text`, así que no es una estimación.
+                    // Se recalcula solo cuando cambia algo de lo que depende — un `remember` sin
+                    // claves congelaría el reparto al subir la escala tipográfica del sistema.
+                    // Los cuatro se leen SIEMPRE, nunca dentro del `if`: son lecturas con estado
+                    // propio y meterlas en una rama las haría nacer y morir con el modo
+                    // (convención 15). Lo condicional es el CÁLCULO, que sí puede vivir dentro.
+                    val measurer = rememberTextMeasurer()
+                    val labelStyle = MaterialTheme.typography.labelLarge
+                    val density = LocalDensity.current
+                    val direction = LocalLayoutDirection.current
+                    val proportion = remember(width, label, labelStyle, padding, density, direction, icon) {
+                        if (width != ChoiceGroupWidth.Proportional) 1f
+                        else {
+                            val extras = padding.calculateLeftPadding(direction) +
+                                padding.calculateRightPadding(direction) +
+                                if (icon != null) IconGap else 0.dp
+                            val iconPx = if (icon != null) with(density) { IconSize.toPx() } else 0f
+                            measurer.measure(label, labelStyle).size.width +
+                                with(density) { extras.toPx() } + iconPx
+                        }
+                    }
                     ToggleButton(
                         checked = selected == option,
                         onCheckedChange = { onSelect(option) },
@@ -110,7 +169,10 @@ fun <T> ConnectedChoiceGroup(
                         },
                         contentPadding = contentPadding ?: ToggleButtonDefaults.ContentPadding,
                         modifier = Modifier
-                            .then(if (fillWidth) Modifier.weight(1f) else Modifier)
+                            .then(
+                                if (width == ChoiceGroupWidth.Content) Modifier
+                                else Modifier.weight(proportion)
+                            )
                             .then(if (buttonHeight != null) Modifier.height(buttonHeight) else Modifier)
                             .animateWidth(source)
                     ) {

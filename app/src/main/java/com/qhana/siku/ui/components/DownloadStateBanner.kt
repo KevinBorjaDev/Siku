@@ -1,6 +1,5 @@
 package com.qhana.siku.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -23,7 +21,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -55,13 +52,14 @@ fun DownloadStateBanner(
     onMute: (() -> Unit)? = null
 ) {
     val stopped = control == DownloadControlState.STOPPED
-    val dark = isSystemInDarkTheme()
-    val container = if (dark) Color(0xFF2A2016) else Color(0xFFFFF3E0)
-    val accent = if (dark) Color(0xFFFFB74D) else Color(0xFFE65100)
+    // La MISMA paleta que el banner de "en pausa" de la biblioteca, no una copia: aquí vivían sus
+    // dos colores escritos a mano, así que teñir los banners el 29 ago 2026 habría dejado este
+    // ámbar solo, con el mismo significado y otro color. Ver [BannerPalette].
+    val palette = BannerAmber
 
     AppSurface(
-        color = container,
-        contentColor = accent,
+        color = palette.container,
+        contentColor = palette.onContainer,
         shape = RoundedCornerShape(24.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -71,15 +69,15 @@ fun DownloadStateBanner(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AppSurface(shape = CircleShape, color = accent, modifier = Modifier.size(40.dp)) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    MaterialSymbol(
-                        if (stopped) "stop_circle" else "pause_circle",
-                        color = onContainerColor(accent),
-                        size = 20.sp,
-                        fill = true
-                    )
-                }
+            // Glifo suelto y caja de 40dp, igual que `BannerCard`: con el contenedor teñido, un
+            // círculo de acento detrás sería una segunda superficie diciendo lo mismo.
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+                MaterialSymbol(
+                    if (stopped) "stop_circle" else "pause_circle",
+                    color = palette.onContainer,
+                    size = 24.sp,
+                    fill = true
+                )
             }
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -97,7 +95,7 @@ fun DownloadStateBanner(
                         pending
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = accent.copy(alpha = ACCENT_SECONDARY_ALPHA)
+                    color = palette.secondary
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -108,7 +106,7 @@ fun DownloadStateBanner(
                     if (onMute != null) {
                         TextButton(
                             onClick = onMute,
-                            colors = ButtonDefaults.textButtonColors(contentColor = accent)
+                            colors = ButtonDefaults.textButtonColors(contentColor = palette.onContainer)
                         ) {
                             Text(stringResource(R.string.download_banner_never))
                         }
@@ -118,8 +116,8 @@ fun DownloadStateBanner(
                         onClick = onResume,
                         shapes = ButtonDefaults.shapes(),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = accent,
-                            contentColor = onContainerColor(accent)
+                            containerColor = palette.onContainer,
+                            contentColor = palette.container
                         )
                     ) {
                         Text(stringResource(R.string.download_banner_resume))
@@ -136,7 +134,7 @@ fun DownloadStateBanner(
                         .size(32.dp)
                         .semantics { contentDescription = closeDesc }
                 ) {
-                    MaterialSymbol("close", size = 18.sp, color = accent)
+                    MaterialSymbol("close", size = 18.sp, color = palette.onContainer)
                 }
             }
         }

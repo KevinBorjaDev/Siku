@@ -5,11 +5,9 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,7 +41,7 @@ import com.qhana.siku.R
 import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.model.ArtistSortOrder
 import com.qhana.siku.data.model.SongSourceFilter
-import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
+import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.FilteredEmptyHint
 import com.qhana.siku.ui.components.GroupedListRow
@@ -54,7 +52,6 @@ import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
 import com.qhana.siku.ui.components.RoundedPolygonMaskTransformation
 import com.qhana.siku.ui.components.TonalChip
-import com.qhana.siku.ui.components.onContainerColor
 import com.qhana.siku.ui.components.rememberRowActionColors
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
@@ -377,13 +374,14 @@ private fun ArtistPhotosMeteredBanner(
     onDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val dark = isSystemInDarkTheme()
-    val container = if (dark) Color(0xFF2A2016) else Color(0xFFFFF3E0)
-    val accent = if (dark) Color(0xFFFFB74D) else Color(0xFFE65100)
+    // La MISMA paleta ámbar que los banners de la biblioteca, no una copia: aquí vivían sus dos
+    // colores escritos a mano —la TERCERA copia del mismo par, con `DownloadStateBanner`—, y era la
+    // razón por la que teñir los banners dejaba a éste con el color viejo. Ver [BannerPalette].
+    val palette = BannerAmber
 
     AppSurface(
-        color = container,
-        contentColor = accent,
+        color = palette.container,
+        contentColor = palette.onContainer,
         shape = RoundedCornerShape(24.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -394,15 +392,15 @@ private fun ArtistPhotosMeteredBanner(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AppSurface(shape = CircleShape, color = accent, modifier = Modifier.size(40.dp)) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    MaterialSymbol(
-                        "signal_cellular_alt",
-                        color = onContainerColor(accent),
-                        size = 20.sp,
-                        fill = true
-                    )
-                }
+            // Glifo suelto y caja de 40dp, igual que `BannerCard`: con el contenedor teñido, un
+            // círculo de acento detrás sería una segunda superficie diciendo lo mismo.
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+                MaterialSymbol(
+                    "signal_cellular_alt",
+                    color = palette.onContainer,
+                    size = 24.sp,
+                    fill = true
+                )
             }
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -413,7 +411,7 @@ private fun ArtistPhotosMeteredBanner(
                 Text(
                     stringResource(R.string.artist_photos_metered_desc),
                     style = MaterialTheme.typography.bodySmall,
-                    color = accent.copy(alpha = ACCENT_SECONDARY_ALPHA)
+                    color = palette.secondary
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -422,7 +420,7 @@ private fun ArtistPhotosMeteredBanner(
                 ) {
                     TextButton(
                         onClick = onDismiss,
-                        colors = ButtonDefaults.textButtonColors(contentColor = accent)
+                        colors = ButtonDefaults.textButtonColors(contentColor = palette.onContainer)
                     ) {
                         Text(stringResource(R.string.artist_photos_metered_not_now))
                     }
@@ -431,8 +429,8 @@ private fun ArtistPhotosMeteredBanner(
                         onClick = onDownload,
                         shapes = ButtonDefaults.shapes(),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = accent,
-                            contentColor = onContainerColor(accent)
+                            containerColor = palette.onContainer,
+                            contentColor = palette.container
                         )
                     ) {
                         Text(stringResource(R.string.artist_photos_metered_download))

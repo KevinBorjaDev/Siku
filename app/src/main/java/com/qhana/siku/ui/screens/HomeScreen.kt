@@ -52,7 +52,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Song
-import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
+import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.AdaptiveCollage
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
@@ -421,7 +421,10 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         stringResource(R.string.stats_home_entry_empty)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = AppColors.onSecondaryContainer.copy(alpha = ACCENT_SECONDARY_ALPHA),
+                    color = secondaryContentColor(
+                        AppColors.onSecondaryContainer,
+                        AppColors.secondaryContainer
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

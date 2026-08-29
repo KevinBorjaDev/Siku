@@ -89,7 +89,16 @@ data class StatsSelection(
     }
 
     companion object {
-        /** El periodo con el que abre la pantalla: el día en curso. */
+        /**
+         * El periodo con el que abre la PANTALLA de estadísticas: el día en curso.
+         *
+         * **Solo sirve para eso.** Quien necesite un periodo CONCRETO lo construye nombrándolo
+         * (`StatsSelection(StatsPeriodMode.MONTH, hoy)`) y no llamando aquí: este valor cambia
+         * cuando cambia con qué abre la pantalla, y arrastró en silencio a la tarjeta del inicio
+         * —que dice "Tu mes en música" y acabó enseñando el tiempo del DÍA— cuando entraron los
+         * modos día y semana y esto pasó de MONTH a DAY. Nada falla al cambiarlo: el número sigue
+         * saliendo, solo que es otro.
+         */
         fun current(zone: ZoneId, now: Instant): StatsSelection =
             StatsSelection(StatsPeriodMode.DAY, LocalDate.ofInstant(now, zone))
     }

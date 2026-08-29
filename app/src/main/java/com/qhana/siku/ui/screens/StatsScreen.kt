@@ -28,6 +28,7 @@ import com.qhana.siku.data.model.StatsSelection
 import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.WavyProgressRing
@@ -36,7 +37,7 @@ import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appFilledTonalIconButtonColors
 import com.qhana.siku.ui.theme.appTopAppBarColors
-import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
+import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.viewmodel.StatsUiState
 import com.qhana.siku.ui.viewmodel.StatsListKind
 import com.qhana.siku.ui.viewmodel.StatsViewModel
@@ -315,6 +316,19 @@ private fun PeriodSelector(
         // control — el recorrido lo explica la fila de abajo, que dice el periodo completo.
         // "Siempre" conserva su palabra: no es una unidad de calendario y una "S" chocaría con la
         // de semana.
+        //
+        // **`ChoiceGroupWidth.Proportional` PRECISAMENTE por eso** (29 ago 2026): cuatro etiquetas
+        // de UNA letra y una de siete es el juego más desigual de la app, y el reparto a partes
+        // iguales le daba a "Siempre" los mismos ~70dp que a la "D" —de los que el padding deja ~46
+        // de texto para una palabra que pide ~55—, así que salía como "Siem…". Es el caso exacto que
+        // documenta el KDoc de [ConnectedChoiceGroup] y que ya había mordido con "Desactivado" en el
+        // selector de ReplayGain.
+        //
+        // Se pasó primero por `Content` (cada botón ceñido a lo suyo, el grupo centrado): arreglaba
+        // el recorte pero dejaba el control encogido en medio de una pantalla cuyas tarjetas sí
+        // llegan a los bordes. `Proportional` da las dos cosas — llega a los bordes Y respeta lo que
+        // cada etiqueta pide—: las cuatro letras salen iguales entre sí y estrechas, que es lo
+        // correcto porque no tienen nada que enseñar, y el sobrante se estira sin recortar a nadie.
         ConnectedChoiceGroup(
             options = StatsPeriodMode.entries.toList(),
             selected = state.selection.mode,
@@ -330,6 +344,7 @@ private fun PeriodSelector(
                     }
                 )
             },
+            width = ChoiceGroupWidth.Proportional,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -430,7 +445,7 @@ private fun SummaryGrid(state: StatsUiState, onOpenList: (StatsListKind) -> Unit
         // las de cada fila, así que una fila impar (la última, si alguna tarjeta falta) deja su
         // única tarjeta a todo el ancho — que es lo correcto: media fila vacía se ve como un error.
         SummaryCard(
-            icon = "play_circle",
+            icon = "music_cast",
             value = summary.plays.toString(),
             label = stringResource(R.string.stats_summary_plays),
             style = styles[0],
@@ -441,7 +456,7 @@ private fun SummaryGrid(state: StatsUiState, onOpenList: (StatsListKind) -> Unit
         // estimado con el mismo rótulo que un dato exacto sería peor que no darlo.
         summary.listenedMs?.let { millis ->
             SummaryCard(
-                icon = "schedule",
+                icon = "timer_play",
                 value = listeningTimeText(millis),
                 label = stringResource(
                     if (summary.listenedIsEstimate) R.string.stats_summary_time_estimate
@@ -452,7 +467,7 @@ private fun SummaryGrid(state: StatsUiState, onOpenList: (StatsListKind) -> Unit
             )
         }
         SummaryCard(
-            icon = "music_note",
+            icon = "music_note_2",
             value = summary.distinctSongs.toString(),
             label = stringResource(R.string.stats_summary_songs),
             style = styles[2],
@@ -604,10 +619,9 @@ private fun SummaryCard(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodyMedium,
-                    // El mismo alfa con el que la app atenúa un secundario sobre un contenedor de
-                    // acento (la píldora de Favoritos, la entrada a Estadísticas del inicio): sobre
-                    // color, `onSurfaceVariant` no pertenece a la familia y se lee como suciedad.
-                    color = style.onContainer.copy(alpha = ACCENT_SECONDARY_ALPHA),
+                    // El secundario de la familia del contenedor, no `onSurfaceVariant`: sobre
+                    // color, un neutro no pertenece a la familia y se lee como suciedad.
+                    color = secondaryContentColor(style.onContainer, style.container),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -623,7 +637,7 @@ private fun SummaryCard(
                 MaterialSymbol(
                     "chevron_right",
                     size = 20.sp,
-                    color = style.onContainer.copy(alpha = ACCENT_SECONDARY_ALPHA)
+                    color = secondaryContentColor(style.onContainer, style.container)
                 )
             }
         }
@@ -761,7 +775,7 @@ private fun StreakRow(days: Int) {
                     // esta tarjeta. Así el día 31 no repite lo del día 30.
                     text = stringResource(achieved?.second ?: R.string.stats_streak_title),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = onContainer.copy(alpha = ACCENT_SECONDARY_ALPHA),
+                    color = secondaryContentColor(onContainer, container),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

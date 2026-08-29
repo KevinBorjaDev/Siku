@@ -51,7 +51,7 @@ import com.qhana.siku.R
 import com.qhana.siku.data.local.GenreSummary
 import com.qhana.siku.ui.components.AdaptiveGridCells
 import com.qhana.siku.ui.components.ComponentConfig
-import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
+import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
 import com.qhana.siku.ui.components.TonalChip
@@ -234,7 +234,7 @@ private fun GenreTileCard(
             Text(
                 text = pluralStringResource(R.plurals.song_count, genre.songCount, genre.songCount),
                 style = MaterialTheme.typography.labelSmall,
-                color = onColor.copy(alpha = ACCENT_SECONDARY_ALPHA),
+                color = secondaryContentColor(onColor, containerColor),
                 maxLines = 1
             )
             Spacer(modifier = Modifier.height(4.dp))

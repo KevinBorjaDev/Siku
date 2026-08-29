@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.qhana.siku.data.model.StatsPeriodMode
 import com.qhana.siku.data.model.StatsSelection
 import com.qhana.siku.data.repository.StatsSummary
 import java.time.LocalDate
@@ -516,8 +517,7 @@ class LibraryViewModel @Inject constructor(
     // Subtítulo del saludo + el dato que enseña su botón de estadísticas.
     val homeStats: StateFlow<HomeStats> = combine(
         repository.getLibrarySize(),
-        // El resumen del mes EN CURSO, de calendario: es el periodo con el que abre la pantalla de
-        // estadísticas, así que el saludo enseña exactamente lo que se va a encontrar al tocarla.
+        // El resumen del mes EN CURSO, de calendario: es lo que promete el título de la tarjeta.
         currentMonthSummary()
     ) { size, month ->
         HomeStats(size, month.plays, month.listenedMs ?: 0L)
@@ -529,10 +529,18 @@ class LibraryViewModel @Inject constructor(
     /**
      * Resumen del mes en curso. La ventana se calcula aquí y no al construir el ViewModel porque el
      * inicio sobrevive al cambio de mes: el proceso de una app de música vive días.
+     *
+     * **El mes se NOMBRA, no se toma de `StatsSelection.current()`** (29 ago 2026): eso devuelve el
+     * periodo con el que abre la PANTALLA de estadísticas, que valía MONTH cuando esto se escribió
+     * y pasó a DAY al entrar los modos día y semana. La tarjeta siguió al cambio sin que nada
+     * fallara —el número seguía saliendo, solo que era el de HOY— mientras su título prometía "Tu
+     * mes en música". Lo que fija el periodo es el TÍTULO de la tarjeta, no el default de otra
+     * pantalla; si algún día quieren ir juntos, eso es una decisión que se toma, no una que se
+     * hereda por compartir una función.
      */
     private fun currentMonthSummary(): Flow<StatsSummary> {
         val zone = java.time.ZoneId.systemDefault()
-        val selection = StatsSelection.current(zone, java.time.Instant.now())
+        val selection = StatsSelection(StatsPeriodMode.MONTH, java.time.LocalDate.now(zone))
         return statsRepository.summary(selection.sinceMillis(zone), selection.untilMillis(zone))
     }
 

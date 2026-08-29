@@ -49,6 +49,7 @@ import com.qhana.siku.data.util.LrcSyntax
 import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.safeSidePadding
+import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.LyricsSearchSheet
 import com.qhana.siku.ui.components.MaterialSymbol
@@ -629,7 +630,7 @@ private fun LyricsModeToggle(
                 LyricsViewMode.PLAIN -> stringResource(R.string.lyrics_plain)
             }
         },
-        fillWidth = false,
+        width = ChoiceGroupWidth.Content,
         colors = colors
     )
 }

@@ -55,6 +55,7 @@ import com.qhana.siku.ui.components.AppMenuPopup
 import com.qhana.siku.ui.components.DISABLED_CONTENT_ALPHA
 import com.qhana.siku.ui.components.groupedListItemShapes
 import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.EqPresets
 import com.qhana.siku.ui.components.DisconnectOneDriveDialog
@@ -723,7 +724,7 @@ fun SettingsPlaybackScreen(
                 // el spec de M3 Expressive retiró `SegmentedButton` de las recomendaciones y este
                 // es su reemplazo directo.
                 //
-                // `fillWidth = false` porque las tres etiquetas son de longitud MUY desigual:
+                // `ChoiceGroupWidth.Content` porque las tres etiquetas son de longitud MUY desigual:
                 // "Desactivado" contra "Por pista" y "Por álbum". Repartiendo el ancho a partes
                 // iguales, la primera se quedaba sin sitio y salía cortada ("Desactivad"). Ceñidos
                 // al contenido los tres ocupan casi el mismo ancho total que antes —el grupo llena
@@ -732,7 +733,7 @@ fun SettingsPlaybackScreen(
                     options = REPLAY_GAIN_MODES,
                     selected = replayGainMode,
                     onSelect = { viewModel.setReplayGainMode(it) },
-                    fillWidth = false,
+                    width = ChoiceGroupWidth.Content,
                     labelFor = {
                         when (it) {
                             ReplayGainMode.OFF -> stringResource(R.string.settings_rg_off)
