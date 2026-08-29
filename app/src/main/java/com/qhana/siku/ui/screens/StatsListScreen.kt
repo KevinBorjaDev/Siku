@@ -160,7 +160,7 @@ private fun LazyListScope.songRankingRows(
     itemsIndexed(items = songs, key = { _, entry -> "song_${entry.song.id}" }) { index, entry ->
         // La canción actual, esté sonando o en pausa: el resaltado marca "cargada", no "sonando".
         val isPlaying = currentSong?.id == entry.song.id
-        val rowBackground = songRowBackground(AppColors.surface, isPlaying)
+        val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
         SongRowContainer(
             songId = entry.song.id,
             modifier = Modifier
@@ -169,7 +169,7 @@ private fun LazyListScope.songRankingRows(
                 .padding(horizontal = 16.dp, vertical = 1.dp)
         ) {
             AppSurface(
-                color = AppColors.surface,
+                color = AppColors.contentSurface,
                 shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -201,11 +201,11 @@ private fun LazyListScope.nameRankingRows(
             // `groupedListItemShapes` y no `segmentedShapes` a pelo: un grupo de UNA fila necesita
             // las cuatro esquinas EXTERIORES, y con un solo resultado eso pasa de verdad.
             shapes = groupedListItemShapes(index = index, count = entries.size),
-            colors = appSegmentedListItemColors(AppColors.surface),
+            colors = appSegmentedListItemColors(AppColors.contentSurface),
             leadingContent = {
                 RankArt(artUri = entry.artUri, fallbackIcon = fallbackIcon, circular = circularArt)
             },
-            trailingContent = { PlayCountBadge(entry.plays, AppColors.surface, isPlaying = false) },
+            trailingContent = { PlayCountBadge(entry.plays, AppColors.contentSurface, isPlaying = false) },
             content = {
                 Column {
                     Text(

@@ -69,7 +69,7 @@ fun AlbumTileCard(
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(AlbumTileCorner),
-        colors = CardDefaults.cardColors(containerColor = AppColors.surface),
+        colors = CardDefaults.cardColors(containerColor = AppColors.contentSurface),
         modifier = modifier.fillMaxWidth()
     ) {
         // La forma que viaja son las esquinas SUPERIORES del card: la carátula ocupa su borde de

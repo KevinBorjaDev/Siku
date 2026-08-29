@@ -294,7 +294,7 @@ fun PlaylistDetailScreen(
                                 // el grip y los botones, así que su tinte cubría solo el trozo
                                 // central, con esquinas rectas, y la fila activa se leía distinta
                                 // que en el resto de listas de la app.
-                                val rowBackground = songRowBackground(AppColors.surface, isPlaying)
+                                val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
                                 val activeContent = rememberActiveRowContentColor(rowBackground, isPlaying)
                                 val rowVariantColor =
                                     if (isPlaying) activeContent else AppColors.onSurfaceVariant
@@ -397,7 +397,7 @@ fun PlaylistDetailScreen(
                                     .padding(horizontal = 16.dp, vertical = 1.dp)
                             ) {
                                 AppSurface(
-                                    color = AppColors.surface,
+                                    color = AppColors.contentSurface,
                                     shape = shape,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -414,7 +414,7 @@ fun PlaylistDetailScreen(
                                         // centímetro uno del otro.
                                         trailingContent = {
                                             val rowBackground =
-                                                songRowBackground(AppColors.surface, isPlaying)
+                                                songRowBackground(AppColors.contentSurface, isPlaying)
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 if (isFavoritesList) {
                                                     IconButton(onClick = { onToggleFavorite(song.id) }) {
@@ -472,7 +472,7 @@ fun PlaylistDetailScreen(
                         onClick = onBackClick,
                         shapes = IconButtonDefaults.shapes(),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = AppColors.surface,
+                            containerColor = AppColors.contentSurface,
                             contentColor = AppColors.onSurface
                         )
                     ) {

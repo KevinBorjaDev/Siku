@@ -315,7 +315,7 @@ fun appCardColors() = CardDefaults.cardColors(
 /** Fila de lista de M3 (`ListTokens`): contenedor `surface`, apoyos `onSurfaceVariant`. */
 @Composable
 fun appListItemColors() = ListItemDefaults.colors(
-    containerColor = AppColors.surface,
+    containerColor = AppColors.contentSurface,
     headlineColor = AppColors.onSurface,
     leadingIconColor = AppColors.onSurfaceVariant,
     trailingIconColor = AppColors.onSurfaceVariant,

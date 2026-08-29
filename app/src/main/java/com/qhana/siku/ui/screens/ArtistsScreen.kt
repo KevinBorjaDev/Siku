@@ -359,7 +359,7 @@ private fun ArtistRow(
                 // encolar es una acción de segundo orden frente a "reproducir".
                 QueueOverflowButton(
                     onAddToQueue = onAddToQueue,
-                    colors = rememberRowActionColors(AppColors.surface),
+                    colors = rememberRowActionColors(AppColors.contentSurface),
                     contentDescription = stringResource(R.string.common_artist_options),
                     menuLabel = stringResource(R.string.detail_add_all_to_queue)
                 )

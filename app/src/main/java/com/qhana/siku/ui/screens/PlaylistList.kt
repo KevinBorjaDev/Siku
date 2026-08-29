@@ -1,7 +1,5 @@
 package com.qhana.siku.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -12,7 +10,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -23,7 +20,6 @@ import coil3.compose.AsyncImage
 import com.qhana.siku.ui.theme.AppMenuGroup
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Playlist
-import com.qhana.siku.data.playlist.M3uFormat
 import com.qhana.siku.data.repository.PlaylistCoverMeta
 import com.qhana.siku.ui.components.AppMenuPopup
 import com.qhana.siku.ui.components.ACCENT_SECONDARY_ALPHA
@@ -67,45 +63,11 @@ fun PlaylistList(
     onCreatePlaylist: () -> Unit,
     onDeletePlaylist: (Long) -> Unit,
     onRenamePlaylist: (Long, String) -> Unit,
-    onImportPlaylist: (android.net.Uri) -> Unit,
-    onExportPlaylist: (Long, android.net.Uri) -> Unit,
-    onExportFavorites: (android.net.Uri) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
-    val context = LocalContext.current
     var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
     var playlistToRename by remember { mutableStateOf<Playlist?>(null) }
-
-    // Qué se está exportando: el selector es asíncrono, así que hay que recordar para qué se abrió.
-    // Es un TIPO y no el id de la lista porque Favoritos no tiene uno a mano —su playlist se
-    // resuelve por UUID en la capa de datos—, y un centinela (`-1`) sería un id que no lo es. Se
-    // limpia SIEMPRE al volver, también si el usuario cancela, o el siguiente export heredaría el
-    // destino del anterior.
-    var exportTarget by remember { mutableStateOf<ExportTarget?>(null) }
-
-    // Los dos selectores del SISTEMA. Es el único camino: un `.m3u` no es audio, así que MediaStore
-    // no lo indexa y `READ_MEDIA_AUDIO` no llega a él; el selector, en cambio, funciona igual en
-    // modo dispositivo y en modo carpetas, y no pide ningún permiso.
-    val importPicker = rememberLauncherForActivityResult(
-        // `OpenDocument` y no `GetContent`: da un permiso de lectura sobre ESE documento y respeta
-        // el proveedor que el usuario elija (Drive, Descargas, una tarjeta SD).
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let(onImportPlaylist) }
-
-    val exportPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(M3uFormat.MIME_TYPE)
-    ) { uri ->
-        val target = exportTarget
-        exportTarget = null
-        if (uri != null) {
-            when (target) {
-                is ExportTarget.UserPlaylist -> onExportPlaylist(target.id, uri)
-                ExportTarget.Favorites -> onExportFavorites(uri)
-                null -> Unit
-            }
-        }
-    }
 
     // El margen HORIZONTAL lo ponen las filas (16dp segmentado, como en las demás pestañas);
     // aquí solo vertical — sumarlo también al contenedor duplicaba el margen lateral (32dp).
@@ -127,16 +89,7 @@ fun PlaylistList(
         item(key = "favorites") {
             FavoritesItem(
                 count = favoritesCount,
-                onClick = onFavoritesClick,
-                onExport = {
-                    exportTarget = ExportTarget.Favorites
-                    exportPicker.launch(
-                        context.getString(
-                            R.string.playlist_export_file_name,
-                            context.getString(R.string.common_favorites)
-                        )
-                    )
-                }
+                onClick = onFavoritesClick
             )
         }
 
@@ -183,8 +136,8 @@ fun PlaylistList(
                 // spec de M3 saca los dos de ella (`iconSizeFor` / `iconSpacingFor`), igual que el
                 // botón primario del onboarding.
                 val headerButtonHeight = ButtonDefaults.MinHeight
-                // **TextButton y no `FilledTonalButton`** (19 ago 2026, y vale para los DOS): son
-                // acciones de un ENCABEZADO DE SECCIÓN, que en M3 van sin contenedor. Con relleno
+                // **TextButton y no `FilledTonalButton`** (19 ago 2026): es la acción de un
+                // ENCABEZADO DE SECCIÓN, que en M3 va sin contenedor. Con relleno
                 // tonal, esta pantalla tenía TRES superficies `secondaryContainer` a la vez —la
                 // píldora de la pestaña activa (navegación), la tarjeta de Favoritos (contenido) y
                 // el botón (acción)—, o sea el mismo color diciendo tres cosas distintas y ninguna
@@ -194,26 +147,6 @@ fun PlaylistList(
                 // La acción NO pierde alcance: sigue en el encabezado, a la vista, con el mismo
                 // área táctil; lo que pierde es la mancha de color con la que competía contra el
                 // contenido de la pestaña.
-                //
-                // **Importar va antes de crear**, y con TEXTO por lo mismo que su vecino: un
-                // `folder_open` suelto no dice QUÉ se abre. Primero porque es la acción rara, la
-                // que hay que poder encontrar; crear, que es la principal, se queda pegada al borde
-                // donde el pulgar ya la busca.
-                TextButton(
-                    colors = appTextButtonColors(),
-                    onClick = { importPicker.launch(M3U_PICKER_MIME_TYPES) },
-                    shapes = ButtonDefaults.shapes()
-                ) {
-                    MaterialSymbol(
-                        "folder_open",
-                        size = ButtonDefaults.iconSizeFor(headerButtonHeight).value.sp
-                    )
-                    Spacer(modifier = Modifier.width(ButtonDefaults.iconSpacingFor(headerButtonHeight)))
-                    Text(
-                        text = stringResource(R.string.playlist_import_action),
-                        style = MaterialTheme.typography.labelLargeEmphasized
-                    )
-                }
                 TextButton(
                     colors = appTextButtonColors(),
                     onClick = onCreatePlaylist,
@@ -266,10 +199,6 @@ fun PlaylistList(
                 onClick = { onPlaylistClick(playlist.id) },
                 onPlay = { onPlayPlaylist(playlist.id) },
                 onRename = { playlistToRename = playlist },
-                onExport = {
-                    exportTarget = ExportTarget.UserPlaylist(playlist.id)
-                    exportPicker.launch(context.getString(R.string.playlist_export_file_name, playlist.name))
-                },
                 onDelete = { playlistToDelete = playlist },
                 modifier = Modifier.animateItem()
             )
@@ -357,8 +286,7 @@ private fun NoPlaylistsState() {
 @Composable
 private fun FavoritesItem(
     count: Int,
-    onClick: () -> Unit,
-    onExport: () -> Unit
+    onClick: () -> Unit
 ) {
     AppSurface(
         modifier = Modifier
@@ -406,48 +334,6 @@ private fun FavoritesItem(
                     color = AppColors.onSecondaryContainer.copy(alpha = ACCENT_SECONDARY_ALPHA)
                 )
             }
-            // Favoritos es una playlist como las demás (la del UUID fijo), así que se exporta por
-            // el MISMO gesto que ellas: el cajón de secundarias al final de la fila. Es un menú de
-            // UNA entrada, y aquí eso sí está bien —al revés que en el engranaje del header, que
-            // podía navegar directo—: la acción principal ya la tiene la píldora entera, y este ⋮
-            // es lo único que la acompaña.
-            //
-            // **IconButton PELADO, sin la píldora tonal del ⋮ de las filas de abajo**: aquéllas van
-            // sobre `surface` y necesitan un contenedor que las despegue; ésta ya vive DENTRO de un
-            // contenedor de acento, y otra superficie tonal encima sería una tercera capa apilada
-            // sobre la misma. El glifo se tiñe de `onSecondaryContainer`, que es el contenido de la
-            // píldora que lo aloja.
-            FavoritesMenu(onExport = onExport)
-        }
-    }
-}
-
-/** El ⋮ de la píldora de Favoritos: hoy solo exporta. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun FavoritesMenu(onExport: () -> Unit) {
-    var showMenu by remember { mutableStateOf(false) }
-    Box {
-        IconButton(
-            onClick = { showMenu = true },
-            shapes = IconButtonDefaults.shapes(),
-            colors = IconButtonDefaults.iconButtonColors(contentColor = AppColors.onSecondaryContainer)
-        ) {
-            MaterialSymbol("more_vert", size = 18.sp)
-        }
-        AppMenuPopup(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            AppMenuGroup(shapes = MenuDefaults.groupShapes()) {
-                DropdownMenuItem(
-                    colors = appMenuItemColors(),
-                    onClick = {
-                        showMenu = false
-                        onExport()
-                    },
-                    text = { Text(stringResource(R.string.playlist_export_menu)) },
-                    shape = MenuDefaults.standaloneItemShape,
-                    leadingIcon = { MenuItemIcon("save") }
-                )
-            }
         }
     }
 }
@@ -463,7 +349,6 @@ private fun PlaylistItem(
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onRename: () -> Unit,
-    onExport: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -507,7 +392,7 @@ private fun PlaylistItem(
                     MaterialSymbol("play_circle", size = 30.sp, fill = true)
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-                PlaylistItemMenu(onRename = onRename, onExport = onExport, onDelete = onDelete)
+                PlaylistItemMenu(onRename = onRename, onDelete = onDelete)
             }
         }
     )
@@ -516,12 +401,12 @@ private fun PlaylistItem(
 /** Overflow de la fila: renombrar y borrar (el destructivo vive aquí, tras un toque intencional). */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PlaylistItemMenu(onRename: () -> Unit, onExport: () -> Unit, onDelete: () -> Unit) {
+private fun PlaylistItemMenu(onRename: () -> Unit, onDelete: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
     // Píldora vertical tonal, MISMO componente y colores que el ⋮ de "Todas"/Artistas
     // (rememberRowActionColors sobre el fondo real de la fila): las listas de navegación comparten
     // trailing. Antes era un IconButton pelado de 24sp sin contenedor, que rompía esa consistencia.
-    val colors = rememberRowActionColors(AppColors.surface)
+    val colors = rememberRowActionColors(AppColors.contentSurface)
     Box {
         FilledIconButton(
             onClick = { showMenu = true },
@@ -548,19 +433,6 @@ private fun PlaylistItemMenu(onRename: () -> Unit, onExport: () -> Unit, onDelet
                     text = { Text(stringResource(R.string.playlist_rename_title)) },
                     shape = menuItemShapeAt(0, MENU_ITEM_COUNT),
                     leadingIcon = { MenuItemIcon("edit") }
-                )
-                // Exportar vive AQUÍ y no en el detalle de la lista: es una operación sobre la lista
-                // ENTERA, igual que renombrar y borrar, y este es el menú que ya las reúne. En el
-                // detalle competiría con la botonera de reproducción, que manda sobre esa pantalla.
-                DropdownMenuItem(
-                    colors = appMenuItemColors(),
-                    onClick = {
-                        showMenu = false
-                        onExport()
-                    },
-                    text = { Text(stringResource(R.string.playlist_export_menu)) },
-                    shape = menuItemShapeAt(1, MENU_ITEM_COUNT),
-                    leadingIcon = { MenuItemIcon("save") }
                 )
                 // El destructivo se tiñe con `error` en los propios slots y NO con
                 // `MenuDefaults.itemColors().copy(...)`: `MenuItemColors` expone dos sobrecargas
@@ -639,34 +511,8 @@ private fun ThumbTile(art: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Entradas del menú de una lista (renombrar, exportar, borrar). Las formas de un grupo de menú
- * dependen de su POSICIÓN, así que el número vive en una constante: escribir `leading`/`trailing` a
- * mano fue lo que dejó el item del medio con las esquinas de un extremo cuando entró "exportar".
+ * Entradas del menú de una lista (renombrar, borrar). Las formas de un grupo de menú dependen de su
+ * POSICIÓN, así que el número vive en una constante: escribir `leading`/`trailing` a mano fue lo que
+ * dejó el item del medio con las esquinas de un extremo cuando entró (y luego salió) "exportar".
  */
-private const val MENU_ITEM_COUNT = 3
-
-/**
- * Con qué MIME se ofrece el selector al importar. Son varios porque **el proveedor decide el tipo,
- * casi siempre por la extensión**, y no hay uno solo para M3U: `ExternalStorageProvider` reporta
- * `audio/x-mpegurl` para un `.m3u` y `application/vnd.apple.mpegurl` para un `.m3u8`, mientras que
- * un archivo que bajó otra app suele llegar como `application/octet-stream`. Un filtro más estrecho
- * dejaría el archivo del usuario en gris sin decir por qué, que es el peor de los fallos posibles
- * para una pantalla de importación.
- */
-private val M3U_PICKER_MIME_TYPES = arrayOf(
-    M3uFormat.MIME_TYPE,
-    "application/vnd.apple.mpegurl",
-    "application/x-mpegurl",
-    "application/octet-stream",
-    "text/plain"
-)
-
-/**
- * Qué se está exportando mientras el selector del sistema está abierto. Favoritos no es un caso
- * especial de "lista con id": desde esta pantalla su id no se conoce (lo resuelve la capa de datos
- * por el UUID fijo), así que es una rama propia y no un número mágico.
- */
-private sealed interface ExportTarget {
-    data object Favorites : ExportTarget
-    data class UserPlaylist(val id: Long) : ExportTarget
-}
+private const val MENU_ITEM_COUNT = 2

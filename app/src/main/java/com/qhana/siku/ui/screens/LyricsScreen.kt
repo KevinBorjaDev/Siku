@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.R
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.repository.LyricsCandidate
 import com.qhana.siku.data.util.LrcSyntax
@@ -61,7 +60,9 @@ import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.LyricLine
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -670,36 +671,43 @@ private fun SyncedLyricsView(
     // esto no se enciende ni cuesta nada.
     val hasWordTiming = remember(lines) { lines.any(LyricLine::hasWordTiming) }
 
-    // Posición interpolada del barrido. `mutableLongState` y no un parámetro: sus DOS lectores son
+    // Posición INTERPOLADA de la letra. `mutableLongState` y no un parámetro: sus DOS lectores son
     // diferidos —el `drawWithContent` del verso activo y el `derivedStateOf` del verso en curso—,
     // así que moverla invalida el dibujo de UN `Text` y nada más. Ningún composable la lee directa,
     // que es lo que la separa del tick de posición y evita recomponer la lista a 120 Hz.
     //
-    // Arranca en la posición real y no en cero: es el valor del primer frame, antes de que el efecto
-    // de abajo llegue a correr, y con un cero el karaoke abriría en el verso 1 para saltar acto
-    // seguido al que suena.
-    val karaokeMillis = remember { mutableLongStateOf(currentPositionFlow.value) }
-
-    // **Éste es el ÚNICO reloj de la app al que la regla del píxel no le compra nada, y va con el
-    // suelo a propósito.** Los otros tres calculan su intervalo con `stepMillisFor` porque mueven
-    // uno o dos píxeles por segundo y así duermen entre medias; el barrido de un verso recorre
-    // cientos, de modo que ese cálculo devuelve siempre menos de un frame y `coerceAtLeast` lo sube
-    // igualmente a [MIN_STEP_MS]. Dárselo ya calculado sería un número que no llega a usarse
-    // fingiendo que decide algo.
+    // **Se interpola SIEMPRE, no solo con karaoke.** `currentPositionFlow` late una vez por segundo
+    // y con FASE LIBRE respecto a la canción, así que un verso que empieza justo después de un tick
+    // no se marcaba hasta el siguiente: hasta un segundo de retraso en CADA cambio de línea, que es
+    // lo que se reportó. Sin tiempos por palabra no hay barrido que lo delate, pero el foco y el
+    // auto-scroll llegan igual de tarde.
     //
-    // Lo que sí acota el gasto es el GATE: sin tiempos por palabra no corre, en pausa tampoco, y con
-    // el reproductor guardado tampoco. Fuera de esos tres casos este reloj no existe.
+    // Arranca en la posición real y no en cero: es el valor del primer frame, antes de que el efecto
+    // de abajo llegue a correr, y con un cero la letra abriría en el verso 1 para saltar acto
+    // seguido al que suena.
+    val lyricsMillis = remember { mutableLongStateOf(currentPositionFlow.value) }
+
     val onScreen = LocalPlayerOnScreen.current
-    LaunchedEffect(hasWordTiming, playbackState, onScreen, currentPositionFlow) {
-        if (!hasWordTiming) return@LaunchedEffect
+    LaunchedEffect(lines, hasWordTiming, playbackState, onScreen, currentPositionFlow) {
         // ¿Avanza la canción sola? Es lo único que decide si hay algo que interpolar. Con el
-        // reproductor guardado detrás de la biblioteca tampoco: nadie está mirando el barrido.
+        // reproductor guardado detrás de la biblioteca tampoco: nadie está mirando la letra.
         val advancing = playbackState == PlaybackState.PLAYING && onScreen
         if (!advancing) {
-            // En reposo el barrido no se interpola, pero SÍ tiene que seguir los saltos: en pausa
-            // se puede buscar, y el resaltado tiene que aterrizar donde aterrice la canción.
-            currentPositionFlow.collect { karaokeMillis.longValue = it }
-        } else {
+            // En reposo no se interpola, pero SÍ hay que seguir los saltos: en pausa se puede
+            // buscar, y el resaltado tiene que aterrizar donde aterrice la canción.
+            currentPositionFlow.collect { lyricsMillis.longValue = it }
+            return@LaunchedEffect
+        }
+        if (hasWordTiming) {
+            // **Éste es el ÚNICO reloj de la app al que la regla del píxel no le compra nada, y va
+            // con el suelo a propósito.** Los otros tres calculan su intervalo con `stepMillisFor`
+            // porque mueven uno o dos píxeles por segundo y así duermen entre medias; el barrido de
+            // un verso recorre cientos, de modo que ese cálculo devuelve siempre menos de un frame y
+            // `coerceAtLeast` lo sube igualmente a [MIN_STEP_MS]. Dárselo ya calculado sería un
+            // número que no llega a usarse fingiendo que decide algo.
+            //
+            // Lo que sí acota el gasto es el GATE de arriba: sin tiempos por palabra no corre, en
+            // pausa tampoco, y con el reproductor guardado tampoco.
             coroutineScope {
                 var baseMillis = currentPositionFlow.value
                 var baseNanos = System.nanoTime()
@@ -713,7 +721,34 @@ private fun SyncedLyricsView(
                     }
                 }
                 pixelPacedClock(MIN_STEP_MS) { now ->
-                    karaokeMillis.longValue = baseMillis + (now - baseNanos) / NANOS_PER_MILLI
+                    lyricsMillis.longValue = baseMillis + (now - baseNanos) / NANOS_PER_MILLI
+                }
+            }
+        } else {
+            // Sin barrido no hace falta un reloj continuo: lo único que tiene que ocurrir a tiempo
+            // es el CAMBIO de verso, y su instante se conoce de antemano. Se duerme hasta el borde
+            // del verso siguiente (convención 13: esperar por SEÑAL, no por intervalo), así que esto
+            // despierta una vez por verso en lugar de decenas de veces por segundo — y el cambio cae
+            // en su milisegundo, no en el del próximo tick.
+            //
+            // `collectLatest` sobre el tick: cada uno CANCELA la espera en curso y vuelve a anclar,
+            // que es lo que absorbe a la vez la deriva del reloj y los seeks, sin un caso especial
+            // para cada uno.
+            currentPositionFlow.collectLatest { tick ->
+                val anchorNanos = System.nanoTime()
+                lyricsMillis.longValue = tick
+                var cursor = tick
+                while (true) {
+                    val next = lines.firstOrNull { it.startTime > cursor }?.startTime ?: break
+                    val elapsed = (System.nanoTime() - anchorNanos) / NANOS_PER_MILLI
+                    delay((next - (tick + elapsed)).coerceAtLeast(0L))
+                    cursor = next
+                    // `maxOf` y no la extrapolación a secas: si el `delay` despierta un pelo antes
+                    // por redondeo, el verso al que se venía no entraría en el `indexOfLast` y el
+                    // foco se quedaría atrás hasta el siguiente tick — justo el desfase que esto
+                    // viene a quitar.
+                    lyricsMillis.longValue =
+                        maxOf(next, tick + (System.nanoTime() - anchorNanos) / NANOS_PER_MILLI)
                 }
             }
         }
@@ -721,30 +756,19 @@ private fun SyncedLyricsView(
 
     // Línea activa.
     //
-    // `collectAsStateWithLifecycle()` SIN `by`: se quiere el `State`, no su valor. Leerlo aquí
-    // suscribiría este composable al tick de la posición —una vez por segundo— y con él el bloque
-    // de contenido del `LazyColumn`, o sea las ~8 líneas visibles, cada una con sus tres
-    // `animate*AsState` de alpha, escala y color, y todo eso mientras el auto-scroll está corriendo.
+    // Sale SIEMPRE de [lyricsMillis], que es la posición interpolada: leer aquí el tick de un
+    // segundo suscribiría además este composable —y con él el bloque de contenido del `LazyColumn`,
+    // o sea las ~8 líneas visibles con sus tres `animate*AsState` cada una— a una emisión por
+    // segundo. Leído solo dentro del `derivedStateOf`, la suscripción vive en el derivado y
+    // `activeIndex` únicamente notifica cuando el índice cambia de verdad: una vez por verso.
     //
-    // Leído SOLO dentro del `derivedStateOf`, la suscripción vive en el derivado y no en el
-    // composable, así que `activeIndex` solo notifica cuando de verdad cambia de línea: una vez cada
-    // varios segundos en vez de una por segundo. Eso es exactamente para lo que existe
-    // `derivedStateOf`, y antes no lo conseguía — llevaba la posición como CLAVE del `remember` y a
-    // la vez la leía dentro, así que el derivado se destruía y se reconstruía en cada tick sin
-    // cachear nada. La clave correcta es el `State` (identidad estable) y no su valor.
-    val position = currentPositionFlow.collectAsStateWithLifecycle()
-    val activeIndex by remember(lines, position, karaokeMillis, hasWordTiming) {
+    // Eso es exactamente para lo que existe `derivedStateOf`, y antes no lo conseguía — llevaba la
+    // posición como CLAVE del `remember` y a la vez la leía dentro, así que el derivado se destruía
+    // y se reconstruía en cada tick sin cachear nada. La clave correcta es el estado (identidad
+    // estable) y no su valor.
+    val activeIndex by remember(lines, lyricsMillis) {
         derivedStateOf {
-            // **Con tiempos por palabra el verso activo lo marca el reloj del BARRIDO**, no el tick
-            // de un segundo. Si no, el resaltado llegaría al final del verso y se quedaría parado
-            // hasta un segundo esperando a que el foco y el scroll lo siguieran — un desfase que
-            // sin karaoke no se nota (el foco salta de verso en verso y no hay nada que lo delate) y
-            // con él es justo lo que se está mirando.
-            //
-            // El cambio de ritmo lo absorbe el propio `derivedStateOf`: recalcula al ritmo del reloj
-            // —un `indexOfLast` sobre la lista de versos, nada— pero solo NOTIFICA cuando el índice
-            // cambia de verdad, o sea las mismas veces que antes.
-            val millis = if (hasWordTiming) karaokeMillis.longValue else position.value
+            val millis = lyricsMillis.longValue
             val index = lines.indexOfLast { it.startTime <= millis }
             if (index < 0) 0 else index
         }
@@ -959,7 +983,7 @@ private fun SyncedLyricsView(
                                 // Lectura del reloj en fase de DIBUJO: mover el barrido invalida
                                 // este `Text` y nada más — ni el item, ni la lista, ni la pantalla.
                                 val hasSung = buildSungPath(
-                                    sungPath, layout, line, karaokeMillis.longValue
+                                    sungPath, layout, line, lyricsMillis.longValue
                                 )
                                 if (!hasSung) return@drawWithContent
                                 val content = this

@@ -290,16 +290,19 @@ fun SettingsScreen(
             iconShape = MaterialShapes.Cookie9Sided.toShape(),
             seed = Color(0xFF1976D2) // azul
         ),
-        // La copia de seguridad vive en el approot de OneDrive: sin sesión, exportar/importar
-        // solo puede fallar en runtime — mismo criterio de gating que "Descargas" más abajo.
-        if (isLoggedIn) SettingsCategory(
+        // SIN gate de sesion, al contrario que "Descargas": desde el 29 ago 2026 esta pantalla
+        // aloja tambien importar/exportar listas en M3U, que es una operacion LOCAL. Gatearla por
+        // la sesion de OneDrive la dejaria inalcanzable justo para el usuario solo-local -- el
+        // mismo hueco que ya dejo a Estadisticas sin puerta. Lo que se oculta sin sesion es el
+        // bloque de OneDrive de dentro, no el destino.
+        SettingsCategory(
             icon = "cloud_upload",
             title = stringResource(R.string.backup_header),
             subtitle = stringResource(R.string.settings_cat_backup_desc),
             onClick = { onNavigate(Screen.SettingsBackup.route) },
             iconShape = MaterialShapes.Sunny.toShape(),
             seed = Color(0xFF2E7D32) // verde
-        ) else null,
+        ),
         SettingsCategory(
             icon = "brand_awareness",
             title = stringResource(R.string.settings_volume_header),
@@ -587,73 +590,96 @@ fun SettingsSourcesScreen(
 fun SettingsBackupScreen(
     onBackClick: () -> Unit,
     isLoggedIn: Boolean,
+    // COMPARTIDO y por eso SIN default (convencion 9): de el salen las listas que ofrece el
+    // exportador y las operaciones de M3U, que escriben en la misma biblioteca que ve la pestana
+    // Listas. Un `= hiltViewModel()` aqui crearia una instancia propia del scope de esta ruta.
+    libraryViewModel: LibraryViewModel,
     backupViewModel: BackupViewModel = hiltViewModel()
 ) {
     val backupBusy by backupViewModel.isBusy.collectAsStateWithLifecycle()
+    val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     SettingsScaffold(
         title = stringResource(R.string.backup_header),
         onBackClick = onBackClick
     ) {
-        AppSurface(
-            shape = RoundedCornerShape(SettingsTokens.BlockCorner),
-            color = AppColors.surfaceContainerHigh
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = stringResource(R.string.backup_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AppColors.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                // Los dos botones REPARTEN el ancho por `weight`, y sus etiquetas son el VERBO a
-                // secas ("Exportar" / "Restaurar") en vez de repetir "playlists" en los dos.
-                // Antes el `Row` no repartía nada: el primero tomaba su ancho intrínseco (~186dp
-                // con icono y etiqueta larga) y al segundo le quedaban 134 — 48 de padding y 86
-                // para un texto que pedía ~120, así que "Restaurar playlists" caía a dos líneas y
-                // los dos botones quedaban de distinto alto. QUÉ se exporta ya lo dice la
-                // descripción de encima ("Guarda tus playlists y favoritos…"), que es su sitio.
-                val backupButtonHeight = ButtonDefaults.MinHeight
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (backupBusy) {
-                        LoadingIndicator(color = AppColors.primary, modifier = Modifier.size(24.dp))
-                    } else {
-                        Button(
-                            colors = appButtonColors(),
-                            onClick = { backupViewModel.exportPlaylists() },
-                            shapes = ButtonDefaults.shapes(),
-                            enabled = isLoggedIn,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            MaterialSymbol(
-                                "cloud_upload",
-                                size = ButtonDefaults.iconSizeFor(backupButtonHeight).value.sp
-                            )
-                            Spacer(modifier = Modifier.width(ButtonDefaults.iconSpacingFor(backupButtonHeight)))
-                            Text(
-                                text = stringResource(R.string.backup_export),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        OutlinedButton(
-                            colors = appOutlinedButtonColors(),
-                            onClick = { backupViewModel.importPlaylists() },
-                            shapes = ButtonDefaults.shapes(),
-                            enabled = isLoggedIn,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.backup_import),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+        // La copia en OneDrive solo se PINTA con sesion: sin ella sus dos botones no pueden hacer
+        // nada, y un bloque entero deshabilitado es ruido. La pantalla, en cambio, ya no depende de
+        // la sesion -- el bloque de M3U de abajo es puramente local y es justo el usuario
+        // solo-local quien mas lo necesita.
+        if (isLoggedIn) {
+            AppSurface(
+                shape = RoundedCornerShape(SettingsTokens.BlockCorner),
+                color = AppColors.surfaceContainerHigh
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = stringResource(R.string.backup_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppColors.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    // Los dos botones REPARTEN el ancho por `weight`, y sus etiquetas son el VERBO a
+                    // secas ("Exportar" / "Restaurar") en vez de repetir "playlists" en los dos.
+                    // Antes el `Row` no repartía nada: el primero tomaba su ancho intrínseco (~186dp
+                    // con icono y etiqueta larga) y al segundo le quedaban 134 — 48 de padding y 86
+                    // para un texto que pedía ~120, así que "Restaurar playlists" caía a dos líneas y
+                    // los dos botones quedaban de distinto alto. QUÉ se exporta ya lo dice la
+                    // descripción de encima ("Guarda tus playlists y favoritos…"), que es su sitio.
+                    val backupButtonHeight = ButtonDefaults.MinHeight
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (backupBusy) {
+                            LoadingIndicator(color = AppColors.primary, modifier = Modifier.size(24.dp))
+                        } else {
+                            Button(
+                                colors = appButtonColors(),
+                                onClick = { backupViewModel.exportPlaylists() },
+                                shapes = ButtonDefaults.shapes(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                MaterialSymbol(
+                                    "cloud_upload",
+                                    size = ButtonDefaults.iconSizeFor(backupButtonHeight).value.sp
+                                )
+                                Spacer(modifier = Modifier.width(ButtonDefaults.iconSpacingFor(backupButtonHeight)))
+                                Text(
+                                    text = stringResource(R.string.backup_export),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(
+                                colors = appOutlinedButtonColors(),
+                                onClick = { backupViewModel.importPlaylists() },
+                                shapes = ButtonDefaults.shapes(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.backup_import),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(SettingsTokens.SectionGap))
         }
+
+        M3uPlaylistsBlock(
+            playlists = playlists,
+            onImport = { uri ->
+                libraryViewModel.importPlaylistFromFile(
+                    uri,
+                    context.getString(R.string.playlist_import_default_name)
+                )
+            },
+            onExportPlaylist = { id, uri -> libraryViewModel.exportPlaylistToFile(id, uri) },
+            onExportFavorites = { uri -> libraryViewModel.exportFavoritesToFile(uri) }
+        )
     }
 }
 
@@ -1974,20 +2000,18 @@ private fun ProgressThicknessSetting(
 }
 
 /**
- * Los tres fondos del reproductor, en el orden en que se muestran: valor persistido, etiqueta y
+ * Los fondos del reproductor, en el orden en que se muestran: valor persistido, etiqueta y
  * descripción de qué hace.
  */
 private val NowPlayingBackgroundOptions = listOf(
     NowPlayingBackground.GRADIENT to
         (R.string.settings_np_bg_gradient to R.string.settings_np_bg_gradient_desc),
     NowPlayingBackground.SOLID to
-        (R.string.settings_np_bg_solid to R.string.settings_np_bg_solid_desc),
-    NowPlayingBackground.BLUR to
-        (R.string.settings_np_bg_blur to R.string.settings_np_bg_blur_desc)
+        (R.string.settings_np_bg_solid to R.string.settings_np_bg_solid_desc)
 )
 
 /**
- * Fondo del reproductor: fila de grupo que despliega los tres modos.
+ * Fondo del reproductor: fila de grupo que despliega los modos disponibles.
  *
  * Mismo idiom de menú que [ThemePaletteStyleSetting] —selección EXCLUSIVA, con `selected`, el
  * check en `selectedLeadingIcon` y la explicación en `supportingText`— pero como ítem de

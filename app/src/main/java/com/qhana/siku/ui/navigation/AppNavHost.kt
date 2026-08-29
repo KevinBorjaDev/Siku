@@ -421,7 +421,8 @@ fun AppNavHost(
         ) {
             SettingsBackupScreen(
                 onBackClick = { navController.popBackStack() },
-                isLoggedIn = loggedIn
+                isLoggedIn = loggedIn,
+                libraryViewModel = libraryViewModel
             )
         }
 

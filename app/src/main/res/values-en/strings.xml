@@ -99,8 +99,8 @@
     <!-- ==================== Import/export playlists as M3U ==================== -->
     <string name="playlist_import_default_name">Imported playlist</string>
     <string name="playlist_import_action">Import</string>
-    <string name="playlist_import_menu">Import from a file</string>
-    <string name="playlist_export_menu">Export to a file</string>
+    <string name="playlist_export_action">Export</string>
+    <string name="playlist_export_sheet_title">Which playlist do you want to export?</string>
     <!-- Suggested file name; %1$s = playlist name -->
     <string name="playlist_export_file_name">%1$s.m3u8</string>
     <!-- %1$d = songs added, %2$s = name of the created playlist -->
@@ -537,7 +537,7 @@
     <string name="settings_cat_sources_empty">No sources connected</string>
     <string name="settings_source_onedrive">OneDrive</string>
     <string name="settings_source_local">Local folder</string>
-    <string name="settings_cat_backup_desc">Export or import your playlists on OneDrive</string>
+    <string name="settings_cat_backup_desc">Playlist backup and M3U files</string>
     <string name="settings_cat_playback_desc">Equalizer, volume and lyrics</string>
     <string name="settings_cat_downloads_desc">Storage cap for downloads</string>
     <string name="settings_cat_appearance_desc">Player colors and background</string>
@@ -652,6 +652,8 @@
 
     <!-- Playlist backup (Phase 6) -->
     <string name="backup_header">Backup</string>
+    <string name="settings_m3u_header">Playlists in M3U files</string>
+    <string name="settings_m3u_desc">Import an .m3u from another player, or save one of your playlists to one. The file stores file paths, so it only works where that music exists.</string>
     <string name="backup_desc">Saves your playlists and favorites in the app folder on OneDrive so you can restore them on another device. Restoring never deletes anything: it only adds what\'s missing.</string>
     <string name="backup_export">Export</string>
     <string name="backup_export_desc">Uploads your playlists to OneDrive and replaces the previous backup.</string>
@@ -681,8 +683,6 @@
     <string name="settings_np_bg_gradient_desc">From the artwork color down to the app background.</string>
     <string name="settings_np_bg_solid">Solid color</string>
     <string name="settings_np_bg_solid_desc">A single theme tone, also tinted by the artwork.</string>
-    <string name="settings_np_bg_blur">Blurred artwork</string>
-    <string name="settings_np_bg_blur_desc">The cover art enlarged and blurred, with a veil so the text stays legible.</string>
     <string name="settings_wavy_progress">Wavy progress bar</string>
     <string name="settings_wavy_progress_desc">Uses the animated Material 3 wave in the player. The mini player keeps the thin bar.</string>
     <string name="settings_progress_bar_header">Progress bar</string>

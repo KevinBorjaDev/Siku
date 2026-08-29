@@ -357,7 +357,19 @@ fun LibraryScreen(
     //
     // El fondo NO es el extremo de la escala: es el nivel MEDIO. Desde ahí el CONTENIDO sube (98,
     // más claro, flota) y las BARRAS bajan (92, más oscuras, se hunden) — direcciones OPUESTAS. Esta
-    // pantalla lo copia: fondo `surfaceContainer`, filas y tarjetas `surface`, cabecera aquí.
+    // pantalla lo copia: fondo `surfaceContainer`, filas y tarjetas en el lado del contenido,
+    // cabecera aquí.
+    //
+    // **La horquilla es PERCEPTUAL, y qué rol la implementa depende del TEMA** (29 ago 2026): en
+    // oscuro la escala neutra sube con el nivel de contenedor (`surface` = 6 es el rol MÁS OSCURO,
+    // `surfaceContainerHigh` = 17 el más claro de los tres), así que escribir la regla con los roles
+    // de la medición CLARA la dejaba invertida — filas hundidas bajo el fondo y barras flotando
+    // sobre él. Medido en device contra el mismo Dialer, tema oscuro: fondo `31,32,36` y tarjetas
+    // `41,42,47` (+10 en el lado claro), barra de navegación `27,28,32` (−4); Siku pintaba sus filas
+    // en `18,19,23`, o sea 13 puntos hacia el OTRO lado. Google cambia el rol por tema para
+    // conservar la relación, y eso es lo que hacen [AppColors.contentSurface] y
+    // [AppColors.chromeSurface] — leer su KDoc antes de tocar un color de esta pantalla. En claro
+    // valen `surface` y `surfaceContainerHigh`, o sea exactamente lo de siempre.
     //
     // Antes se apilaba todo hacia un lado desde `surface` (98 / 96 / 94: fondo, cabecera, filas) y
     // por eso "la escala se agotaba": las tres superficies competían por el mismo lado y siempre
@@ -375,7 +387,7 @@ fun LibraryScreen(
     // o sea que el problema nunca fue de armonía sino de PESO y de DIRECCIÓN.
     // Color de las BARRAS de navegación (la fila de pestañas, la de abajo y el rail): el peldaño
     // que la horquilla les reserva.
-    val chromeColor = AppColors.surfaceContainerHigh
+    val chromeColor = AppColors.chromeSurface
     // **La cabecera solo lleva ese color mientras SEA una barra de navegación.** Con el selector
     // abajo o al lado se queda con la búsqueda y nada más, así que deja de ser una barra y se funde
     // con el fondo de página: una banda tonal a todo el ancho para sostener una píldora pesaría sin
@@ -383,7 +395,7 @@ fun LibraryScreen(
     // encima del fondo, que es justo lo que hace el Dialer con sus tarjetas.
     val headerColor =
         if (chrome == LibraryChrome.None) chromeColor else AppColors.surfaceContainer
-    // Contenedor de la píldora de búsqueda: `surface` (98), el lado del CONTENIDO — 6 puntos por
+    // Contenedor de la píldora de búsqueda: el lado del CONTENIDO de la horquilla — 6 puntos por
     // encima de su bloque cuando la cabecera es barra (92), y 4 sobre el fondo de página cuando se
     // funde con él (94). En los dos casos queda del lado del contenido, que es lo que importa. Es lo que hace el Dialer, donde la search bar lleva exactamente el
     // mismo color que las tarjetas de la lista (medido: `250,249,254` en las dos).
@@ -395,7 +407,7 @@ fun LibraryScreen(
     // el token crudo el campo empataría con su propio bloque.
     // NEUTRO a propósito: el color fuerte (`secondaryContainer`) es el lenguaje del estado
     // SELECCIONADO —el tab activo—, y teñir también la búsqueda le robaba ese protagonismo.
-    val headerItemColor = AppColors.surface
+    val headerItemColor = AppColors.contentSurface
 
     // --- BÚSQUEDA (search as secondary action / focused search) ---
     // Componente REAL de M3, variante CONTAINED: la lupa de la TopBar es el ancla colapsada y los
@@ -1041,16 +1053,6 @@ fun LibraryScreen(
                                 onCreatePlaylist = { showCreatePlaylistDialog = true },
                                 onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
                                 onRenamePlaylist = { id, name -> libraryViewModel.renamePlaylist(id, name) },
-                                onImportPlaylist = { uri ->
-                                    libraryViewModel.importPlaylistFromFile(
-                                        uri,
-                                        context.getString(R.string.playlist_import_default_name)
-                                    )
-                                },
-                                onExportPlaylist = { id, uri ->
-                                    libraryViewModel.exportPlaylistToFile(id, uri)
-                                },
-                                onExportFavorites = { uri -> libraryViewModel.exportFavoritesToFile(uri) },
                                 contentPadding = listInsets
                             )
                         }

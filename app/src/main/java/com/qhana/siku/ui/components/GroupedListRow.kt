@@ -51,7 +51,7 @@ fun GroupedListRow(
     modifier: Modifier = Modifier,
     supportingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
-    containerColor: Color = AppColors.surface
+    containerColor: Color = AppColors.contentSurface
 ) {
     SegmentedListItem(
         onClick = onClick,

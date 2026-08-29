@@ -462,7 +462,7 @@ fun SongItem(
     // (`surface`: el color del `AppSurface` que envuelve la fila en los cuatro detalles). Aquí estaba
     // escrito el rol a pelo, o sea una segunda definición del resaltado — invisible mientras fue un
     // rol fijo, y una fila y una píldora derivadas de bases distintas en cuanto pasó a derivarse.
-    val ownActiveBackground = songRowBackground(AppColors.surface, paintsOwnActive)
+    val ownActiveBackground = songRowBackground(AppColors.contentSurface, paintsOwnActive)
     // Mismo contraste garantizado que cuando el relleno lo pinta un contenedor externo: el color de
     // la fila activa sale de una sola definición, la pinte quien la pinte.
     val ownActiveContent = rememberActiveRowContentColor(

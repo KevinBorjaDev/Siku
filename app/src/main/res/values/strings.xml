@@ -114,8 +114,9 @@
     <!-- ==================== Importar/exportar listas en M3U ==================== -->
     <string name="playlist_import_default_name">Lista importada</string>
     <string name="playlist_import_action">Importar</string>
-    <string name="playlist_import_menu">Importar de un archivo</string>
-    <string name="playlist_export_menu">Exportar a un archivo</string>
+    <string name="playlist_export_action">Exportar</string>
+    <!-- Titulo de la hoja que pregunta QUE lista exportar (el gesto ya no sale de una fila) -->
+    <string name="playlist_export_sheet_title">¿Qué lista quieres exportar?</string>
     <!-- Nombre propuesto al crear el archivo; %1$s = nombre de la lista -->
     <string name="playlist_export_file_name">%1$s.m3u8</string>
     <!-- %1$d = canciones añadidas, %2$s = nombre de la lista creada -->
@@ -594,7 +595,7 @@
     <string name="settings_cat_sources_empty">Sin fuentes conectadas</string>
     <string name="settings_source_onedrive">OneDrive</string>
     <string name="settings_source_local">Carpeta local</string>
-    <string name="settings_cat_backup_desc">Exporta o importa tus listas en OneDrive</string>
+    <string name="settings_cat_backup_desc">Copia de tus listas y archivos M3U</string>
     <string name="settings_cat_playback_desc">Ecualizador, volumen y letras</string>
     <string name="settings_cat_downloads_desc">Tope de almacenamiento para descargas</string>
     <string name="settings_cat_appearance_desc">Colores del reproductor y fondo</string>
@@ -710,6 +711,8 @@
 
     <!-- Copia de seguridad de playlists (Fase 6) -->
     <string name="backup_header">Copia de seguridad</string>
+    <string name="settings_m3u_header">Listas en archivos M3U</string>
+    <string name="settings_m3u_desc">Importa un .m3u de otro reproductor, o guarda una de tus listas en uno. El archivo lleva rutas de archivo, así que solo funciona donde esa música exista.</string>
     <string name="backup_desc">Guarda tus playlists y favoritos en la carpeta de la app en OneDrive, y restáuralos en otro dispositivo. Restaurar nunca borra nada: solo añade lo que falte.</string>
     <string name="backup_export">Exportar</string>
     <string name="backup_export_desc">Sube tus playlists a OneDrive y reemplaza el backup anterior.</string>
@@ -742,8 +745,6 @@
     <string name="settings_np_bg_gradient_desc">Del color de la carátula al fondo de la app.</string>
     <string name="settings_np_bg_solid">Color sólido</string>
     <string name="settings_np_bg_solid_desc">Un solo tono del tema, también teñido por la carátula.</string>
-    <string name="settings_np_bg_blur">Carátula desenfocada</string>
-    <string name="settings_np_bg_blur_desc">La portada ampliada y difuminada, con un velo para que se lea el texto.</string>
     <string name="settings_wavy_progress">Barra de progreso ondulada</string>
     <string name="settings_wavy_progress_desc">Usa la onda animada de Material 3 en el reproductor. El miniplayer mantiene la barra fina.</string>
     <string name="settings_progress_bar_header">Barra de progreso</string>

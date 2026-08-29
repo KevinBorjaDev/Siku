@@ -382,7 +382,7 @@ private fun SongItemOptimized(
     // `headerColor` en LibraryScreen). Estuvo en `surfaceContainerHigh` (92) y luego en
     // `surfaceContainer` (94), las dos apilando hacia el lado oscuro: así la cabecera nunca
     // conseguía separarse de la banda de filas que le pasa por debajo al scrollear.
-    val rowSurface = AppColors.surface
+    val rowSurface = AppColors.contentSurface
     // Resaltado del ítem en reproducción, por el helper compartido y NO por el rol a pelo: es el
     // mismo tratamiento que la cola y los detalles, y tiene que salir de una sola definición. El
     // blend del acento del álbum al 30% que hubo antes quedaba casi idéntico al resto de filas en un

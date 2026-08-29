@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Los colores de la app, respaldados por **snapshot state** y con una **instancia estable**.
@@ -182,6 +183,19 @@ class AppColorScheme internal constructor(initial: ColorScheme) {
      * exactamente el fallo que se quería evitar. Con esto la clave cambia cuando cambió un color y
      * no cuando recompuso el padre.
      */
+    /**
+     * ¿La escala de contenedores sube en luminancia al subir de nivel? Es la definición del tema
+     * OSCURO en M3 (`surface` es el extremo más oscuro y los contenedores se van aclarando; en
+     * claro ocurre al revés), y es lo que consultan [AppColors.contentSurface] y
+     * [AppColors.chromeSurface] para elegir el rol de cada lado de la horquilla.
+     *
+     * Se deriva de los propios colores y no de un `isSystemInDarkTheme()` ni de un umbral de
+     * luminancia: el esquema puede venir de la carátula, del wallpaper o de un ajuste manual, y la
+     * única fuente honesta de "hacia dónde va la escala" es la escala misma.
+     */
+    internal val containersGoLighter: Boolean
+        get() = surface.luminance() < surfaceContainerHigh.luminance()
+
     var version: Int by mutableStateOf(0)
         private set
 
@@ -385,6 +399,52 @@ object AppColors {
 
     val surface: Color
         @Composable @ReadOnlyComposable get() = LocalAppColors.current.surface
+
+    /**
+     * **La horquilla de superficies, expresada en PERCEPCIÓN y no en nombres de rol.**
+     *
+     * El reparto de la app sale de muestrear el Dialer de Google: el fondo de página es el nivel
+     * MEDIO, el CONTENIDO se aleja hacia el lado claro y las BARRAS hacia el oscuro. Hasta el
+     * 29 ago 2026 esa regla estaba escrita con roles FIJOS —contenido `surface`, barras
+     * `surfaceContainerHigh`— porque se midió sobre el Dialer en tema CLARO, donde `surface` (98)
+     * está por encima de `surfaceContainer` (94).
+     *
+     * **En oscuro esos dos roles cambian de lado y la horquilla salía INVERTIDA.** Los tonos de la
+     * escala neutra oscura suben con el nivel de contenedor: `surface` = 6 (el más OSCURO de todos),
+     * `surfaceContainer` = 12, `surfaceContainerHigh` = 17. Así que en oscuro las filas se hundían
+     * bajo el fondo y las barras flotaban sobre él — justo al revés de lo que la horquilla dice, y
+     * al revés de lo que hace el propio Dialer. Medido en device el 29 ago 2026, misma pantalla y
+     * mismo minuto en las dos apps:
+     *
+     *     superficie            Dialer oscuro    Siku (antes)
+     *     fondo de página       31,32,36         31,32,34   (igual: esto estaba bien)
+     *     filas / búsqueda      41,42,47  (+10)  18,19,23   (−13)  ← invertido
+     *     barra de navegación   27,28,32  (−4)   —
+     *
+     * O sea que Google **cambia el ROL según el tema para conservar la RELACIÓN**. Estas dos
+     * propiedades son eso: el rol correcto de cada lado en cada tema. En claro valen exactamente lo
+     * de siempre, así que el tema claro no cambió ni un píxel.
+     *
+     * El tema se detecta comparando la escala consigo misma (`surface` más oscura que
+     * `surfaceContainerHigh` ⇔ los contenedores suben ⇔ tema oscuro), que es la DEFINICIÓN de la
+     * escala en M3 y no un umbral de luminancia elegido a ojo.
+     *
+     * Superficie del CONTENIDO: filas, tarjetas y la píldora de búsqueda. Un peldaño hacia el
+     * lado claro desde el fondo de página.
+     */
+    val contentSurface: Color
+        @Composable @ReadOnlyComposable get() = with(LocalAppColors.current) {
+            if (containersGoLighter) surfaceContainerHigh else surface
+        }
+
+    /**
+     * Superficie de las BARRAS de navegación (fila de pestañas, rail): un peldaño hacia el lado
+     * oscuro desde el fondo de página. La otra mitad de la horquilla — ver [contentSurface].
+     */
+    val chromeSurface: Color
+        @Composable @ReadOnlyComposable get() = with(LocalAppColors.current) {
+            if (containersGoLighter) surfaceContainerLow else surfaceContainerHigh
+        }
 
     val onSurface: Color
         @Composable @ReadOnlyComposable get() = LocalAppColors.current.onSurface

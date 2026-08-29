@@ -1037,8 +1037,9 @@ class MusicPreferences(context: Context) {
      * El default no es una constante suelta porque tiene que MIGRAR: hasta la 1.2.0 el fondo era el
      * booleano `now_playing_solid_bg`, y quien dejó puesto el sólido debe seguir viéndolo. La key
      * vieja solo se LEE, y solo mientras no exista la nueva — mismo patrón que
-     * `local_folder_uri` → `local_folder_uris`. Un nombre desconocido (preferencia de una versión
-     * futura, tras un downgrade) cae al degradado en vez de reventar.
+     * `local_folder_uri` → `local_folder_uris`. Un nombre desconocido cae al degradado en vez de
+     * reventar, y eso es lo que recoge al que tenía guardado el modo `BLUR` retirado el 29 ago 2026
+     * (además de una preferencia de una versión futura, tras un downgrade).
      */
     private fun readNowPlayingBackground(prefs: Preferences): NowPlayingBackground {
         prefs[KEY_NOW_PLAYING_BACKGROUND]

@@ -193,7 +193,7 @@ fun DownloadManagerScreen(
                 // `Surface`, indicador y etiqueta activa `Primary`), leídos del jar y traducidos a
                 // [AppColors]; del indicador solo se sobrescribe el COLOR, porque su alto (3dp) y su
                 // forma son constantes del token y no dependen del esquema.
-                containerColor = AppColors.surface,
+                containerColor = AppColors.contentSurface,
                 contentColor = AppColors.primary,
                 indicator = {
                     TabRowDefaults.PrimaryIndicator(

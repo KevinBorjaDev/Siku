@@ -181,7 +181,7 @@ fun RecentlyAddedScreen(
                     // La canción actual, esté sonando o en PAUSA: mismo criterio que la cola y la
                     // lista de canciones (el resaltado marca "cargada", no "sonando ahora").
                     val isPlaying = currentSong?.id == song.id
-                    val rowBackground = songRowBackground(AppColors.surface, isPlaying)
+                    val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
                     // Punta ORIGEN del container transform hacia el reproductor. Fuera del
                     // envoltorio va lo que la coloca en la lista; dentro, la superficie que morfa.
                     SongRowContainer(
@@ -192,7 +192,7 @@ fun RecentlyAddedScreen(
                             .padding(horizontal = 16.dp, vertical = 1.dp)
                     ) {
                         AppSurface(
-                            color = AppColors.surface,
+                            color = AppColors.contentSurface,
                             shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
                             modifier = Modifier.fillMaxWidth()
                         ) {
