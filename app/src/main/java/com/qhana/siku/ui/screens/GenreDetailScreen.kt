@@ -52,7 +52,7 @@ import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
 import com.qhana.siku.ui.components.songRowBackground
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.overSharedElementsModifier
 import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.theme.AppColors
@@ -452,20 +452,18 @@ private fun GenreImmersiveHeader(
             )
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TonalChip {
-                    MaterialSymbol("music_note", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("music_note", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = pluralStringResource(R.plurals.song_count, songCount, songCount),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
-                TonalChip {
-                    MaterialSymbol("artist", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("artist", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = pluralStringResource(R.plurals.artist_count, artistCount, artistCount),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
             }

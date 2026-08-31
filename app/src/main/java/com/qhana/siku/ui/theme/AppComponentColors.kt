@@ -17,6 +17,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.MenuGroupShapes
 import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.ShortNavigationBarItemDefaults
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarData
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.qhana.siku.ui.components.DISABLED_CONTENT_ALPHA
 import com.qhana.siku.ui.components.ensureContrast
 import com.qhana.siku.ui.components.tonalLayerContainer
 
@@ -190,7 +192,15 @@ fun appButtonColors() = ButtonDefaults.buttonColors(
 
 /** De texto: sin contenedor, etiqueta `primary` (`TextButtonTokens`). */
 @Composable
-fun appTextButtonColors() = ButtonDefaults.textButtonColors(contentColor = AppColors.primary)
+fun appTextButtonColors(
+    /**
+     * El acento por defecto es `primary`, el de cualquier acción de texto de la app. Se pasa otro
+     * cuando el botón PERTENECE a un bloque con color propio —el "ver todas" al pie de una sección
+     * de estadísticas, que va del color de su sección— para que se lea como parte de él y no como
+     * una acción suelta de la pantalla.
+     */
+    contentColor: Color = AppColors.primary
+) = ButtonDefaults.textButtonColors(contentColor = contentColor)
 
 /** Con borde: etiqueta `onSurfaceVariant` (`OutlinedButtonTokens`); el borde sale de `outline`. */
 @Composable
@@ -348,7 +358,19 @@ fun appSegmentedListItemColors(
     trailingContentColor = AppColors.onSurfaceVariant,
     overlineContentColor = AppColors.onSurfaceVariant,
     supportingContentColor = AppColors.onSurfaceVariant,
+    // DESHABILITADO: el contenedor no cambia (una fila apagada sigue siendo parte del grupo) y el
+    // contenido se atenúa con el alpha que M3 tabula. **Los cuatro de contenido hay que pasarlos**:
+    // `segmentedColors` copia sobre `MaterialTheme.colorScheme.defaultSegmentedListItemColors`, así
+    // que cada rol que no se pase se queda con el del tema BASE — y una fila apagada saldría con el
+    // gris del wallpaper dentro de una superficie teñida por la carátula. Es la llamada PARCIAL que
+    // ya mordió cuatro veces (el toggle de la cola, el slider del EQ, los switches de Ajustes y las
+    // app bars), entrando esta vez por el estado que casi nunca se mira.
     disabledContainerColor = containerColor,
+    disabledContentColor = AppColors.onSurface.copy(alpha = DISABLED_CONTENT_ALPHA),
+    disabledLeadingContentColor = AppColors.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA),
+    disabledTrailingContentColor = AppColors.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA),
+    disabledOverlineContentColor = AppColors.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA),
+    disabledSupportingContentColor = AppColors.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA),
     selectedContainerColor = AppColors.secondaryContainer,
     selectedContentColor = AppColors.onSecondaryContainer,
     selectedLeadingContentColor = AppColors.onSecondaryContainer,
@@ -652,6 +674,28 @@ fun appNavigationRailItemColors() = NavigationRailItemDefaults.colors(
     selectedIconColor = AppColors.onSecondaryContainer,
     selectedTextColor = AppColors.secondary,
     indicatorColor = AppColors.secondaryContainer,
+    unselectedIconColor = AppColors.onSurfaceVariant,
+    unselectedTextColor = AppColors.onSurfaceVariant
+)
+
+/**
+ * Ítem de la barra de navegación de abajo (los tres destinos del estilo moderno).
+ *
+ * **Los MISMOS valores que [appNavigationRailItemColors]**, y no por comodidad: `NavigationBarTokens`
+ * y `NavigationRailColorTokens` tabulan exactamente los mismos roles para los mismos papeles
+ * —`onSecondaryContainer` al glifo activo, `secondary` a su etiqueta, `secondaryContainer` al
+ * indicador y `onSurfaceVariant` a lo inactivo—, que es lo esperable: la barra y el rail son el
+ * mismo control en dos ejes, y en esta app además son proyecciones del mismo `pagerState`. Si un día
+ * divergen, tendrán que divergir los dos a la vez.
+ *
+ * Hay que pasarlos: sin esto los toma de `MaterialTheme.colorScheme`, que en esta app NO lleva el
+ * color del álbum, y la barra quedaría gris dentro de una app teñida.
+ */
+@Composable
+fun appShortNavigationBarItemColors() = ShortNavigationBarItemDefaults.colors(
+    selectedIconColor = AppColors.onSecondaryContainer,
+    selectedTextColor = AppColors.secondary,
+    selectedIndicatorColor = AppColors.secondaryContainer,
     unselectedIconColor = AppColors.onSurfaceVariant,
     unselectedTextColor = AppColors.onSurfaceVariant
 )

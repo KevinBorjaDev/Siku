@@ -155,6 +155,27 @@ class StatsRepository @Inject constructor(
     fun recentDays(maxDays: Int): Flow<List<String>> = playEventDao.recentDaysFlow(maxDays)
 
     /**
+     * Escuchas por casilla de tiempo, para el histograma de actividad. Ver
+     * [PlayEventDao.activityFlow]: devuelve solo las casillas con actividad, y los huecos los repone
+     * el consumidor.
+     *
+     * **No hay versión de "Siempre"**, y no es un olvido: ese periodo sale de `songs.playCount`, que
+     * no sabe CUÁNDO sonó nada. Dibujar ahí el histograma del log sería poner una forma sacada de
+     * `play_events` debajo de un total sacado de `songs` — las dos fuentes que esta clase separa a
+     * propósito—, y las barras no sumarían el número de encima.
+     */
+    fun activity(since: Long, until: Long, format: String): Flow<Map<String, Int>> =
+        playEventDao.activityFlow(since, until, format).map { rows ->
+            rows.associate { it.bucket to it.plays }
+        }
+
+    /** Denominador de los porcentajes de género. Ver [PlayEventDao.classifiedPlaysFlow]. */
+    fun classifiedPlays(since: Long, until: Long): Flow<Int> =
+        playEventDao.classifiedPlaysFlow(since, until)
+
+    fun allTimeClassifiedPlays(): Flow<Int> = songDao.getAllTimeClassifiedPlaysFlow()
+
+    /**
      * Instante del primer evento registrado, o `null` si el log está vacío. Acota la navegación por
      * periodos y fecha la nota de "Siempre" — sin necesidad de una preferencia nueva que mantener,
      * porque el dato ya está en la tabla.

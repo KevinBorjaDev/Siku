@@ -714,7 +714,7 @@ fun isPillRoute(route: String?): Boolean = when (route) {
     // Estadísticas es contenido SOBRE la biblioteca y sus filas reproducen, del mismo género que
     // artista/álbum/género — no una pantalla de configuración como Ajustes o el gestor de descargas.
     // Lo mismo "Recién agregadas": es una lista de canciones de la biblioteca, aunque sea virtual.
-    Screen.Stats.route, Screen.RecentlyAdded.route, Screen.StatsList.route -> true
+    Screen.Stats.route, Screen.RecentlyAdded.route -> true
     else -> false
 }
 
@@ -727,15 +727,55 @@ fun isPillRoute(route: String?): Boolean = when (route) {
  * justo el frame en el que se ve el salto.
  *
  * El rail va en horizontal SIEMPRE, con el modo de pestañas abajo encendido o no: girado, lo
- * escaso es el alto y una fila más bajo la búsqueda nunca fue lo correcto. La barra inferior, en
- * cambio, es opcional. Y ninguno de los dos existe fuera de la biblioteca: son vistas de ella, no
+ * escaso es el alto y una fila más bajo la búsqueda nunca fue lo correcto — y vale para los dos
+ * estilos, porque tres destinos en vertical siguen siendo tres al costado. En vertical hay dos
+ * piezas distintas según el estilo, ver [LibraryChrome]. Y ninguno de los dos existe fuera de la biblioteca: son vistas de ella, no
  * destinos globales de la app, así que un detalle usa la pantalla entera.
  */
-enum class LibraryChrome { None, BottomBar, Rail }
+enum class LibraryChrome {
+    None,
 
-fun libraryChrome(route: String?, bottomTabs: Boolean, landscape: Boolean): LibraryChrome = when {
+    /** El toolbar FLOTANTE con las pestañas del modo clásico (`LibraryBottomToolbar`). */
+    BottomBar,
+
+    /**
+     * La barra de navegación APOYADA con los tres destinos del estilo moderno
+     * (`LibraryNavigationBar`).
+     *
+     * Es un valor propio y no un `BottomBar` con otro contenido: lo que este enum describe es
+     * cuánto ocupa el cromo y desde dónde, y las dos geometrías difieren. El toolbar flota con su
+     * margen y esquiva la navbar del sistema; la barra está pegada al borde y la CONSUME, así que
+     * la píldora del MiniPlayer se aparta de cada una una distancia distinta
+     * (`LibraryBottomBarPillLift` contra `LibraryNavBarPillLift`). Mientras el estilo moderno reusó
+     * el toolbar no hizo falta distinguirlos, y meterlos en el mismo valor era lo correcto entonces.
+     */
+    NavBar,
+
+    /** El rail al costado, en horizontal, con el modo que sea. */
+    Rail
+}
+
+fun libraryChrome(
+    route: String?,
+    bottomTabs: Boolean,
+    /**
+     * Estilo moderno: tres destinos. Entra aquí como un parámetro más y **no como un valor nuevo
+     * del enum**, porque lo que [LibraryChrome] describe es DÓNDE se dibuja el cromo y cuánto
+     * ocupa, no cuántos destinos lleva: en moderno la pieza es el mismo toolbar flotante, en el
+     * mismo sitio y con el mismo alto, así que el `LibraryBottomBarPillLift` y el `railInset` son
+     * los de siempre. Un cuarto valor obligaría a los tres consumidores a escribir
+     * `BottomBar, Destinations ->` en cada rama, o sea a duplicar la equivalencia tres veces —
+     * justo lo que esta función existe para impedir. Lo que sí cambia con el modo es la LISTA de
+     * destinos, y ésa la calcula quien la dibuja.
+     */
+    modernNav: Boolean,
+    landscape: Boolean
+): LibraryChrome = when {
     route != Screen.Library.route -> LibraryChrome.None
     landscape -> LibraryChrome.Rail
+    // El estilo moderno manda sobre el ajuste de "pestañas abajo": ahí abajo hay barra siempre, y
+    // es OTRA barra.
+    modernNav -> LibraryChrome.NavBar
     bottomTabs -> LibraryChrome.BottomBar
     else -> LibraryChrome.None
 }

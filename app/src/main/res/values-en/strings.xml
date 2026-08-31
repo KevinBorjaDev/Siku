@@ -507,6 +507,10 @@
     <string name="eq_presets_all_hidden">All presets are hidden (Settings → Playback)</string>
 
     <!-- ==================== Library tabs ==================== -->
+    <string name="settings_nav_header">Navigation</string>
+    <string name="settings_nav_desc">Navigation style, where the tabs go and which ones show up.</string>
+    <string name="settings_modern_nav">Modern style</string>
+    <string name="settings_modern_nav_desc">Replaces the tabs with three destinations: Home, Library and Playlists. Categories (songs, artists, albums, genres) open from Library. While this is on, tabs cannot be reordered or hidden.</string>
     <string name="settings_tabs_header">Tabs</string>
     <string name="settings_tabs_desc">Drag to reorder. Disabled tabs do not show up in the library.</string>
     <string name="settings_tabs_min">At least one tab must stay on</string>
@@ -750,6 +754,7 @@
 
     <!-- ==================== Library: tabs / sync / sorting / logout ==================== -->
     <string name="tab_all">Songs</string>
+    <string name="tab_library">Library</string>
     <string name="tab_home">Home</string>
     <string name="tab_playlists">Playlists</string>
 
@@ -907,12 +912,13 @@
     <string name="stats_period_previous">Previous period</string>
     <string name="stats_period_next">Next period</string>
     <string name="stats_summary_plays">Plays</string>
-    <string name="stats_summary_time">Time</string>
-    <string name="stats_summary_time_estimate">Approx. time</string>
-    <string name="stats_summary_songs">Songs</string>
-    <string name="stats_summary_artists">Artists</string>
-    <string name="stats_summary_albums">Albums</string>
-    <string name="stats_summary_genres">Genres</string>
+    <string name="stats_card_listened">You listened</string>
+    <string name="stats_card_listened_estimate">You listened (approx.)</string>
+    <string name="stats_delta_more">%1$d %% more than %2$s</string>
+    <string name="stats_delta_less">%1$d %% less than %2$s</string>
+    <string name="stats_delta_ref_week">the week before</string>
+    <string name="stats_delta_ref_month">the month before</string>
+    <string name="stats_delta_ref_year">the year before</string>
     <string name="stats_time_hours_minutes">%1$d h %2$d min</string>
     <string name="stats_time_minutes">%1$d min</string>
     <string name="stats_streak_title">Streak</string>
@@ -929,6 +935,8 @@
     <string name="stats_section_top_artists">Your artists</string>
     <string name="stats_section_top_albums">Your albums</string>
     <string name="stats_section_top_genres">Your genres</string>
+    <string name="stats_genre_percent">%1$d%%</string>
+    <string name="stats_genre_share_note">Percentages are based on plays of songs that have a genre tag.</string>
     <plurals name="stats_plays">
         <item quantity="one">%1$d play</item>
         <item quantity="other">%1$d plays</item>

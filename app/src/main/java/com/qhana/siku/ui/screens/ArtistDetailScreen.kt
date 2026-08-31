@@ -61,7 +61,7 @@ import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
 import com.qhana.siku.ui.components.songRowBackground
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.overSharedElementsModifier
 import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.theme.AppColors
@@ -326,12 +326,11 @@ fun ArtistDetailScreen(
                             text = stringResource(R.string.songs_header),
                             style = MaterialTheme.typography.titleMediumEmphasized
                         )
-                        TonalChip {
-                            MaterialSymbol("music_note", size = 14.sp, color = AppColors.onSecondaryContainer)
+                        CountChip {
+                            MaterialSymbol("music_note", size = 14.sp)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "${songs.size}",
-                                color = AppColors.onSecondaryContainer
                             )
                         }
                     }
@@ -643,20 +642,18 @@ private fun ArtistImmersiveHeader(
             )
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TonalChip {
-                    MaterialSymbol("album", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("album", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (albumCount == 1) "1 álbum" else "$albumCount álbumes",
-                        color = AppColors.onSecondaryContainer
                     )
                 }
-                TonalChip {
-                    MaterialSymbol("music_note", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("music_note", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (songCount == 1) "1 canción" else "$songCount canciones",
-                        color = AppColors.onSecondaryContainer
                     )
                 }
             }

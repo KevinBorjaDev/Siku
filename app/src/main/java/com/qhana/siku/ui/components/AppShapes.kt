@@ -1,5 +1,7 @@
 package com.qhana.siku.ui.components
 
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.RoundedPolygon
 import kotlin.math.PI
@@ -121,3 +123,49 @@ private fun radians(degrees: Float): Float = degrees * PI.toFloat() / 180f
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction
+
+// ==================== FORMAS DE ENTIDAD ====================
+// La silueta con la que se pinta la imagen de una entidad. **Una por CATEGORÍA, no una por ítem**:
+// lo que la forma dice es "esto es un artista", igual que el sello de color de una sección. Repartir
+// siluetas distintas dentro de una misma lista convierte la pantalla en un muestrario — es lo que ya
+// se descartó en la rejilla del resumen de estadísticas — y lo que hace `GenresScreen` es otra cosa:
+// ahí la forma identifica al GÉNERO, que no tiene imagen propia.
+//
+// **Solo hay una, y una carátula de álbum NO lleva silueta**: es un rectángulo en toda la app. Hubo
+// una `AlbumRankShape` (`Cookie12Sided`) durante unas horas del 30 ago 2026, para el podio de
+// estadísticas; murió cuando ese carrusel pasó a usar `ArtCarouselCard`, que pinta la carátula a
+// sangre con la etiqueta encima y por tanto necesita los cuatro bordes.
+//
+// La forma viaja con su `cacheKey`, y **cambiar una obliga a cambiar la otra**: la clave es lo que
+// identifica la transformación dentro del memory cache de Coil, así que sin tocarla los recortes ya
+// cacheados con la silueta vieja se sirven como si fueran los nuevos.
+
+/**
+ * La foto de un ARTISTA, en toda la app: pestaña Artistas, su detalle y el podio de estadísticas.
+ *
+ * **Sale de aquí y de ningún otro sitio.** La forma de esta foto la consumen TRES sitios —la máscara
+ * que Coil hornea en el bitmap, la silueta que se declara para el vuelo del shared element y el
+ * fondo del placeholder— y con la forma escrita a mano en cada uno es posible cambiar unos y no
+ * otros. Ya pasó (21 ago 2026): al pasar de `Gem` a `Cookie7Sided` se cambió solo la máscara, así
+ * que el bitmap llevaba una cookie horneada mientras el overlay del vuelo lo recortaba con una gema.
+ * El síntoma no parecía de forma sino de MOVIMIENTO —al volver del detalle la imagen se contraía
+ * hacia adentro—, porque lo que se veía era una silueta cerrándose sobre otra distinta.
+ *
+ * Vivió como `private` dentro de `ArtistsScreen` hasta el 30 ago 2026, cuando el podio de
+ * estadísticas necesitó la misma foto: ahí la única salida honesta era subirla, porque duplicarla
+ * habría reconstruido exactamente el bug que este KDoc documenta.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+val ArtistPhotoShape: RoundedPolygon get() = MaterialShapes.Cookie7Sided
+
+/** Ver [ArtistPhotoShape]: cambiar la forma obliga a cambiar esto. */
+const val ARTIST_PHOTO_CACHE_KEY = "cookie7"
+
+/**
+ * Máscara COMPARTIDA por todas las fotos de artista: una sola instancia (el path unitario se calcula
+ * una vez) y un solo `cacheKey` para el memory cache de Coil.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+val ArtistPhotoMask by lazy {
+    RoundedPolygonMaskTransformation(ArtistPhotoShape, cacheKey = ARTIST_PHOTO_CACHE_KEY)
+}

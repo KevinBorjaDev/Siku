@@ -1163,6 +1163,31 @@ class MusicPreferences(context: Context) {
         prefFlow { it[KEY_LIBRARY_BOTTOM_TABS] ?: DEFAULT_LIBRARY_BOTTOM_TABS }
 
     /**
+     * **Estilo moderno de navegación**: las seis pestañas configurables se colapsan en TRES
+     * destinos top-level —Inicio · Biblioteca · Listas—, donde Biblioteca es un hub que abre cada
+     * categoría (canciones, artistas, álbumes, géneros) a pantalla completa.
+     *
+     * Es un interruptor APARTE y no un valor más de [libraryBottomTabsFlow], aunque las dos hablen
+     * de dónde se navega, porque no son la misma decisión: aquélla dice DÓNDE se dibuja el selector
+     * y ésta CUÁNTOS destinos hay. Mientras está encendido, la personalización de pestañas (orden y
+     * visibilidad) y la propia [libraryBottomTabsFlow] quedan inhabilitadas en Ajustes — pero
+     * **su valor persistido no se toca**, así que apagarlo devuelve exactamente lo que había.
+     *
+     * Reactivo por el mismo motivo que [libraryBottomTabsFlow]: lo escribe Ajustes
+     * (`LibraryViewModel`) y lo lee también la capa del reproductor (`PlaybackViewModel`), que
+     * necesita saber si hay barra abajo de la que apartar la píldora.
+     */
+    fun saveLibraryModernNav(enabled: Boolean) = update {
+        it[KEY_LIBRARY_MODERN_NAV] = enabled
+    }
+
+    fun loadLibraryModernNav(): Boolean =
+        cache[KEY_LIBRARY_MODERN_NAV] ?: DEFAULT_LIBRARY_MODERN_NAV
+
+    val libraryModernNavFlow: Flow<Boolean> =
+        prefFlow { it[KEY_LIBRARY_MODERN_NAV] ?: DEFAULT_LIBRARY_MODERN_NAV }
+
+    /**
      * Chip de formato del NowPlaying EXTENDIDO (`FLAC · 16 bit · 44.1 kHz`) en vez de solo el
      * contenedor. Se escribe desde dos sitios —el switch de Ajustes → Apariencia y el tap sobre
      * el propio chip—, de ahí que sea reactivo: son instancias de ViewModel distintas.
@@ -1358,6 +1383,14 @@ class MusicPreferences(context: Context) {
 
         /** Las pestañas siguen ARRIBA salvo que se pida lo contrario: es la app que ya está publicada. */
         private const val DEFAULT_LIBRARY_BOTTOM_TABS = false
+        private val KEY_LIBRARY_MODERN_NAV = booleanPreferencesKey("library_modern_nav")
+
+        /**
+         * El estilo moderno nace APAGADO: es una forma distinta de recorrer la biblioteca, no una
+         * corrección de la que hay, y a quien ya tiene la app no se le cambia la navegación debajo
+         * de los pies. Se activa desde Ajustes → Apariencia → Navegación.
+         */
+        const val DEFAULT_LIBRARY_MODERN_NAV = false
         private val KEY_PLAYER_GESTURES = booleanPreferencesKey("player_gestures")
 
         /** Los gestos vienen ENCENDIDOS: es el comportamiento que espera cualquiera. */

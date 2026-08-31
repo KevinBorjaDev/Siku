@@ -1,6 +1,5 @@
 package com.qhana.siku.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
@@ -12,8 +11,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -30,14 +27,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.qhana.siku.ui.theme.AppMenuGroup
-import com.qhana.siku.ui.theme.AppSnackbar
 import com.qhana.siku.R
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -67,8 +59,6 @@ import com.qhana.siku.ui.viewmodel.SyncViewModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-import com.qhana.siku.ui.theme.appSpatialSpec
-import com.qhana.siku.ui.theme.appFastSpatialSpec
 import com.qhana.siku.ui.theme.appEffectsSpec
 import com.qhana.siku.ui.theme.appFastEffectsSpec
 import com.qhana.siku.ui.theme.appBannerEnter
@@ -76,29 +66,48 @@ import com.qhana.siku.ui.theme.appBannerExit
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.Dp
 import com.qhana.siku.ui.LibraryChrome
 import com.qhana.siku.ui.libraryChrome
 import com.qhana.siku.ui.navigation.Screen
 
-@Immutable
-internal data class TabInfo(
-    val tab: LibraryTabId,
-    val titleRes: Int,
-    val iconName: String
-)
-
 /**
- * Movimiento del search view expandido, SIN rebote. Los defaults de
- * [rememberContainedSearchBarState] son `MotionSchemeKeyTokens.FastSpatial`, que con
- * `MotionScheme.expressive()` resuelve a `dampingRatio = 0.6f` — muy subamortiguado, y la píldora
- * oscilaba al abrir y al cerrar. Se conserva la rigidez del token (800) para no alterar la
- * velocidad percibida; solo se lleva el damping a crítico.
+ * Una página del pager de la biblioteca, o sea un destino del selector.
+ *
+ * Es un tipo aparte de [LibraryTabId] porque **el estilo moderno tiene un destino que no es una
+ * pestaña**: el hub de Biblioteca, que agrupa canciones, artistas, álbumes y géneros. Meter ese
+ * destino en el enum sería contaminar un valor PERSISTIDO —y ofrecible en el personalizador de
+ * pestañas— con algo que solo existe en el otro modo.
+ *
+ * Con esto los dos modos alimentan **el mismo `HorizontalPager` y el mismo `when`**: lo único que
+ * cambia entre ellos es la lista de páginas. Los tres selectores (fila, toolbar, rail) solo leen
+ * [titleRes] e [iconName], así que les da igual de qué variante se trate.
  */
-private val SearchViewMotionSpec = spring<Float>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = 800f
-)
+@Immutable
+internal sealed interface LibraryPage {
+    val titleRes: Int
+    val iconName: String
+
+    /** Una de las seis pestañas configurables. */
+    @Immutable
+    data class Tab(
+        val tab: LibraryTabId,
+        override val titleRes: Int,
+        override val iconName: String
+    ) : LibraryPage
+
+    /**
+     * El destino **Biblioteca** del estilo moderno, que no es una pestaña sino un contenedor: dentro
+     * lleva las cuatro categorías del catálogo como tabs, con su propio pager
+     * ([LibraryCategoriesPane]). No tiene [LibraryTabId] y no puede tenerlo — meter un valor así en
+     * un enum PERSISTIDO, y ofrecible en el personalizador de pestañas, sería contaminarlo con algo
+     * que solo existe en el otro modo.
+     */
+    @Immutable
+    data object Categories : LibraryPage {
+        override val titleRes = R.string.tab_library
+        override val iconName = "library_music"
+    }
+}
 
 /**
  * Coincidencias de [query] ordenadas por relevancia, tolerando erratas (ver [FuzzyMatch]).
@@ -119,26 +128,45 @@ private inline fun <T> List<T>.rankedByRelevance(
         .toList()
 
 /**
- * Escala de partida/llegada del cruce lupa↔flecha del leading icon. El glifo no nace en 0:
- * se encoge lo justo para que el cambio se lea como un relevo y no como un icono que aparece
- * de la nada. Simétrico entrada/salida a propósito.
- */
-private const val IconCrossfadeScale = 0.7f
-
-
-/**
  * Presentación (etiqueta + glifo) de cada pestaña. El ORDEN y la VISIBILIDAD ya no viven aquí:
  * los decide el usuario en Ajustes → Apariencia → Pestañas y llegan como
  * [com.qhana.siku.data.model.LibraryTabState]. Este mapa solo traduce id → cómo se dibuja.
  */
-private val tabInfo: Map<LibraryTabId, TabInfo> = listOf(
-    TabInfo(LibraryTabId.HOME, R.string.tab_home, "home"),
-    TabInfo(LibraryTabId.SONGS, R.string.tab_all, "library_music"),
-    TabInfo(LibraryTabId.ARTISTS, R.string.common_artists, "artist"),
-    TabInfo(LibraryTabId.ALBUMS, R.string.common_albums, "album"),
-    TabInfo(LibraryTabId.GENRES, R.string.common_genres, "genres"),
-    TabInfo(LibraryTabId.PLAYLISTS, R.string.tab_playlists, "playlist_play")
+private val tabInfo: Map<LibraryTabId, LibraryPage.Tab> = listOf(
+    LibraryPage.Tab(LibraryTabId.HOME, R.string.tab_home, "home"),
+    LibraryPage.Tab(LibraryTabId.SONGS, R.string.tab_all, "library_music"),
+    LibraryPage.Tab(LibraryTabId.ARTISTS, R.string.common_artists, "artist"),
+    LibraryPage.Tab(LibraryTabId.ALBUMS, R.string.common_albums, "album"),
+    LibraryPage.Tab(LibraryTabId.GENRES, R.string.common_genres, "genres"),
+    LibraryPage.Tab(LibraryTabId.PLAYLISTS, R.string.tab_playlists, "playlist_play")
 ).associateBy { it.tab }
+
+/**
+ * Las cuatro vistas del CATÁLOGO, o sea las que en el estilo moderno viven dentro del destino
+ * Biblioteca. Inicio y Listas quedan fuera porque no son vistas del catálogo: son destinos.
+ *
+ * En este orden, que es el del enum y el del default de `LibraryTabsConfig` — solo se usa como
+ * fallback y para filtrar; el orden que manda es el que el usuario configuró.
+ */
+private val CategoryTabIds = listOf(
+    LibraryTabId.SONGS,
+    LibraryTabId.ARTISTS,
+    LibraryTabId.ALBUMS,
+    LibraryTabId.GENRES
+)
+
+/**
+ * Las páginas del **estilo moderno**: tres destinos fijos. Los DESTINOS no salen de la config de
+ * pestañas a propósito —la barra de navegación es la estructura de la app, no contenido
+ * configurable—, pero las categorías de dentro de Biblioteca SÍ la respetan (ver `categoryTabs`).
+ *
+ * Biblioteca va en el MEDIO porque es el destino que más se usa y el pulgar llega mejor.
+ */
+private val modernPages: List<LibraryPage> = listOf(
+    tabInfo.getValue(LibraryTabId.HOME),
+    LibraryPage.Categories,
+    tabInfo.getValue(LibraryTabId.PLAYLISTS)
+)
 
 // ExperimentalMaterial3ExpressiveApi: la variante contained del search view expandido.
 @OptIn(
@@ -266,26 +294,123 @@ fun LibraryScreen(
     var pendingSongForNewPlaylist by remember { mutableStateOf<String?>(null) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    // --- PAGER (antes de la búsqueda: el trailing de la píldora depende de currentTab) ---
-    // Las pestañas visibles, en el orden del usuario (Ajustes → Apariencia → Pestañas). El
-    // fallback al DEFAULT no es defensa de más: `tabInfo` podría no cubrir un id de una config
-    // guardada por una versión futura, y esta lista NUNCA puede quedar vacía (el pager exige
-    // pageCount ≥ 1 y sin pestañas no habría forma de volver).
+    // --- PAGER ---
+    // Las páginas, que salen de UNO de los dos modos y alimentan el MISMO pager:
+    //
+    //  - clásico: las pestañas visibles, en el orden del usuario (Ajustes → Apariencia →
+    //    Navegación). El fallback al DEFAULT no es defensa de más: `tabInfo` podría no cubrir un id
+    //    de una config guardada por una versión futura, y esta lista NUNCA puede quedar vacía (el
+    //    pager exige pageCount ≥ 1 y sin pestañas no habría forma de volver).
+    //  - moderno: los tres destinos fijos de [modernPages]. La config de pestañas sigue guardada y
+    //    aquí simplemente no se lee.
     val tabsConfig by libraryViewModel.libraryTabs.collectAsStateWithLifecycle()
-    val tabs = remember(tabsConfig) {
-        tabsConfig.filter { it.visible }.mapNotNull { tabInfo[it.tab] }
+    val modernNav by libraryViewModel.libraryModernNav.collectAsStateWithLifecycle()
+    val pages = remember(tabsConfig, modernNav) {
+        if (modernNav) modernPages
+        else tabsConfig.filter { it.visible }.mapNotNull { tabInfo[it.tab] }
             .ifEmpty { LibraryTabsConfig.DEFAULT.mapNotNull { tabInfo[it.tab] } }
     }
     // Repuesto de lo que solo vive en el inicio: con Inicio oculta, Estadísticas se queda sin
-    // ninguna puerta (ver [LibraryViewModel.homeTabHidden]).
+    // ninguna puerta (ver [LibraryViewModel.homeTabHidden], que ya contempla el estilo moderno).
     val homeTabHidden by libraryViewModel.homeTabHidden.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
-    val currentTab = tabs.getOrNull(pagerState.currentPage) ?: tabs[0]
+    val pagerState = rememberPagerState(pageCount = { pages.size })
 
-    // Ocultar la pestaña activa (o reordenar) deja al pager apuntando a una página que ya no
-    // existe o que ahora es otra: se lleva el foco a un índice válido en cuanto cambia la config.
-    LaunchedEffect(tabs.size) {
-        if (pagerState.currentPage >= tabs.size) pagerState.scrollToPage(tabs.lastIndex)
+    // Ocultar la página activa (o reordenar) deja al pager apuntando a una que ya no existe o que
+    // ahora es otra: se lleva el foco a un índice válido en cuanto cambia la lista.
+    LaunchedEffect(pages.size) {
+        if (pagerState.currentPage >= pages.size) pagerState.scrollToPage(pages.lastIndex)
+    }
+    // Cambiar de MODO es cambiar de mapa, no reordenar el mismo: quedarse en el índice 2 sería
+    // correcto por número y desorientado por contenido (de "Artistas" a "Listas"). Se vuelve al
+    // primer destino, que en los dos modos es Inicio. Clave el modo y no `pages`, para no
+    // reposicionar el pager cada vez que el usuario toca el orden de las pestañas.
+    // Contenedor plano y no estado de snapshot: solo lo lee el efecto, así que un `mutableStateOf`
+    // añadiría una recomposición por cada cambio de modo sin que nadie mire el valor.
+    val lastModernNav = remember { booleanArrayOf(modernNav) }
+    LaunchedEffect(modernNav) {
+        if (modernNav != lastModernNav[0]) {
+            lastModernNav[0] = modernNav
+            pagerState.scrollToPage(0)
+        }
+    }
+
+    // Las cuatro vistas del catálogo, en UN solo sitio. Lo consumen los dos modos: el `when` del
+    // pager (clásico, donde son pestañas hermanas de Inicio y Listas) y `LibraryCategoriesPane`
+    // (moderno, donde viven dentro del destino Biblioteca). Escrito dos veces serían dos sitios
+    // donde arreglar el mismo bug y uno donde olvidarse.
+    //
+    // El colchón llega por parámetro y no se lee de fuera a propósito: en el modo moderno las listas
+    // arrancan más abajo, porque encima tienen además la fila de tabs.
+    val categoryContent: @Composable (LibraryTabId, PaddingValues) -> Unit = { categoryTab, insets ->
+        when (categoryTab) {
+            LibraryTabId.SONGS -> {
+                // Lista normal: la búsqueda ya no vive acá, sino en el overlay
+                // (ExpandedFullScreenSearchBar), que tapa la pantalla entera.
+                SongsCategory(
+                    contentPadding = insets,
+                    onNavigateToNowPlaying = onNavigateToNowPlaying,
+                    onAddToPlaylistRequest = { songIdForPlaylist = it },
+                    libraryViewModel = libraryViewModel,
+                    playbackViewModel = playbackViewModel,
+                    songCount = songCount,
+                    sortOrder = uiState.sortOrderAll,
+                    sourceFilters = uiState.sourceFilters
+                )
+            }
+            LibraryTabId.ARTISTS -> {
+                ArtistsCategory(
+                    artists = artists,
+                    contentPadding = insets,
+                    onArtistClick = onArtistClick,
+                    showLocalChip = showLocalSourceChip,
+                    showCloudChips = showCloudSourceChips,
+                    libraryViewModel = libraryViewModel,
+                    playbackViewModel = playbackViewModel,
+                    browseViewModel = browseViewModel,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope
+                )
+            }
+            LibraryTabId.ALBUMS -> {
+                AlbumsCategory(
+                    albums = albums,
+                    contentPadding = insets,
+                    onAlbumClick = onAlbumClick,
+                    showLocalChip = showLocalSourceChip,
+                    showCloudChips = showCloudSourceChips,
+                    libraryViewModel = libraryViewModel,
+                    playbackViewModel = playbackViewModel,
+                    browseViewModel = browseViewModel,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope
+                )
+            }
+            LibraryTabId.GENRES -> {
+                GenresCategory(
+                    contentPadding = insets,
+                    onGenreClick = onGenreClick,
+                    libraryViewModel = libraryViewModel,
+                    playbackViewModel = playbackViewModel,
+                    browseViewModel = browseViewModel,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope
+                )
+            }
+            // Inicio y Listas no son categorías del catálogo: son destinos, y los pinta el `when`
+            // del pager. Aquí no llegan nunca.
+            else -> Unit
+        }
+    }
+
+    // Las cuatro vistas del CATÁLOGO, en el orden y con la visibilidad que el usuario configuró.
+    // Manda su configuración igual que en el modo clásico —"la barra es la estructura, las tabs son
+    // el contenido"—, y el fallback no es defensa de más: `LibraryTabsConfig` solo garantiza que
+    // quede UNA pestaña visible, y esa una podría ser Inicio, dejando Biblioteca sin nada que
+    // mostrar y sin forma de arreglarlo desde ahí.
+    val categoryTabs = remember(tabsConfig) {
+        tabsConfig.filter { it.visible && it.tab in CategoryTabIds }
+            .mapNotNull { tabInfo[it.tab] }
+            .ifEmpty { CategoryTabIds.mapNotNull { tabInfo[it] } }
     }
 
     // --- CROMO DE NAVEGACIÓN: dónde se dibuja el selector de pestañas ---
@@ -304,6 +429,7 @@ fun LibraryScreen(
     val chrome = libraryChrome(
         route = Screen.Library.route,
         bottomTabs = uiState.libraryBottomTabs,
+        modernNav = modernNav,
         landscape = isLandscape
     )
 
@@ -392,6 +518,9 @@ fun LibraryScreen(
     // con el fondo de página: una banda tonal a todo el ancho para sostener una píldora pesaría sin
     // decir nada. La píldora de búsqueda no pierde separación — sigue en `surface`, un peldaño por
     // encima del fondo, que es justo lo que hace el Dialer con sus tarjetas.
+    // La cabecera solo lleva color de BARRA mientras SEA una barra de navegación, o sea cuando el
+    // selector vive arriba. Con cualquiera de las tres presentaciones de fuera (toolbar, barra del
+    // estilo moderno o rail) se funde con el fondo de página.
     val headerColor =
         if (chrome == LibraryChrome.None) chromeColor else AppColors.surfaceContainer
     // Contenedor de la píldora de búsqueda: el lado del CONTENIDO de la horquilla — 6 puntos por
@@ -408,157 +537,28 @@ fun LibraryScreen(
     // SELECCIONADO —el tab activo—, y teñir también la búsqueda le robaba ese protagonismo.
     val headerItemColor = AppColors.contentSurface
 
-    // --- BÚSQUEDA (search as secondary action / focused search) ---
-    // Componente REAL de M3, variante CONTAINED: la lupa de la TopBar es el ancla colapsada y los
-    // resultados viven en ExpandedFullScreenContainedSearchBar (diálogo edge-to-edge, que trae su
-    // propio manejo del back). El TextField manual que había en el slot topBar se borró
-    // (ui/components/SearchBar.kt).
-    //
-    // Contained, NO la variante con divisor (`ExpandedFullScreenSearchBar`): aquella pega el input
-    // al borde y dibuja un `HorizontalDivider` bajo él, y su superficie crece geométricamente. La
-    // contained deja el input como píldora con márgenes, la superficie entra por alpha
-    // (`layerBlock { alpha = state.progress }`) y el contenido tiene su propio fade
-    // (`contentProgress`). Es el estilo expressive — el "bouncy" del search view contained.
-    val searchBarState = rememberContainedSearchBarState(
-        animationSpecForExpand = SearchViewMotionSpec,
-        animationSpecForCollapse = SearchViewMotionSpec
+    // --- BÚSQUEDA ---
+    // Todo el componente vive en `LibrarySearchBar.kt`, porque desde el estilo moderno lo montan
+    // DOS pantallas: ésta y cada categoría abierta a pantalla completa. Ahí están el porqué de la
+    // variante contained, el spec sin rebote y los tres detalles que solo se ven en device.
+    val search = rememberLibrarySearch(
+        itemColor = headerItemColor,
+        onQueryChange = libraryViewModel::onSearchQueryChanged,
+        onExpandedChange = libraryViewModel::onShowSearchChanged
     )
-    // El override se queda aunque `headerItemColor` COINCIDA hoy con el default del componente
-    // (`collapsedContainedSearchBarColor` = `SearchBarTokens.ContainerColor` = `surfaceContainerHigh`):
-    // lo que se pasa es la constante de ESTA pantalla, así que el input y el `Surface` que proyecta
-    // su sombra siguen al mismo valor si mañana cambia el reparto. Sin él serían dos fuentes para el
-    // mismo color, que es como se separan en silencio. El resto de la paleta (contenido, superficie
-    // del diálogo expandido) se conserva por defecto.
-    val searchBarColors = SearchBarDefaults.containedColors(searchBarState).let { base ->
-        base.copy(
-            // El `containerColor` va TAMBIÉN, no solo el del input: el componente los usa en dos
-            // capas —`SearchBar` pinta un `Surface` con él y el `inputField` pinta la suya dentro—,
-            // así que dejarlo en su default (`SearchBarTokens.ContainerColor`, 92) mientras el input
-            // baja a `headerItemColor` (94) las descuadraría en un peldaño. Mientras los dos valores
-            // coincidían daba igual; desde que la píldora se aparta del token, no.
-            //
-            // SOLO en colapsado: este mismo objeto lo consume `ExpandedFullScreenContainedSearchBar`,
-            // y ahí `containedColors` devuelve OTRO valor (`fullScreenContainedSearchBarColor`) que
-            // es el fondo del diálogo a pantalla completa. Pisarlo sin mirar el estado le cambiaría
-            // el color a esa pantalla, que no tiene nada que ver con la píldora de la cabecera.
-            // `currentValue`, no `isExpanded`: esa extensión existe en material3 pero es PRIVADA de
-            // su archivo, y es literalmente esta misma comparación.
-            containerColor =
-                if (searchBarState.currentValue == SearchBarValue.Expanded) base.containerColor
-                else headerItemColor,
-            inputFieldColors = base.inputFieldColors.copy(
-                focusedContainerColor = headerItemColor,
-                unfocusedContainerColor = headerItemColor
-            )
+    // El overflow del header va DENTRO de la píldora, como trailing icon del spec. Es la única
+    // puerta a Ajustes de la app, así que vive en la biblioteca y no en las categorías.
+    val searchInputField = rememberLibrarySearchInputField(search) {
+        LibraryOverflowButton(
+            isLoggedIn = isLoggedIn,
+            accountPhotoPath = accountPhotoPath,
+            accountInitial = accountInitial,
+            showStatsEntry = homeTabHidden,
+            onStatsClick = onStatsClick,
+            onSettingsClick = onNavigateToSettings,
+            onLogoutClick = { showLogoutDialog = true }
         )
     }
-    val searchTextFieldState = rememberTextFieldState()
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    // La query sigue siendo dueña del LibraryViewModel (la consume el paging LIKE): el
-    // TextFieldState del componente es solo el input, así que se replica hacia el VM.
-    LaunchedEffect(Unit) {
-        snapshotFlow { searchTextFieldState.text.toString() }
-            .collect { libraryViewModel.onSearchQueryChanged(it) }
-    }
-    // targetValue (no currentValue): al colapsar limpiamos apenas arranca la animación,
-    // no al terminarla, para que la lista de atrás ya esté sin filtrar cuando se destapa.
-    LaunchedEffect(searchBarState.targetValue) {
-        val expanded = searchBarState.targetValue == SearchBarValue.Expanded
-        libraryViewModel.onShowSearchChanged(expanded)
-        if (!expanded) searchTextFieldState.clearText()
-    }
-
-    // El mismo inputField se pasa al contenedor expandido; el componente lo mueve durante el
-    // morph. El foco inicial lo pide el propio diálogo (ya no hace falta un FocusRequester).
-    val backDesc = stringResource(R.string.common_back)
-    val clearDesc = stringResource(R.string.common_clear_search)
-    // Mitad de la expansión: antes de eso el leading sigue siendo la lupa (continuidad con el
-    // icono del que nace el diálogo), después es "volver".
-    val showBackIcon by remember { derivedStateOf { searchBarState.progress > 0.5f } }
-    val searchInputField: @Composable () -> Unit = {
-        SearchBarDefaults.InputField(
-            textFieldState = searchTextFieldState,
-            searchBarState = searchBarState,
-            // Píldora tonal sobre la superficie del diálogo (el input NO comparte color con el
-            // contenedor en la variante contained).
-            colors = searchBarColors.inputFieldColors,
-            // Los resultados se filtran en vivo: "buscar" en el IME solo baja el teclado.
-            onSearch = { keyboardController?.hide() },
-            placeholder = {
-                // Una línea con elipsis: el texto es largo y en pantallas angostas, sin esto,
-                // el decorator lo recorta a mitad de letra en vez de puntearlo.
-                Text(
-                    text = stringResource(R.string.common_search_songs),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            leadingIcon = {
-                // El icono arranca siendo la MISMA lupa del ancla y se cruza a "volver" pasada
-                // la mitad de la expansión. Con `currentValue` no sirve: ese flag salta a
-                // Expanded en cuanto progress > 0.02, o sea que la lupa se volvía flecha antes
-                // de que la barra creciera — el corte que se veía. derivedStateOf recorta la
-                // recomposición a un único cambio, no a un frame por tick del spring.
-                IconButton(
-                    onClick = { scope.launch { searchBarState.animateToCollapsed() } },
-                    modifier = Modifier.semantics { contentDescription = backDesc }
-                ) {
-                    // Izados: `transitionSpec` NO es un lambda composable, así que los tokens
-                    // del MotionScheme (que sí son lectura composable) se resuelven aquí.
-                    val iconEnterFade = appEffectsSpec<Float>()
-                    val iconEnterScale = appSpatialSpec<Float>()
-                    val iconExitFade = appFastEffectsSpec<Float>()
-                    val iconExitScale = appFastSpatialSpec<Float>()
-                    AnimatedContent(
-                        targetState = showBackIcon,
-                        // Mismos tokens de motion que el resto de la cabecera: el que entra con
-                        // el ritmo "default", el que sale con el "fast".
-                        transitionSpec = {
-                            (fadeIn(iconEnterFade) +
-                                scaleIn(iconEnterScale, initialScale = IconCrossfadeScale))
-                                .togetherWith(
-                                    fadeOut(iconExitFade) +
-                                        scaleOut(iconExitScale, targetScale = IconCrossfadeScale)
-                                )
-                        },
-                        label = "searchLeadingIcon"
-                    ) { back ->
-                        MaterialSymbol(if (back) "arrow_back" else "search")
-                    }
-                }
-            },
-            trailingIcon = {
-                when {
-                    searchTextFieldState.text.isNotEmpty() -> {
-                        IconButton(
-                            onClick = { searchTextFieldState.clearText() },
-                            modifier = Modifier.semantics { contentDescription = clearDesc }
-                        ) { MaterialSymbol("close") }
-                    }
-                    // Docked (y hasta la mitad del morph, espejo del leading): el overflow vive
-                    // DENTRO de la píldora como trailing icon del spec de search bar. El ORDEN
-                    // ya no vive aquí: pasó a un chip en la fila sobre la lista (consistente con
-                    // Artistas/Álbumes).
-                    !showBackIcon -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        LibraryOverflowButton(
-                            isLoggedIn = isLoggedIn,
-                            accountPhotoPath = accountPhotoPath,
-                            accountInitial = accountInitial,
-                            showStatsEntry = homeTabHidden,
-                            onStatsClick = onStatsClick,
-                            onSettingsClick = onNavigateToSettings,
-                            onLogoutClick = { showLogoutDialog = true }
-                        )
-                    }
-                }
-            }
-        )
-    }
-
-    // Host ÚNICO de la app (MainActivity). Esta pantalla ya no crea el suyo: todo el feedback
-    // sale del bus SnackbarManager, que alimenta ese host.
-    val snackbarHostState = LocalSnackbarHostState.current
 
     // --- BANNER LOGIC ---
     // Banner PERSISTENTE de descargas pausadas/detenidas (mismo diseño que el Download Manager).
@@ -582,6 +582,103 @@ fun LibraryScreen(
         bannerContent.state = uiState.bannerState
         bannerContent.download = downloadBanner
     }
+    /**
+     * El banner de sincronización, en UN solo sitio y montado por DOS: la cabecera común del modo
+     * clásico y, en el estilo moderno, la página de Inicio.
+     *
+     * **Esa diferencia es la corrección del 29 ago 2026** y no un capricho de organización. El
+     * banner vivía siempre en la capa de cabecera, que no se mueve con el pager: al deslizar de
+     * Inicio a Biblioteca se quedaba encima de la página entrante, las pestañas de categoría
+     * aparecían POR DEBAJO de él y saltaban hacia arriba cuando terminaba de encogerse. Peor: su
+     * alto entraba en el `listInsets` que reciben TODAS las páginas, así que el banner de Inicio
+     * empujaba el contenido de Biblioteca — dos pantallas que se suponen independientes atadas por
+     * un colchón común. Gatear su visibilidad no arregla eso; hay que meterlo dentro de su página.
+     *
+     * En el modo clásico se queda en la cabecera, y ahí sí es correcto: allí la cabecera ES común a
+     * las seis pestañas (la fila de tabs vive en ella), y el banner habla de la biblioteca entera.
+     *
+     * @param onHeightChange lo mide quien lo monta, porque cada sitio reserva su alto en un colchón
+     *   distinto. La medida va sobre un `Column` que SIEMPRE existe y no sobre el
+     *   `AnimatedVisibility` — el porqué largo está dentro.
+     */
+    val syncBannerSlot: @Composable (onHeightChange: (Int) -> Unit) -> Unit = { onHeightChange ->
+        // El banner FLOTA sobre la lista (tarjeta suelta, sin fondo de bloque); su
+        // alto medido se suma al contentPadding para que el primer ítem nazca debajo.
+        //
+        // El `onSizeChanged` mide un Box que SIEMPRE existe, NO el `AnimatedVisibility`:
+        // cuando la salida termina, ese composable deja de emitir nodo, así que nunca
+        // reporta el 0 final y la ÚLTIMA medida —un fotograma a medio encoger— se quedaba
+        // grabada en `bannerHeightPx`. Resultado: tras el primer banner de la sesión, las
+        // seis pestañas reservaban un hueco fantasma bajo las tabs para siempre (medido en
+        // captura: 22dp de aire muerto entre la fila de pestañas y el contenido, con el
+        // banner ya retirado). Con el contenedor de por medio, la medida es la del SLOT y
+        // llega a cero sola cuando dentro no queda nada.
+        //
+        // Es un `Column` y no un `Box` a propósito: `AnimatedVisibility` tiene sobrecarga
+        // de `ColumnScope` (la que da el expand/shrink VERTICAL por defecto) y los scopes
+        // de layout de Compose están marcados con `@LayoutScopeMarker`, así que desde
+        // dentro de un `BoxScope` el receiver de fuera deja de ser accesible y no compila.
+        Column(modifier = Modifier.onSizeChanged { onHeightChange(it.height) }) {
+        AnimatedVisibility(
+            visible = showBanner,
+            // Specs del tema: el default de `AnimatedVisibility` es `fadeIn + expandIn`
+            // con springs de compose-animation, que no leen el MotionScheme. Y el par
+            // PROPIO del banner, no el genérico: aparece sin que nadie lo pida y empuja la
+            // lista entera — ver [appBannerEnter].
+            enter = appBannerEnter(),
+            exit = appBannerExit()
+        ) {
+            // El banner CAMBIA de contenido sin desaparecer —"Escaneando" releva a
+            // "Biblioteca al día"— y los dos no miden lo mismo: el de progreso lleva la onda
+            // y dos líneas, el resumen solo dos. Sin esto la altura salta de golpe y con ella
+            // toda la lista de debajo. Va DENTRO del `AnimatedVisibility` y no fuera: al
+            // entrar, el tamaño medido no cambia (lo que anima es el recorte de
+            // `expandVertically`), así que no se pisan; solo actúa en el relevo.
+            Box(modifier = Modifier.animateContentSize(appEffectsSpec())) {
+            // Del holder y NO de `uiState` directamente: ver [LastBannerContent].
+            when (val state = bannerContent.state) {
+                is LibraryBannerState.Error -> {
+                    ErrorBanner(state.message) { libraryViewModel.onRefresh() }
+                }
+                is LibraryBannerState.Scanning -> {
+                    ScanProgressBanner(state.progress, state.message)
+                }
+                is LibraryBannerState.Preparing -> {
+                    PrepareProgressBanner(state.current, state.total, state.message)
+                }
+                is LibraryBannerState.Downloading -> {
+                    DownloadSummaryBanner(
+                        active = 1,
+                        completed = state.current,
+                        total = state.total,
+                        failed = state.failed,
+                        onClick = onDownloadManagerClick
+                    )
+                }
+                is LibraryBannerState.Complete -> {
+                    SyncCompleteBanner(state.newSongs, state.downloaded, state.failed, state.deleted)
+                }
+                is LibraryBannerState.Paused -> {
+                    SyncPausedBanner(state.message)
+                }
+                // Idle: si hay descargas pausadas/detenidas con pendientes, mostramos el
+                // banner persistente (con opción de reanudar / cancelar).
+                else -> bannerContent.download?.let { banner ->
+                    DownloadStateBanner(
+                        control = banner.control,
+                        pending = banner.pending,
+                        onResume = { syncViewModel.resumeDownloads() },
+                        onDismiss = { syncViewModel.dismissDownloadBanner() },
+                        onMute = { syncViewModel.muteDownloadBanner() }
+                    )
+                }
+            }
+            }
+        }
+        }
+    }
+
+
     // El indicador del pull-to-refresh es estado del ViewModel: se enciende solo si el scan
     // realmente va a correr (red/batería verificadas) y se apaga cuando el sync publica
     // estado — sin "safety timeout" arbitrario.
@@ -623,9 +720,8 @@ fun LibraryScreen(
             // Único header posible: al no haber selección múltiple, el AnimatedContent que
             // alternaba con la barra de selección quedó sin segundo estado.
             LibrarySearchHeader(
-                searchBarState = searchBarState,
-                searchInputField = searchInputField,
-                searchBarColors = searchBarColors,
+                search = search,
+                inputField = searchInputField,
                 containerColor = headerColor,
                 contentEndPadding = safeEndInset,
                 // Aparta la cabecera del rail. Va en el modifier EXTERNO, o sea antes de su
@@ -634,51 +730,21 @@ fun LibraryScreen(
                 modifier = Modifier.padding(start = railInset)
             )
 
-            // Overlay de búsqueda. No ocupa alto en el slot topBar: internamente es un Dialog
-            // que sólo se compone con el estado expandido.
-            ExpandedFullScreenContainedSearchBar(
-                state = searchBarState,
-                inputField = searchInputField,
-                colors = searchBarColors
-                // collapsedShape por defecto (píldora): el ancla ya ES la píldora docked,
-                // el morph nace de su forma real (antes era CircleShape por la lupa).
-            ) {
-                // Cierre UNIFORME: el back del sistema debe animar igual que el icono arrow_back,
-                // o sea morph directo a la lupa, y no con el encogimiento propio del diálogo. Este
-                // BackHandler se compone DENTRO del content, después del PredictiveBackStateHandler
-                // de BasicEdgeToEdgeDialog, así que gana por prioridad LIFO del
-                // OnBackPressedDispatcher: consume el back y llama al mismo animateToCollapsed().
-                // Es el patrón que el propio componente usa en su variante docked.
-                //
-                // SIGUE HACIENDO FALTA con el predictive back desactivado (18 ago 2026): lo que se
-                // fue con el flag es el preview del gesto, pero el diálogo sigue teniendo su propio
-                // cierre y sin esto el back lo usaría en vez del morph a la lupa.
-                BackHandler { scope.launch { searchBarState.animateToCollapsed() } }
-                Box(modifier = Modifier.fillMaxSize()) {
-                    SearchResults(
-                        searchQuery = searchQuery,
-                        searchArtists = searchArtists,
-                        searchAlbums = searchAlbums,
-                        libraryViewModel = libraryViewModel,
-                        playbackViewModel = playbackViewModel,
-                        onAddToPlaylistRequest = { songIdForPlaylist = it },
-                        onCollapseAnd = { action -> scope.launch { searchBarState.animateToCollapsed(); action() } },
-                        onNavigateToNowPlaying = onNavigateToNowPlaying,
-                        onArtistClick = onArtistClick,
-                        onAlbumClick = onAlbumClick
-                    )
-                    // Segundo host sobre el MISMO estado que el del root: el diálogo es otra
-                    // ventana y tapa aquél. Acá no hay MiniPlayer flotante, así que el snackbar
-                    // solo esquiva la navbar.
-                    SnackbarHost(
-                        hostState = snackbarHostState,
-                        snackbar = { AppSnackbar(it) },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(bottom = 16.dp)
-                    )
-                }
+            LibrarySearchOverlay(search, searchInputField) {
+                SearchResults(
+                    searchQuery = searchQuery,
+                    searchArtists = searchArtists,
+                    searchAlbums = searchAlbums,
+                    libraryViewModel = libraryViewModel,
+                    playbackViewModel = playbackViewModel,
+                    onAddToPlaylistRequest = { songIdForPlaylist = it },
+                    onCollapseAnd = { action ->
+                        scope.launch { search.barState.animateToCollapsed(); action() }
+                    },
+                    onNavigateToNowPlaying = onNavigateToNowPlaying,
+                    onArtistClick = onArtistClick,
+                    onAlbumClick = onAlbumClick
+                )
             }
         },
         // **Sin slot `bottomBar`, y eso es parte de la decisión** (22 ago 2026): el selector de
@@ -697,11 +763,19 @@ fun LibraryScreen(
         // es exactamente donde el contenido desaparece y el header no se lee como un
         // "cuadro" apilado sobre la lista.
         val topBarInset = paddingValues.calculateTopPadding()
+        // DOS alturas y no una, porque hay dos banners posibles en sitios distintos y cada uno lo
+        // reserva quien lo tiene encima: el de la cabecera empuja a las seis pestañas del modo
+        // clásico; el de la página de Inicio, solo a Inicio. Que antes fueran la misma es lo que
+        // ataba el contenido de Biblioteca al banner de Inicio (ver `syncBannerSlot`).
         var bannerHeightPx by remember { mutableIntStateOf(0) }
         val bannerHeight = with(LocalDensity.current) { bannerHeightPx.toDp() }
+        var homeBannerHeightPx by remember { mutableIntStateOf(0) }
+        val homeBannerHeight = with(LocalDensity.current) { homeBannerHeightPx.toDp() }
         // Alto que reserva la cabecera. La fila de pestañas solo cuenta cuando de verdad está
         // ARRIBA: con la barra abajo o el rail al lado, esos 54dp serían aire muerto en las seis
         // pantallas a la vez.
+        // `bannerHeight` es el de la CABECERA, que en el estilo moderno no existe: allí el banner
+        // vive dentro de Inicio y lo reserva `homeListInsets`.
         val headerInset =
             topBarInset + (if (chrome == LibraryChrome.None) TabsRowHeight else 0.dp) + bannerHeight
         // El colchón bajo las listas: navbar del sistema + lo que flota encima. `FloatingBarListInset`
@@ -719,8 +793,21 @@ fun LibraryScreen(
             // acaba la búsqueda, con el aire que el propio header ya pone debajo de su píldora.
             top = headerInset + if (chrome == LibraryChrome.None) HeaderContentGap else 0.dp,
             bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
-                (if (chrome == LibraryChrome.BottomBar) LibraryBottomBarPillLift else 0.dp) +
+                when (chrome) {
+                    LibraryChrome.BottomBar -> LibraryBottomBarPillLift
+                    LibraryChrome.NavBar -> LibraryNavBarPillLift
+                    else -> 0.dp
+                } +
                 ComponentConfig.FloatingBarListInset
+        )
+        // El colchón de la PÁGINA de Inicio en el estilo moderno: el común MÁS su propio banner,
+        // que en ese modo se dibuja dentro de ella. En clásico son el mismo objeto, porque allí el
+        // banner está en la cabecera y ya lo cuenta `headerInset`.
+        val homeListInsets = if (!modernNav) listInsets else PaddingValues(
+            top = listInsets.calculateTopPadding() + homeBannerHeight,
+            bottom = listInsets.calculateBottomPadding(),
+            start = listInsets.calculateStartPadding(layoutDirection),
+            end = listInsets.calculateEndPadding(layoutDirection)
         )
         Box(modifier = Modifier.fillMaxSize()) {
             val pullState = rememberPullToRefreshState()
@@ -750,8 +837,19 @@ fun LibraryScreen(
                     )
                 }
             ) {
-                HorizontalPager(state = pagerState, key = { it }, beyondViewportPageCount = 1) { page ->
-                    val tab = tabs[page]
+                // **`userScrollEnabled = !modernNav`**, y es lo que permite que el estilo moderno
+                // anide un pager dentro de éste. Dos pagers horizontales activos se pelean por el
+                // arrastre y gana el que primero lo reconoce; con el de fuera sordo al gesto, el de
+                // las categorías se lo queda entero. De paso es lo que pide M3 —entre destinos de
+                // una barra de navegación no se desliza— y lo que el usuario decidió: el swipe
+                // significa "moverme por la biblioteca", no "cambiar de sección".
+                HorizontalPager(
+                    state = pagerState,
+                    key = { it },
+                    beyondViewportPageCount = 1,
+                    userScrollEnabled = !modernNav
+                ) { page ->
+                    val libraryPage = pages[page]
                     // **Solo la pestaña que se VE declara shared elements.** `beyondViewportPageCount`
                     // deja la vecina compuesta y COLOCADA, y una punta colocada participa en el match
                     // aunque esté fuera del viewport: por eso una canción que salía en un carrusel del
@@ -788,272 +886,154 @@ fun LibraryScreen(
                         derivedStateOf { page == pagerState.settledPage }
                     }
                     SharedTransitionGate(visible = isActivePage) {
-                    when (tab.tab) {
-                        LibraryTabId.HOME -> {
-                            HomeScreen(
-                                recentlyAdded = homeRecentlyAdded,
-                                recentContexts = recentContexts,
-                                favoriteCovers = favoriteCovers,
-                                genreArts = recentGenreArts,
-                                stats = homeStats,
-                                discover = homeDiscover,
-                                currentSongId = nowPlayingUiState.song?.id,
-                                contentPadding = listInsets,
-                                // `ROW` y no `NONE`: la tarjeta del carrusel es la punta de origen
-                                // del container transform, igual que una fila de "Todas" (ver
-                                // `SongRowContainer` en HomeScreen). Con `NONE` el reproductor
-                                // aparecía con un fundido, sin morph.
-                                onPlaySongs = { songs, index ->
-                                    playbackViewModel.playSongs(songs, index)
-                                    onNavigateToNowPlaying(PlayerArtOrigin.ROW)
-                                },
-                                // "Porque escuchaste a X" propone otros ARTISTAS: su tarjeta navega
-                                // al detalle, no reproduce.
-                                onArtistClick = onArtistClick,
-                                onStatsClick = onStatsClick,
-                                // "Ver todo" de Recién agregadas → su RUTA PROPIA, no la pestaña
-                                // Canciones. Esa primera versión (27 ago 2026) fijaba
-                                // `DATE_ADDED_DESC` y saltaba de página, y fallaba por tres lados:
-                                // el destino era la biblioteca ENTERA y no la ventana, el orden se
-                                // PERSISTE —así que el atajo dejaba la pestaña reordenada para
-                                // siempre— y ese cambio de sort invalidaba el `PagingSource` justo
-                                // durante la animación de la página. Ver [RecentlyAddedScreen].
-                                onSeeAllRecent = { onSeeAllRecentClick() },
-                                onResumeContext = { ctx -> resumeContext(
-                                    ctx, scope, browseViewModel, libraryViewModel, playbackViewModel,
-                                    uiState.favoriteSongs, onNavigateToNowPlaying
-                                ) },
-                                canPlayAll = songCount > 0,
-                                onShuffleAll = {
-                                    playbackViewModel.shuffleAllFromLibrary()
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                onPlayAll = {
-                                    playbackViewModel.playAllFromLibrary()
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                // Misma puerta que los chips de filtro de las listas: con la
-                                // biblioteca entera en el dispositivo, estas dos acciones no
-                                // separarían nada y no se pintan.
-                                showSourceActions = showCloudSourceChips,
-                                onShuffleOffline = {
-                                    playbackViewModel.shuffleBySource(
-                                        setOf(SongSourceFilter.LOCAL, SongSourceFilter.DOWNLOADED)
-                                    )
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                onShuffleNotDownloaded = {
-                                    playbackViewModel.shuffleBySource(setOf(SongSourceFilter.STREAMING))
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                hasFavorites = uiState.favoriteSongs.isNotEmpty(),
-                                onShuffleFavorites = {
-                                    // Mismo contexto que reproducir Favoritos desde su lista: el
-                                    // chip es otro atajo a lo mismo, no otra cosa.
-                                    libraryViewModel.recordContext(PlaybackContext.Favorites)
-                                    playbackViewModel.shufflePlay(uiState.favoriteSongs)
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                genres = homeTopGenres,
-                                onShuffleGenre = { genre ->
-                                    scope.launch {
-                                        val songs = libraryViewModel.getSongsByGenre(genre)
-                                        if (songs.isNotEmpty()) {
-                                            // Igual que reproducirlo desde la pestaña Géneros: es
-                                            // el mismo contexto reanudable. Sin esto, un género
-                                            // lanzado desde el chip no llegaba nunca a "Seguir
-                                            // escuchando" y la sección contradecía a la fila de
-                                            // chips que está justo encima.
-                                            libraryViewModel.recordContext(
-                                                PlaybackContext.Genre(
-                                                    genre,
-                                                    songs.firstOrNull()?.albumArtUri?.toString()
-                                                )
-                                            )
-                                            playbackViewModel.shufflePlay(songs)
+                    when (libraryPage) {
+                        // El destino Biblioteca del estilo moderno: las categorías como
+                        // pestañas, con su propio pager. Ver [LibraryCategoriesPane].
+                        LibraryPage.Categories -> LibraryCategoriesPane(
+                            categories = categoryTabs,
+                            contentPadding = listInsets,
+                            // El MISMO color que la cabecera de búsqueda: en el estilo moderno
+                            // aquélla se funde con el fondo de página (no es una barra de
+                            // navegación), y la fila de pestañas continúa ese bloque.
+                            containerColor = headerColor,
+                            content = categoryContent
+                        )
+                        is LibraryPage.Tab -> when (libraryPage.tab) {
+                            LibraryTabId.HOME -> {
+                                // El banner se dibuja DENTRO de esta página en el estilo
+                                // moderno, no en la cabecera común: así viaja con Inicio al
+                                // deslizar y no se queda flotando sobre Biblioteca ni le
+                                // empuja el contenido. Ver `syncBannerSlot`.
+                                //
+                                // `HomeScreen` se llama UNA vez, dentro del Box: envolverlo
+                                // en las dos ramas de un `if` lo descompondría y recompondría
+                                // entero al conmutar el modo (el bug del 19 ago).
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    HomeScreen(
+                                        recentlyAdded = homeRecentlyAdded,
+                                        recentContexts = recentContexts,
+                                        favoriteCovers = favoriteCovers,
+                                        genreArts = recentGenreArts,
+                                        stats = homeStats,
+                                        discover = homeDiscover,
+                                        currentSongId = nowPlayingUiState.song?.id,
+                                        contentPadding = homeListInsets,
+                                        // `ROW` y no `NONE`: la tarjeta del carrusel es la punta de origen
+                                        // del container transform, igual que una fila de "Todas" (ver
+                                        // `SongRowContainer` en HomeScreen). Con `NONE` el reproductor
+                                        // aparecía con un fundido, sin morph.
+                                        onPlaySongs = { songs, index ->
+                                            playbackViewModel.playSongs(songs, index)
+                                            onNavigateToNowPlaying(PlayerArtOrigin.ROW)
+                                        },
+                                        // "Porque escuchaste a X" propone otros ARTISTAS: su tarjeta navega
+                                        // al detalle, no reproduce.
+                                        onArtistClick = onArtistClick,
+                                        onStatsClick = onStatsClick,
+                                        // "Ver todo" de Recién agregadas → su RUTA PROPIA, no la pestaña
+                                        // Canciones. Esa primera versión (27 ago 2026) fijaba
+                                        // `DATE_ADDED_DESC` y saltaba de página, y fallaba por tres lados:
+                                        // el destino era la biblioteca ENTERA y no la ventana, el orden se
+                                        // PERSISTE —así que el atajo dejaba la pestaña reordenada para
+                                        // siempre— y ese cambio de sort invalidaba el `PagingSource` justo
+                                        // durante la animación de la página. Ver [RecentlyAddedScreen].
+                                        onSeeAllRecent = { onSeeAllRecentClick() },
+                                        onResumeContext = { ctx -> resumeContext(
+                                            ctx, scope, browseViewModel, libraryViewModel, playbackViewModel,
+                                            uiState.favoriteSongs, onNavigateToNowPlaying
+                                        ) },
+                                        canPlayAll = songCount > 0,
+                                        onShuffleAll = {
+                                            playbackViewModel.shuffleAllFromLibrary()
                                             onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                        },
+                                        onPlayAll = {
+                                            playbackViewModel.playAllFromLibrary()
+                                            onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                        },
+                                        // Misma puerta que los chips de filtro de las listas: con la
+                                        // biblioteca entera en el dispositivo, estas dos acciones no
+                                        // separarían nada y no se pintan.
+                                        showSourceActions = showCloudSourceChips,
+                                        onShuffleOffline = {
+                                            playbackViewModel.shuffleBySource(
+                                                setOf(SongSourceFilter.LOCAL, SongSourceFilter.DOWNLOADED)
+                                            )
+                                            onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                        },
+                                        onShuffleNotDownloaded = {
+                                            playbackViewModel.shuffleBySource(setOf(SongSourceFilter.STREAMING))
+                                            onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                        },
+                                        hasFavorites = uiState.favoriteSongs.isNotEmpty(),
+                                        onShuffleFavorites = {
+                                            // Mismo contexto que reproducir Favoritos desde su lista: el
+                                            // chip es otro atajo a lo mismo, no otra cosa.
+                                            libraryViewModel.recordContext(PlaybackContext.Favorites)
+                                            playbackViewModel.shufflePlay(uiState.favoriteSongs)
+                                            onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                        },
+                                        genres = homeTopGenres,
+                                        onShuffleGenre = { genre ->
+                                            scope.launch {
+                                                val songs = libraryViewModel.getSongsByGenre(genre)
+                                                if (songs.isNotEmpty()) {
+                                                    // Igual que reproducirlo desde la pestaña Géneros: es
+                                                    // el mismo contexto reanudable. Sin esto, un género
+                                                    // lanzado desde el chip no llegaba nunca a "Seguir
+                                                    // escuchando" y la sección contradecía a la fila de
+                                                    // chips que está justo encima.
+                                                    libraryViewModel.recordContext(
+                                                        PlaybackContext.Genre(
+                                                            genre,
+                                                            songs.firstOrNull()?.albumArtUri?.toString()
+                                                        )
+                                                    )
+                                                    playbackViewModel.shufflePlay(songs)
+                                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+                                                }
+                                            }
+                                        },
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope
+                                    )
+                                    if (modernNav) {
+                                        Column(
+                                            modifier = Modifier
+                                                .align(Alignment.TopCenter)
+                                                .padding(top = listInsets.calculateTopPadding())
+                                        ) {
+                                            syncBannerSlot { homeBannerHeightPx = it }
                                         }
                                     }
-                                },
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                        LibraryTabId.SONGS -> {
-                            // Lista normal: la búsqueda ya no vive acá, sino en el overlay
-                            // (ExpandedFullScreenSearchBar), que tapa la pantalla entera.
-                            SongsScreen(
-                                currentFilter = SongFilter.ALL,
-                                contentPadding = listInsets,
-                                onNavigateToNowPlaying = { onNavigateToNowPlaying(PlayerArtOrigin.ROW) },
-                                onAddToPlaylistRequest = { songIdForPlaylist = it },
-                                viewModel = libraryViewModel,
-                                playbackViewModel = playbackViewModel,
-                                songCount = songCount,
-                                sortOrder = uiState.sortOrderAll,
-                                onSortOrderChange = { libraryViewModel.onSortOrderChanged(it, SongFilter.ALL) },
-                                onToggleSourceFilter = libraryViewModel::toggleSourceFilter,
-                                // Las acciones de esta lista (que solo existen sin la pestaña Inicio,
-                                // ver `LibraryViewModel.homeTabHidden`) reproducen LA LISTA
-                                // QUE SE VE: su orden y sus chips de origen. No es lo que significan
-                                // los del inicio, donde no hay ninguna lista delante. `NONE` y no
-                                // `ROW`: no se pulsó ninguna fila, así que no hay superficie de la
-                                // que crecer.
-                                onPlayAll = {
-                                    playbackViewModel.playLibraryList(
-                                        sortOrder = uiState.sortOrderAll,
-                                        sourceFilters = uiState.sourceFilters,
-                                        shuffled = false
-                                    )
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-                                },
-                                onShuffleAll = {
-                                    playbackViewModel.playLibraryList(
-                                        sortOrder = uiState.sortOrderAll,
-                                        sourceFilters = uiState.sourceFilters,
-                                        shuffled = true
-                                    )
-                                    onNavigateToNowPlaying(PlayerArtOrigin.NONE)
                                 }
-                            )
-                        }
-                        LibraryTabId.ARTISTS -> {
-                            val artistPhotosPaused by browseViewModel.artistPhotosPausedOnMobile
-                                .collectAsStateWithLifecycle()
-                            val artistSortOrder by browseViewModel.artistSortOrder
-                                .collectAsStateWithLifecycle()
-                            val artistSourceFilters by browseViewModel.artistSourceFilters
-                                .collectAsStateWithLifecycle()
-                            ArtistsScreen(
-                                artists = artists,
-                                onArtistClick = onArtistClick,
-                                sortOrder = artistSortOrder,
-                                onSortOrderChange = browseViewModel::setArtistSortOrder,
-                                sourceFilters = artistSourceFilters,
-                                onToggleSourceFilter = browseViewModel::toggleArtistSourceFilter,
-                                showLocalChip = showLocalSourceChip,
-                                showCloudChips = showCloudSourceChips,
-                                meteredBannerVisible = artistPhotosPaused,
-                                onDownloadOnMobile = browseViewModel::downloadArtistPhotosOnMobile,
-                                onDismissMeteredBanner = browseViewModel::dismissArtistPhotosBanner,
-                                // Quick-play: reproduce todo el artista sin navegar (el
-                                // MiniPlayer aparece como feedback), como en Álbumes.
-                                onPlayArtist = { name ->
-                                    scope.launch {
-                                        val artistSongs = browseViewModel.getArtistSongs(name).first()
-                                        if (artistSongs.isNotEmpty()) {
-                                            libraryViewModel.recordContext(
-                                                PlaybackContext.Artist(name, artistSongs.firstOrNull()?.albumArtUri?.toString())
-                                            )
-                                            playbackViewModel.playSongs(artistSongs, 0)
-                                        }
-                                    }
-                                },
-                                // Encolar NO es reproducir: no toca el contexto de "seguir
-                                // escuchando" (que describe de dónde salió lo que SUENA) ni abre el
-                                // player. El feedback lo da el snackbar de `addToQueue`.
-                                onAddArtistToQueue = { name ->
-                                    scope.launch {
-                                        playbackViewModel.addToQueue(
-                                            browseViewModel.getArtistSongs(name).first()
-                                        )
-                                    }
-                                },
-                                contentPadding = listInsets,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                        LibraryTabId.ALBUMS -> {
-                            val albumSortOrder by browseViewModel.albumSortOrder
-                                .collectAsStateWithLifecycle()
-                            val albumSourceFilters by browseViewModel.albumSourceFilters
-                                .collectAsStateWithLifecycle()
-                            AlbumsScreen(
-                                albums = albums,
-                                onAlbumClick = onAlbumClick,
-                                sortOrder = albumSortOrder,
-                                onSortOrderChange = browseViewModel::setAlbumSortOrder,
-                                sourceFilters = albumSourceFilters,
-                                onToggleSourceFilter = browseViewModel::toggleAlbumSourceFilter,
-                                showLocalChip = showLocalSourceChip,
-                                showCloudChips = showCloudSourceChips,
-                                // Quick-play: reproduce el álbum sin navegar (el MiniPlayer
-                                // aparece como feedback).
-                                onPlayAlbum = { name ->
-                                    scope.launch {
-                                        val albumSongs = browseViewModel.getAlbumSongs(name).first()
-                                        if (albumSongs.isNotEmpty()) {
-                                            libraryViewModel.recordContext(
-                                                PlaybackContext.Album(name, albumSongs.firstOrNull()?.albumArtUri?.toString())
-                                            )
-                                            playbackViewModel.playSongs(albumSongs, 0)
-                                        }
-                                    }
-                                },
-                                onAddAlbumToQueue = { name ->
-                                    scope.launch {
-                                        playbackViewModel.addToQueue(
-                                            browseViewModel.getAlbumSongs(name).first()
-                                        )
-                                    }
-                                },
-                                contentPadding = listInsets,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                        LibraryTabId.GENRES -> {
-                            val genres by browseViewModel.genres.collectAsStateWithLifecycle()
-                            val partialMatch by browseViewModel.genrePartialMatch
-                                .collectAsStateWithLifecycle()
-                            GenresScreen(
-                                genres = genres,
-                                onGenreClick = onGenreClick,
-                                partialMatch = partialMatch,
-                                onPartialMatchChange = browseViewModel::setGenrePartialMatch,
-                                // Quick-play: reproduce el género sin navegar (el MiniPlayer
-                                // aparece como feedback), igual que Artistas/Álbumes.
-                                onPlayGenre = { name ->
-                                    scope.launch {
-                                        val genreSongs = browseViewModel.getGenreSongs(name).first()
-                                        if (genreSongs.isNotEmpty()) {
-                                            libraryViewModel.recordContext(
-                                                PlaybackContext.Genre(name, genreSongs.firstOrNull()?.albumArtUri?.toString())
-                                            )
-                                            playbackViewModel.playSongs(genreSongs, 0)
-                                        }
-                                    }
-                                },
-                                onAddGenreToQueue = { name ->
-                                    scope.launch {
-                                        playbackViewModel.addToQueue(
-                                            browseViewModel.getGenreSongs(name).first()
-                                        )
-                                    }
-                                },
-                                contentPadding = listInsets,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                        LibraryTabId.PLAYLISTS -> {
-                            val coverMeta by libraryViewModel.playlistsCoverMeta.collectAsStateWithLifecycle()
-                            PlaylistList(
-                                playlists = uiState.playlists,
-                                favoritesCount = uiState.favorites.size,
-                                coverMeta = coverMeta,
-                                onPlaylistClick = { id ->
-                                    val pl = uiState.playlists.find { it.id == id }
-                                    if (pl != null) onPlaylistClick(id, pl.name)
-                                },
-                                onPlayPlaylist = { libraryViewModel.playPlaylist(it) },
-                                onFavoritesClick = onFavoritesClick,
-                                onCreatePlaylist = { showCreatePlaylistDialog = true },
-                                onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
-                                onRenamePlaylist = { id, name -> libraryViewModel.renamePlaylist(id, name) },
-                                contentPadding = listInsets
-                            )
+                            }
+                            // Las cuatro vistas del catálogo. En el modo clásico son pestañas de
+                            // este mismo pager; en el moderno viven dentro del destino Biblioteca,
+                            // y las dos las pinta el MISMO lambda — dos `when` sobre `LibraryTabId`
+                            // serían dos sitios donde arreglar el mismo bug.
+                            LibraryTabId.SONGS,
+                            LibraryTabId.ARTISTS,
+                            LibraryTabId.ALBUMS,
+                            LibraryTabId.GENRES -> categoryContent(libraryPage.tab, listInsets)
+                            LibraryTabId.PLAYLISTS -> {
+                                val coverMeta by libraryViewModel.playlistsCoverMeta.collectAsStateWithLifecycle()
+                                PlaylistList(
+                                    playlists = uiState.playlists,
+                                    favoritesCount = uiState.favorites.size,
+                                    coverMeta = coverMeta,
+                                    onPlaylistClick = { id ->
+                                        val pl = uiState.playlists.find { it.id == id }
+                                        if (pl != null) onPlaylistClick(id, pl.name)
+                                    },
+                                    onPlayPlaylist = { libraryViewModel.playPlaylist(it) },
+                                    onFavoritesClick = onFavoritesClick,
+                                    onCreatePlaylist = { showCreatePlaylistDialog = true },
+                                    onDeletePlaylist = { libraryViewModel.deletePlaylist(it) },
+                                    onRenamePlaylist = { id, name -> libraryViewModel.renamePlaylist(id, name) },
+                                    contentPadding = listInsets
+                                )
+                            }
                         }
                     }
                     } // SharedTransitionGate
@@ -1074,86 +1054,15 @@ fun LibraryScreen(
                 // ocupar su sitio: son tres presentaciones de lo mismo, nunca dos a la vez.
                 if (chrome == LibraryChrome.None) {
                     LibraryTabsRow(
-                        tabs = tabs,
+                        pages = pages,
                         selectedIndex = pagerState.currentPage,
                         onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                         containerColor = headerColor
                     )
                 }
-                // El banner FLOTA sobre la lista (tarjeta suelta, sin fondo de bloque); su
-                // alto medido se suma al contentPadding para que el primer ítem nazca debajo.
-                //
-                // El `onSizeChanged` mide un Box que SIEMPRE existe, NO el `AnimatedVisibility`:
-                // cuando la salida termina, ese composable deja de emitir nodo, así que nunca
-                // reporta el 0 final y la ÚLTIMA medida —un fotograma a medio encoger— se quedaba
-                // grabada en `bannerHeightPx`. Resultado: tras el primer banner de la sesión, las
-                // seis pestañas reservaban un hueco fantasma bajo las tabs para siempre (medido en
-                // captura: 22dp de aire muerto entre la fila de pestañas y el contenido, con el
-                // banner ya retirado). Con el contenedor de por medio, la medida es la del SLOT y
-                // llega a cero sola cuando dentro no queda nada.
-                //
-                // Es un `Column` y no un `Box` a propósito: `AnimatedVisibility` tiene sobrecarga
-                // de `ColumnScope` (la que da el expand/shrink VERTICAL por defecto) y los scopes
-                // de layout de Compose están marcados con `@LayoutScopeMarker`, así que desde
-                // dentro de un `BoxScope` el receiver de fuera deja de ser accesible y no compila.
-                Column(modifier = Modifier.onSizeChanged { bannerHeightPx = it.height }) {
-                AnimatedVisibility(
-                    visible = showBanner,
-                    // Specs del tema: el default de `AnimatedVisibility` es `fadeIn + expandIn`
-                    // con springs de compose-animation, que no leen el MotionScheme. Y el par
-                    // PROPIO del banner, no el genérico: aparece sin que nadie lo pida y empuja la
-                    // lista entera — ver [appBannerEnter].
-                    enter = appBannerEnter(),
-                    exit = appBannerExit()
-                ) {
-                    // El banner CAMBIA de contenido sin desaparecer —"Escaneando" releva a
-                    // "Biblioteca al día"— y los dos no miden lo mismo: el de progreso lleva la onda
-                    // y dos líneas, el resumen solo dos. Sin esto la altura salta de golpe y con ella
-                    // toda la lista de debajo. Va DENTRO del `AnimatedVisibility` y no fuera: al
-                    // entrar, el tamaño medido no cambia (lo que anima es el recorte de
-                    // `expandVertically`), así que no se pisan; solo actúa en el relevo.
-                    Box(modifier = Modifier.animateContentSize(appEffectsSpec())) {
-                    // Del holder y NO de `uiState` directamente: ver [LastBannerContent].
-                    when (val state = bannerContent.state) {
-                        is LibraryBannerState.Error -> {
-                            ErrorBanner(state.message) { libraryViewModel.onRefresh() }
-                        }
-                        is LibraryBannerState.Scanning -> {
-                            ScanProgressBanner(state.progress, state.message)
-                        }
-                        is LibraryBannerState.Preparing -> {
-                            PrepareProgressBanner(state.current, state.total, state.message)
-                        }
-                        is LibraryBannerState.Downloading -> {
-                            DownloadSummaryBanner(
-                                active = 1,
-                                completed = state.current,
-                                total = state.total,
-                                failed = state.failed,
-                                onClick = onDownloadManagerClick
-                            )
-                        }
-                        is LibraryBannerState.Complete -> {
-                            SyncCompleteBanner(state.newSongs, state.downloaded, state.failed, state.deleted)
-                        }
-                        is LibraryBannerState.Paused -> {
-                            SyncPausedBanner(state.message)
-                        }
-                        // Idle: si hay descargas pausadas/detenidas con pendientes, mostramos el
-                        // banner persistente (con opción de reanudar / cancelar).
-                        else -> bannerContent.download?.let { banner ->
-                            DownloadStateBanner(
-                                control = banner.control,
-                                pending = banner.pending,
-                                onResume = { syncViewModel.resumeDownloads() },
-                                onDismiss = { syncViewModel.dismissDownloadBanner() },
-                                onMute = { syncViewModel.muteDownloadBanner() }
-                            )
-                        }
-                    }
-                    }
-                }
-                }
+                // El banner: en el estilo moderno lo monta la PÁGINA de Inicio (ver
+                // `syncBannerSlot`); aquí solo vive la cabecera común del modo clásico.
+                if (!modernNav) syncBannerSlot { bannerHeightPx = it }
             }
 
             // El rail va DESPUÉS de la cabecera, o sea por encima de todo lo demás, y ocupa la
@@ -1163,7 +1072,7 @@ fun LibraryScreen(
             // inset superior lo consume el propio componente.
             if (chrome == LibraryChrome.Rail) {
                 LibraryNavRail(
-                    tabs = tabs,
+                    pages = pages,
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                     containerColor = chromeColor,
@@ -1180,13 +1089,40 @@ fun LibraryScreen(
             // la perforación.
             if (chrome == LibraryChrome.BottomBar) {
                 LibraryBottomToolbar(
-                    tabs = tabs,
+                    pages = pages,
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                     // El MISMO color que el `containerColor` del Scaffold: el toolbar deriva de él
                     // su contenedor y su indicador, así que tiene que ser el fondo REAL de la
                     // página y no un rol repetido a mano.
                     background = AppColors.surfaceContainer,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
+
+            // La barra de navegación del estilo moderno. También CAPA y no `bottomBar`, por el
+            // mismo motivo que las otras dos: el colchón de las listas se compone a mano una sola
+            // vez para los cuatro casos (ver `listInsets`), y con el slot puesto habría dos
+            // aritméticas — la del Scaffold en un modo y la de aquí en los demás.
+            //
+            // A diferencia del toolbar, esta pieza NO flota: va pegada al borde y consume la navbar
+            // del sistema por dentro, así que su color sale de la horquilla (`chromeColor`, el
+            // mismo que la fila de arriba y el rail) y no derivado del fondo.
+            if (chrome == LibraryChrome.NavBar) {
+                LibraryNavigationBar(
+                    pages = pages,
+                    selectedIndex = pagerState.currentPage,
+                    // **`scrollToPage` y no `animateScrollToPage`**, al revés que las otras tres
+                    // presentaciones (29 ago 2026, visto en device). Ahí el pager ES el mecanismo y
+                    // se puede deslizar con el dedo, así que animar el desplazamiento al tocar es
+                    // enseñar el mismo gesto que el usuario podría haber hecho. Aquí el swipe entre
+                    // destinos está DESACTIVADO a propósito (`userScrollEnabled = !modernNav`), y
+                    // animarlo sumaba una segunda animación —las páginas corriendo en horizontal—
+                    // encima de la del indicador de la barra, que es la que de verdad da el
+                    // feedback: dos motions para un solo toque, imitando además un gesto que en
+                    // este modo no existe.
+                    onTabSelected = { index -> scope.launch { pagerState.scrollToPage(index) } },
+                    containerColor = chromeColor,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
@@ -1541,7 +1477,7 @@ private val TabMinWidth = 48.dp + TabPillGap * 2
 @Composable
 private fun LibraryTabsRow(
     /** Pestañas visibles, ya en el orden del usuario. Nunca vacía (ver el caller). */
-    tabs: List<TabInfo>,
+    pages: List<LibraryPage>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
     containerColor: Color,
@@ -1550,7 +1486,7 @@ private fun LibraryTabsRow(
     // getOrNull + coerceIn: al ocultar la pestaña activa desde Ajustes, el pager recompone con el
     // índice viejo un frame antes de que el LaunchedEffect lo corrija — y `PrimaryTabRow` indexa
     // su lista de posiciones con él, así que un índice fuera de rango revienta.
-    val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
+    val safeIndex = selectedIndex.coerceIn(0, pages.lastIndex)
 
     Box(
         modifier = modifier
@@ -1587,7 +1523,7 @@ private fun LibraryTabsRow(
             indicator = {},
             divider = {}
         ) {
-            LibraryTabs(tabs, safeIndex, onTabSelected)
+            LibraryTabs(pages, safeIndex, onTabSelected)
         }
     }
 }
@@ -1617,12 +1553,12 @@ private fun LibraryTabsRow(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LibraryTabs(
-    tabs: List<TabInfo>,
+    pages: List<LibraryPage>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    tabs.forEachIndexed { index, tab ->
+    pages.forEachIndexed { index, page ->
         val selected = index == selectedIndex
         // OJO con el destino de la animación: NO es `Color.Transparent`, que es negro transparente
         // (0x00000000). Interpolar desde `secondaryContainer` hasta él arrastra el RGB hacia el
@@ -1686,7 +1622,7 @@ private fun LibraryTabs(
                             .indication(interactionSource, ripple())
                             .padding(horizontal = TabContentPadding)
                     ) {
-                        MaterialSymbol(tab.iconName, size = TabIconSize, fill = selected)
+                        MaterialSymbol(page.iconName, size = TabIconSize, fill = selected)
                         // La etiqueta solo en la activa.
                         //
                         // El ancho va con un spec de EFFECTS —crítico, sin rebote— y no con el spatial
@@ -1724,7 +1660,7 @@ private fun LibraryTabs(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Spacer(modifier = Modifier.width(TabIconGap))
                                 Text(
-                                    text = stringResource(tab.titleRes),
+                                    text = stringResource(page.titleRes),
                                     style = MaterialTheme.typography.labelLargeEmphasized,
                                     maxLines = 1,
                                     softWrap = false
@@ -2026,68 +1962,6 @@ private fun ScanProgressBanner(count: Int, message: String) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(2.dp))
-    }
-}
-
-/**
- * Cabecera de la biblioteca: search bar DOCKED real de M3 (la píldora ES el ancla del
- * search view expandido — `SearchBar(state, inputField)` registra sus collapsedCoords y
- * el tap del input dispara la expansión, sin `onSearchClick` manual). Sin título ni
- * TopAppBar: la píldora activa de las tabs ya dice dónde estás. Visible en TODAS las
- * pestañas, incluida Listas. Ordenar (solo Todas) y el overflow van DENTRO de la píldora
- * como trailing icons del spec — el trailing lo arma `searchInputField` en el caller.
- *
- * El color del bloque lo gobierna el caller (el mismo que la fila de tabs: son una sola pieza).
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun LibrarySearchHeader(
-    searchBarState: SearchBarState,
-    searchInputField: @Composable () -> Unit,
-    searchBarColors: SearchBarColors,
-    containerColor: Color,
-    /**
-     * Lo que hay que apartar del borde final: en horizontal, la perforación de pantalla y la barra
-     * del sistema. Va como parámetro y no en el [modifier] porque se aplica DESPUÉS del
-     * `background`: el tinte del bloque tiene que llegar hasta el borde y es el CONTENIDO el que
-     * se aparta. El inset del otro lado sí viaja en el modifier, y a propósito — ahí el fondo no
-     * debe invadir la columna del rail, que se dibuja debajo de esta cabecera.
-     */
-    contentEndPadding: Dp = 0.dp,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            // background ANTES del statusBarsPadding: el tinte del header pinta también
-            // detrás de la barra de estado (antes lo hacía el TopAppBar con sus insets).
-            .background(containerColor)
-            .statusBarsPadding()
-            .padding(end = contentEndPadding)
-            // bottom generoso: la píldora quedaba pegada a la píldora activa de las tabs.
-            .padding(horizontal = 16.dp)
-            .padding(top = 8.dp, bottom = 12.dp)
-    ) {
-        // SIN `shadowElevation`: se deja el default de Compose (Level0), que se aparta del
-        // `SearchBarTokens.ContainerElevation` del spec (Level 3). Se implementó ese Level 3 el
-        // 20 ago y se quitó el mismo día en device — el porqué, junto a `headerItemColor`.
-        //
-        // **La píldora tiene TOPE de ancho** (27 ago 2026): girado se estiraba a los ~790dp que
-        // deja el rail, un campo de texto de una línea ocupando toda la pantalla. El tope es el
-        // mismo que el del resto del contenido ([ComponentConfig.ContentMaxWidth]).
-        //
-        // `widthIn(max)` + `fillMaxWidth()` dentro de un `Box`, y no `weight(1f)` en una `Row`:
-        // así el ancho es `min(disponible, tope)`, o sea **exactamente el de antes en vertical**
-        // (donde disponible < tope) y el tope girado. Con `weight` las constraints llegan FIJAS y
-        // el `widthIn` de dentro se pelearía con ellas.
-        SearchBar(
-            state = searchBarState,
-            inputField = searchInputField,
-            colors = searchBarColors,
-            modifier = Modifier
-                .widthIn(max = ComponentConfig.ContentMaxWidth)
-                .fillMaxWidth()
-        )
     }
 }
 

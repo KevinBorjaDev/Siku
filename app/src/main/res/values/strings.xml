@@ -561,7 +561,14 @@
     <string name="settings_eq_presets_restore_all">Mostrar los %1$d ocultos</string>
     <string name="eq_presets_all_hidden">Todos los presets están ocultos (Ajustes → Reproducción)</string>
 
-    <!-- ==================== Pestañas de la biblioteca ==================== -->
+    <!-- ==================== Navegación de la biblioteca ==================== -->
+    <!-- La pantalla se llama "Navegación" y no "Pestañas" desde que contiene el estilo moderno,
+         que justamente quita las pestañas. -->
+    <string name="settings_nav_header">Navegación</string>
+    <string name="settings_nav_desc">Estilo de navegación, dónde van las pestañas y cuáles se muestran.</string>
+    <!-- Estilo moderno: tres destinos en vez de las pestañas configurables. -->
+    <string name="settings_modern_nav">Estilo moderno</string>
+    <string name="settings_modern_nav_desc">Reemplaza las pestañas por tres destinos: Inicio, Biblioteca y Listas. Las categorías (canciones, artistas, álbumes, géneros) se abren desde Biblioteca. Mientras esté activo no se pueden ordenar ni ocultar pestañas.</string>
     <string name="settings_tabs_header">Pestañas</string>
     <string name="settings_tabs_desc">Arrastra para ordenar. Las pestañas desactivadas no aparecen en la biblioteca.</string>
     <string name="settings_tabs_min">Tiene que quedar al menos una pestaña</string>
@@ -814,6 +821,10 @@
 
     <!-- ==================== Biblioteca: pestañas / sync / orden / logout ==================== -->
     <string name="tab_all">Canciones</string>
+    <!-- Destino "Biblioteca" del estilo moderno: el hub desde el que se abren las categorías.
+         Solo existe en ese modo, así que nunca convive con la pestaña "Canciones", que comparte
+         glifo con él. -->
+    <string name="tab_library">Biblioteca</string>
     <string name="tab_home">Inicio</string>
     <string name="tab_playlists">Listas</string>
 
@@ -985,13 +996,22 @@
     <string name="stats_period_next">Periodo siguiente</string>
     <!-- Resumen -->
     <string name="stats_summary_plays">Reproducciones</string>
-    <string name="stats_summary_time">Tiempo</string>
+    <!-- Titular de la tarjeta del periodo. Es un verbo y no un sustantivo ("Tiempo") porque
+         encabeza la cifra que responde a "cuánto escuchaste". -->
+    <string name="stats_card_listened">Escuchaste</string>
+    <string name="stats_card_listened_estimate">Escuchaste (aprox.)</string>
+    <!-- %1$d = variación en valor absoluto (el signo lo lleva la flecha); %2$s = contra QUÉ, una
+         una de las `stats_delta_ref_*`. Decía "que el periodo anterior" y no se entendía: nombrar
+         la unidad es lo que convierte la frase en un dato. -->
+    <string name="stats_delta_more">%1$d %% más que %2$s</string>
+    <string name="stats_delta_less">%1$d %% menos que %2$s</string>
+    <!-- Relativos al periodo que se está MIRANDO, no a hoy: puestos en "ayer" o "el mes pasado"
+         mentirían en cuanto se navega hacia atrás con las flechas. No hay versión de DÍA: ese
+         periodo no se compara (ver `comparesWithPrevious`). -->
+    <string name="stats_delta_ref_week">la semana anterior</string>
+    <string name="stats_delta_ref_month">el mes anterior</string>
+    <string name="stats_delta_ref_year">el año anterior</string>
     <!-- Periodo "Siempre": el tiempo es estimado (reproducciones x duracion), no medido -->
-    <string name="stats_summary_time_estimate">Tiempo aprox.</string>
-    <string name="stats_summary_songs">Canciones</string>
-    <string name="stats_summary_artists">Artistas</string>
-    <string name="stats_summary_albums">Álbumes</string>
-    <string name="stats_summary_genres">Géneros</string>
     <!-- %1$d = horas, %2$d = minutos -->
     <string name="stats_time_hours_minutes">%1$d h %2$d min</string>
     <string name="stats_time_minutes">%1$d min</string>
@@ -1011,6 +1031,11 @@
     <string name="stats_section_top_artists">Tus artistas</string>
     <string name="stats_section_top_albums">Tus álbumes</string>
     <string name="stats_section_top_genres">Tus géneros</string>
+    <!-- El denominador NO es el total de reproducciones del periodo: las canciones sin tag de
+         género quedan fuera del ranking, así que tampoco cuentan para el 100 %. -->
+    <!-- %d = porcentaje entero. El espacio antes del signo es la norma en español; en inglés no lo lleva. -->
+    <string name="stats_genre_percent">%1$d %%</string>
+    <string name="stats_genre_share_note">Los porcentajes se calculan sobre las reproducciones con género etiquetado.</string>
     <plurals name="stats_plays">
         <item quantity="one">%1$d reproducción</item>
         <item quantity="other">%1$d reproducciones</item>

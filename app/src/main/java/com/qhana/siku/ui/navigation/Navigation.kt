@@ -51,19 +51,6 @@ sealed class Screen(val route: String) {
     data object Stats : Screen("stats")
 
     /**
-     * El ranking completo de una categoría de estadísticas.
-     *
-     * El PERIODO viaja en la ruta y no en un estado compartido: es lo que hace que la pantalla se
-     * pueda reconstruir desde el back stack sin depender de que la de estadísticas siga viva
-     * detrás. `anchor` es un `LocalDate` ISO (`2026-08-28`); en "Siempre" no significa nada
-     * pero se manda igual para que la ruta tenga una sola forma.
-     */
-    data object StatsList : Screen("stats_list/{kind}/{mode}/{anchor}") {
-        fun createRoute(kind: String, mode: String, anchor: String): String =
-            "stats_list/$kind/$mode/$anchor"
-    }
-
-    /**
      * "Recién agregadas" completa: el destino del "Ver todo" de esa sección del inicio.
      *
      * Es una lista VIRTUAL —no hay tabla ni entidad detrás, solo una consulta con ventana— igual

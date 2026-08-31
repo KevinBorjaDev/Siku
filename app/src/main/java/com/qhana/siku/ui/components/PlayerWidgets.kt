@@ -6,7 +6,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,38 +25,73 @@ import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appSpatialSpec
 
+/** `AssistChipTokens.ContainerHeight`: el alto de cualquier chip de M3. */
+private val ChipHeight = 32.dp
+
+/** Aire a los lados, el que coincide con el del label de un `AssistChip`. */
+private val ChipHorizontalPadding = 16.dp
+
 /**
- * Chip tonal Material 3 Expressive.
- * Píldora de contenedor SÓLIDO plano (sin sombra ni translucidez), mismo tratamiento
- * que la barra de acciones. El contenido debe usar [onContainerColor] para garantizar
- * contraste sobre el color de contenedor.
+ * Contador: "777 canciones", "12 álbumes", la duración de una lista.
  *
- * **El estilo del label lo PONE el chip** (`labelLarge`), no cada caller: es el mismo que los
- * chips de M3 comparten con los botones (`AssistChipTokens.LabelTextFont`), y como acá el chip es
- * una `Surface` propia y no un componente de la librería, nada lo aplicaba solo. Cada caller lo
- * escribía a mano y habían divergido — el MISMO dato ("128 canciones") salía en `labelLarge` en la
- * cabecera de la lista y en `labelMedium` en la del detalle.
+ * **Es un CHIP, con la anatomía de chip de M3** —rectángulo de esquina pequeña y 32dp de alto
+ * (`AssistChipTokens.ContainerShape` y `ContainerHeight`)— y no un badge. Se probó como `Badge` el
+ * 29 ago 2026, con el argumento de que un contador no es interactivo y un chip sí: es cierto en el
+ * papel, pero en device no funcionó. El badge de M3 está dimensionado para vivir DENTRO de un
+ * `BadgedBox`, superpuesto a un icono, y suelto en una fila —al lado del chip de orden, que mide el
+ * doble— se lee como una etiqueta huérfana en vez de como el par del otro. **En una fila, las
+ * piezas que se leen juntas tienen que compartir escala**, aunque una de ellas no se toque.
+ *
+ * Lo que SÍ sobrevive de aquel intento es su ASPECTO: píldora y contenedor de acento, o sea que a
+ * escala de chip sigue leyéndose como un distintivo y no como un control.
+ *
+ * **El color es `tertiaryContainer`, el tercer acento**, y su elección es una posición en una escala
+ * de tres, no un gusto:
+ *
+ *  - **destaca sobre los chips de FILTRO y de ORDEN**, que van en neutro porque su color ya
+ *    significa otra cosa —en un `FilterChip` el relleno de acento ES su estado seleccionado, así que
+ *    teñirlo en reposo sería mentir sobre si está activo—;
+ *  - **pesa menos que los BOTONES**, que se quedan con `secondaryContainer`. Con el mismo relleno
+ *    que ellos era indistinguible de un `QuickActionButton` a centímetros de distancia (visto en
+ *    device), y esa confusión es la que abrió todo este hilo.
+ *
+ * `tertiary` es además el único acento que quedaba libre: en esta app `primary` es lo que NAVEGA (la
+ * tarjeta de estadísticas del inicio) y `secondary` lo que EJECUTA. Su otro uso es el contenedor de
+ * una fila mientras se arrastra, un estado transitorio con el que no se puede confundir.
+ *
+ * De la regla general —*el acento marca lo accionable, lo que solo describe va en neutro*— esto es
+ * la excepción medida: el neutro puro se probó y desaparecía entre los chips de filtro, que son
+ * justo las piezas de las que tiene que distinguirse.
+ *
+ * Sigue siendo SÓLIDO y no un chip *flat* con borde, aunque eso sea lo que M3 da por defecto: dos de
+ * estos viven sobre la foto del header de artista, y encima de una imagen un contenedor transparente
+ * no se lee.
  */
 @Composable
-fun TonalChip(
+fun CountChip(
     modifier: Modifier = Modifier,
-    containerColor: Color = AppColors.secondaryContainer,
+    containerColor: Color = AppColors.tertiaryContainer,
     content: @Composable RowScope.() -> Unit
 ) {
     AppSurface(
         modifier = modifier,
-        shape = RoundedCornerShape(50),
+        // Píldora, que es la forma del badge de M3 (`BadgeTokens.LargeShape` = `CornerFull`) y lo
+        // que le conserva ese aspecto. No se confunde con un botón —que también es píldora— porque
+        // el color los separa, y no se confunde con el chip de orden —que es rectangular— tampoco.
+        shape = CircleShape,
         color = containerColor
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            // Alto FIJO al token en vez de padding vertical: así mide exactamente lo mismo que el
+            // `AssistChip` de al lado, que es el punto de todo esto.
+            modifier = Modifier
+                .height(ChipHeight)
+                .padding(horizontal = ChipHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            // `content` lleva receptor `RowScope`, así que se invoca DENTRO de la lambda del Row
-            // (la lambda de `ProvideTextStyle` no tiene receptor propio y el de fuera sigue a la
-            // vista). `ProvideTextStyle` no emite nodo de layout: los `weight` del caller siguen
-            // valiendo contra el Row.
+            // `content` lleva receptor `RowScope`, así que se invoca DENTRO de la lambda del Row.
+            // `ProvideTextStyle` no emite nodo de layout: los `weight` del caller siguen valiendo.
             ProvideTextStyle(MaterialTheme.typography.labelLarge) { content() }
         }
     }
@@ -266,9 +300,18 @@ fun rememberTonalLayerColors(
     background: Color,
     role: Color = AppColors.secondaryContainer,
     onRole: Color = AppColors.onSecondaryContainer,
-    minContrast: Float = TONAL_LAYER_MIN_CONTRAST
-): TonalLayerColors = remember(background, role, onRole, minContrast) {
-    val container = tonalLayerContainer(background, role)
+    minContrast: Float = TONAL_LAYER_MIN_CONTRAST,
+    /**
+     * Cuánto se separa la capa. Lo elige el caller porque no es la REGLA sino el trabajo de esa capa
+     * concreta —lo mismo que ya hacía [tonalLayerContainer], al que solo faltaba dejarlo pasar desde
+     * aquí—. Un fondo vívido necesita más que uno neutro: sobre un color saturado el croma domina la
+     * percepción y no cambia entre las dos capas, así que el salto tonal se lee menos.
+     *
+     * **La DIRECCIÓN sigue sin ser elegible**: la decide el tono medido del fondo.
+     */
+    delta: Double = TONAL_LAYER_DELTA
+): TonalLayerColors = remember(background, role, onRole, minContrast, delta) {
+    val container = tonalLayerContainer(background, role, delta)
     TonalLayerColors(
         container = container,
         content = ensureContrast(onRole, container, minContrast)

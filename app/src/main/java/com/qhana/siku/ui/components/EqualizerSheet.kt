@@ -1034,7 +1034,7 @@ private fun ProfileSelector(
         leadingIcon = routeIcon(audioRoute),
         enabled = enabled,
         matchAnchorWidth = true,
-        width = ChoiceGroupWidth.Equal,
+        fillWidth = true,
         modifier = modifier
     ) { dismiss ->
         visible.forEachIndexed { index, profile ->
@@ -1106,7 +1106,7 @@ private fun PresetSelector(
         value = stringResource(R.string.eq_selector_preset, matchLabel ?: customLabel),
         enabled = enabled,
         matchAnchorWidth = true,
-        width = ChoiceGroupWidth.Equal,
+        fillWidth = true,
         modifier = modifier
     ) { dismiss ->
         // Aplicar un preset es una SELECCIÓN EXCLUSIVA: sobrecarga `selected`, que lo marca con

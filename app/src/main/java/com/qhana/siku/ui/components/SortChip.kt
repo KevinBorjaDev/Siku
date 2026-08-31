@@ -55,12 +55,20 @@ fun <T> SortChip(
             label = { Text(currentLabel) },
             leadingIcon = { MaterialSymbol("sort", size = 18.sp) },
             trailingIcon = { MaterialSymbol("arrow_drop_down", size = 18.sp) },
+            // NEUTRO y no `secondaryContainer` (29 ago 2026): ése es el color de un botón tonal, y
+            // este chip convive con los `QuickActionButton` del inicio y con los de la pestaña
+            // Todas. **El acento marca lo ACCIONABLE; lo que describe o acota va en neutro** — la
+            // misma regla que dejó neutra la píldora de búsqueda, y la que ahora comparte con
+            // `CountChip`, del que este chip tiene que ser indistinguible: los dos salen juntos en
+            // la misma fila ("777 canciones" al lado de "Recientes primero").
             colors = AssistChipDefaults.assistChipColors(
-                containerColor = AppColors.secondaryContainer,
-                labelColor = AppColors.onSecondaryContainer,
-                leadingIconContentColor = AppColors.onSecondaryContainer,
-                trailingIconContentColor = AppColors.onSecondaryContainer
+                containerColor = AppColors.surfaceContainerHighest,
+                labelColor = AppColors.onSurface,
+                leadingIconContentColor = AppColors.onSurfaceVariant,
+                trailingIconContentColor = AppColors.onSurfaceVariant
             ),
+            // Sin borde: el contenedor sólido ya lo separa del fondo, y con borde además sería la
+            // única pieza de la fila con contorno.
             border = null
         )
         // Menú SEGMENTADO de M3 Expressive = `AppMenuPopup` (nuestro `DropdownMenuPopup`, ver su

@@ -14,6 +14,16 @@ data class PeriodTotals(
     val distinctArtists: Int
 )
 
+/**
+ * Una casilla del histograma de actividad. [bucket] es la clave que produjo `strftime` —un día
+ * `"2026-08-27"` o un mes `"2026-08"`—, no un índice: quien la coloca en el eje es
+ * [com.qhana.siku.ui.viewmodel.ActivityBucketing], que genera esas mismas claves en Kotlin.
+ */
+data class ActivityRow(
+    val bucket: String,
+    val plays: Int
+)
+
 /** Una canción del ranking, con la fila VIVA embebida para poder reproducirla y pintar su carátula. */
 data class TopSongRow(
     @Embedded val song: SongEntity,
@@ -119,6 +129,55 @@ interface PlayEventDao {
         """
     )
     fun recentDaysFlow(maxDays: Int): Flow<List<String>>
+
+    /**
+     * Escuchas agrupadas por casilla de tiempo: el histograma de actividad del periodo.
+     *
+     * [format] es el patrón de `strftime` que decide la RESOLUCIÓN: `'%Y-%m-%d'` para los días de una
+     * semana o un mes, `'%Y-%m'` para los meses de un año. Va como parámetro y no como dos consultas
+     * gemelas porque lo único que cambia entre ellas es esa cadena; quién elige cuál es
+     * [com.qhana.siku.ui.viewmodel.ActivityBucketing], que además sabe generar las MISMAS claves en
+     * Kotlin para rellenar los huecos. Los periodos "Día" y "Siempre" no llaman aquí: ver
+     * `ActivityBucketing.forMode`.
+     *
+     * **Devuelve solo las casillas CON actividad**, que es lo que un `GROUP BY` puede dar: un día sin
+     * escuchas no tiene filas que agrupar. Las casillas vacías las repone el consumidor, y tienen que
+     * reponerse — un histograma al que le faltan los días flojos miente sobre la forma del mes.
+     *
+     * `'localtime'` por el mismo motivo que [recentDaysFlow]: la casilla es la del que mira.
+     *
+     * Menciona SOLO `play_events`, así que el sync no la invalida y no necesita muestreo.
+     */
+    @Query(
+        """
+        SELECT strftime(:format, playedAt / 1000, 'unixepoch', 'localtime') AS bucket,
+               COUNT(*) AS plays
+        FROM play_events
+        WHERE playedAt >= :since AND playedAt < :until
+        GROUP BY bucket
+        ORDER BY bucket
+        """
+    )
+    fun activityFlow(since: Long, until: Long, format: String): Flow<List<ActivityRow>>
+
+    /**
+     * Reproducciones del periodo cuya canción TIENE género, o sea el denominador de los porcentajes
+     * de la sección de géneros.
+     *
+     * No es [totalsFlow]`.plays`: las canciones sin tag quedan fuera del ranking de géneros, así que
+     * también tienen que quedar fuera de lo que suma 100 %. Con el total a secas, los porcentajes de
+     * una biblioteca a medio etiquetar sumarían mucho menos de 100 y no habría forma de saber por qué.
+     * Mismo filtro que [topGenresFlow], y si uno cambia, cambia el otro.
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM play_events e JOIN songs s ON s.id = e.songId
+        WHERE e.playedAt >= :since AND e.playedAt < :until
+          AND s.genre IS NOT NULL AND TRIM(s.genre) != ''
+        """
+    )
+    fun classifiedPlaysFlow(since: Long, until: Long): Flow<Int>
 
     // ==================== RANKINGS ====================
     // El JOIN con `songs` ES el filtro "solo lo que sigue en la biblioteca", y de paso agrupa por

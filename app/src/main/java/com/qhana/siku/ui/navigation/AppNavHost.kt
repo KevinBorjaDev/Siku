@@ -32,7 +32,6 @@ import com.qhana.siku.ui.screens.SettingsProgressBarScreen
 import com.qhana.siku.ui.screens.SettingsScreen
 import com.qhana.siku.ui.screens.SettingsSourcesScreen
 import com.qhana.siku.ui.screens.SettingsTabsScreen
-import com.qhana.siku.ui.screens.StatsListScreen
 import com.qhana.siku.ui.screens.StatsScreen
 import com.qhana.siku.ui.theme.appNavBackEnter
 import com.qhana.siku.ui.theme.appNavBackExit
@@ -539,25 +538,14 @@ fun AppNavHost(
         composable(Screen.Stats.route) {
             StatsScreen(
                 onBackClick = { navController.popBackStack() },
-                // La pantalla ya no reproduce ni navega a detalles: cada tarjeta abre su ranking
-                // completo, y es ahí donde se toca una fila.
-                onOpenList = { kind, mode, anchor ->
-                    navController.navigate(Screen.StatsList.createRoute(kind.name, mode, anchor))
-                }
-            )
-        }
-
-        composable(Screen.StatsList.route) {
-            StatsListScreen(
                 currentSong = currentSong,
-                onBackClick = { navController.popBackStack() },
                 onPlaySongs = { songs, index ->
                     playbackViewModel.playSongs(songs, index)
                     appState.openPlayer(PlayerArtOrigin.ROW)
                 },
-                onArtistClick = { name -> navController.navigate(Screen.ArtistDetail.createRoute(name)) },
-                onAlbumClick = { name -> navController.navigate(Screen.AlbumDetail.createRoute(name)) },
-                onGenreClick = { name -> navController.navigate(Screen.GenreDetail.createRoute(name)) }
+                onArtistClick = { name -> appState.navigateToArtist(name) },
+                onAlbumClick = { name -> appState.navigateToAlbum(name) },
+                onGenreClick = { name -> appState.navigateToGenre(name) }
             )
         }
     }

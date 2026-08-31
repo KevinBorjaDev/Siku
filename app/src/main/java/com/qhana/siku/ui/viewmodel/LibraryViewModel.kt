@@ -229,6 +229,20 @@ class LibraryViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, WhileUiSubscribed, false)
 
+    /**
+     * Estilo moderno de navegación (tres destinos). Vista de UN campo, igual que
+     * [libraryBottomTabs]: la leen la biblioteca —para saber qué páginas monta— y la pantalla de
+     * Ajustes → Navegación, que además la usa para inhabilitar los otros dos controles.
+     */
+    val libraryModernNav: StateFlow<Boolean> = _uiState
+        .map { it.playbackSettings.libraryModernNav }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            WhileUiSubscribed,
+            MusicPreferences.DEFAULT_LIBRARY_MODERN_NAV
+        )
+
     /** Listas del usuario. Ver el bloque de arriba. */
     val playlists: StateFlow<List<Playlist>> = _uiState
         .map { it.data.playlists }
@@ -743,6 +757,7 @@ class LibraryViewModel @Inject constructor(
                     miniPlayerRoundedRect = musicPreferences.loadMiniPlayerRoundedRect(),
                     miniPlayerRoundPlayButton = musicPreferences.loadMiniPlayerRoundPlayButton(),
                     libraryBottomTabs = musicPreferences.loadLibraryBottomTabs(),
+                    libraryModernNav = musicPreferences.loadLibraryModernNav(),
                     playerGestures = musicPreferences.loadPlayerGestures(),
                     themePaletteStyle = musicPreferences.loadThemePaletteStyle(),
                     useSystemEq = musicPreferences.loadUseSystemEq()
@@ -1182,10 +1197,13 @@ class LibraryViewModel @Inject constructor(
      * sobre cuándo existe un control, y escrita en el sitio de uso nada impediría que otra
      * superficie la interpretara distinto.
      */
-    val homeTabHidden: StateFlow<Boolean> = libraryTabs
-        .map { tabs ->
-            tabs.none { it.tab == com.qhana.siku.data.model.LibraryTabId.HOME && it.visible }
-        }
+    val homeTabHidden: StateFlow<Boolean> = combine(libraryTabs, libraryModernNav) { tabs, modern ->
+        // Con el estilo moderno Inicio SIEMPRE es uno de los tres destinos, así que la config de
+        // pestañas —que sigue guardada, y puede tener Inicio apagada— no dice nada aquí. Sin este
+        // término, quien ocultó Inicio y luego activó el modo moderno vería los repuestos
+        // (Estadísticas en el overflow, play/aleatorio en Todas) duplicando controles que sí existen.
+        !modern && tabs.none { it.tab == com.qhana.siku.data.model.LibraryTabId.HOME && it.visible }
+    }
         .distinctUntilChanged()
         // `false` de arranque: se asume que Inicio está (es el default de la app), así que los
         // repuestos no pueden asomar un frame en la configuración normal.
@@ -1285,6 +1303,18 @@ class LibraryViewModel @Inject constructor(
     fun setLibraryBottomTabs(enabled: Boolean) {
         _uiState.update { it.copy(playbackSettings = it.playbackSettings.copy(libraryBottomTabs = enabled)) }
         musicPreferences.saveLibraryBottomTabs(enabled)
+    }
+
+    /**
+     * Estilo moderno: tres destinos en vez de las seis pestañas configurables.
+     *
+     * **No toca la config de pestañas persistida.** Mientras está encendido, esa config y
+     * [setLibraryBottomTabs] quedan inhabilitadas en Ajustes; al apagarlo vuelve exactamente lo que
+     * el usuario tenía, que es lo que hace del modo algo que se puede probar sin coste.
+     */
+    fun setLibraryModernNav(enabled: Boolean) {
+        _uiState.update { it.copy(playbackSettings = it.playbackSettings.copy(libraryModernNav = enabled)) }
+        musicPreferences.saveLibraryModernNav(enabled)
     }
 
     /**

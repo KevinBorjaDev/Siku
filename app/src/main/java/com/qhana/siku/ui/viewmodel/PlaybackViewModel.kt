@@ -200,6 +200,15 @@ class PlaybackViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.Eagerly, musicPreferences.loadLibraryBottomTabs())
 
     /**
+     * Estilo moderno de navegación. Aquí tampoco se dibuja nada con él: lo lee la CAPA del
+     * reproductor porque con el estilo moderno SIEMPRE hay barra abajo, o sea que entra en el
+     * mismo cálculo de cuánto se aparta la píldora (ver `libraryChrome`).
+     */
+    val libraryModernNav: StateFlow<Boolean> =
+        musicPreferences.libraryModernNavFlow
+            .stateIn(viewModelScope, SharingStarted.Eagerly, musicPreferences.loadLibraryModernNav())
+
+    /**
      * Ficha técnica en el chip de formato. Se observa del DataStore (no un MutableStateFlow local)
      * porque el ajuste tiene DOS escritores: este chip y el switch de Ajustes → Apariencia.
      */

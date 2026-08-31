@@ -23,13 +23,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationItemIconPosition
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarArrangement
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -51,6 +57,7 @@ import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.appLibraryToolbarItemColors
 import com.qhana.siku.ui.theme.appNavigationRailItemColors
+import com.qhana.siku.ui.theme.appShortNavigationBarItemColors
 import com.qhana.siku.ui.theme.appLibraryToolbarColors
 
 /*
@@ -100,6 +107,35 @@ import com.qhana.siku.ui.theme.appLibraryToolbarColors
  */
 internal val LibraryBottomBarPillLift =
     ComponentConfig.FloatingBarBottomMargin + ComponentConfig.FloatingToolbarHeight
+
+/**
+ * Alto del contenedor = `NavigationBarTokens.ContainerHeight`, que es el `defaultMinSize` que el
+ * propio `ShortNavigationBar` se aplica por dentro. Hace falta el número de ESTE lado porque la
+ * barra es una CAPA y no un `bottomBar` que reserve su hueco: el colchón de las listas y el
+ * desplazamiento del MiniPlayer se calculan a mano.
+ *
+ * Y da 64 con la anatomía que se usa (glifo arriba, etiqueta debajo), no por casualidad: 6 de aire +
+ * 32 del indicador + 4 hasta la etiqueta + su línea + 6 suman justo eso. El
+ * `TallContainerHeight` de 80 es de la `NavigationBar` clásica, más holgada.
+ *
+ * **Es un MÍNIMO, no una medida**: con el tamaño de texto del sistema muy ampliado la etiqueta crece
+ * y el ítem con ella. No se persigue con una medición real porque quien necesita el número —la capa
+ * del reproductor— vive fuera de esta composición, y pasárselo por estado sería el segundo escritor
+ * que `libraryChrome` existe para evitar. El colchón de las listas absorbe la diferencia: ya lleva
+ * encima el `FloatingBarListInset` del MiniPlayer.
+ */
+private val ShortNavigationBarHeight = 64.dp
+
+/**
+ * Cuánto SUBE la píldora del MiniPlayer cuando abajo vive la barra de navegación del estilo moderno:
+ * **el alto del contenedor y nada más**.
+ *
+ * No lleva margen —la barra está PEGADA al borde, así que no hay aire debajo del que despegarse— ni
+ * la navbar del sistema, aunque la barra sí la consuma: el mini ya la esquiva por su cuenta con su
+ * propio inset, y sumarla aquí la contaría dos veces. Es el mismo razonamiento que
+ * [LibraryBottomBarPillLift], con los dos sumandos que allí sí aplican quitados.
+ */
+internal val LibraryNavBarPillLift = ShortNavigationBarHeight
 
 /**
  * El glifo en dp. `TabIconSize` está en **sp** porque `MaterialSymbol` es una fuente variable y el
@@ -179,7 +215,7 @@ private val ToolbarShadowElevation = 1.dp
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun LibraryBottomToolbar(
-    tabs: List<TabInfo>,
+    pages: List<LibraryPage>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
     /**
@@ -191,10 +227,10 @@ internal fun LibraryBottomToolbar(
     background: Color,
     modifier: Modifier = Modifier
 ) {
-    if (tabs.isEmpty()) return
-    val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
+    if (pages.isEmpty()) return
+    val safeIndex = selectedIndex.coerceIn(0, pages.lastIndex)
     val haptics = LocalHapticFeedback.current
-    val labels = tabs.map { stringResource(it.titleRes) }
+    val labels = pages.map { stringResource(it.titleRes) }
     val labelStyle = MaterialTheme.typography.labelMedium
 
     HorizontalFloatingToolbar(
@@ -245,7 +281,7 @@ internal fun LibraryBottomToolbar(
                     labels.maxOf { textMeasurer.measure(it, labelStyle).size.width }.toDp()
                 }
             }
-            val showLabel = ToolbarItemSize * tabs.size + ToolbarLabelExtra + widestLabel <= maxWidth
+            val showLabel = ToolbarItemSize * pages.size + ToolbarLabelExtra + widestLabel <= maxWidth
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -255,7 +291,7 @@ internal fun LibraryBottomToolbar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                tabs.forEachIndexed { index, tab ->
+                pages.forEachIndexed { index, page ->
                     val selected = index == safeIndex
                     val label = labels[index]
                     ToggleButton(
@@ -293,7 +329,7 @@ internal fun LibraryBottomToolbar(
                             // etiqueta visible sería un botón mudo para el lector de pantalla.
                             .semantics { contentDescription = label }
                     ) {
-                        MaterialSymbol(tab.iconName, size = TabIconSize, fill = selected)
+                        MaterialSymbol(page.iconName, size = TabIconSize, fill = selected)
                         if (selected && showLabel) {
                             Spacer(modifier = Modifier.width(ToolbarLabelGap))
                             Text(
@@ -305,6 +341,116 @@ internal fun LibraryBottomToolbar(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * La barra de navegación de abajo del **estilo moderno**: `ShortNavigationBar`, el componente real
+ * de M3 Expressive para destinos top-level.
+ *
+ * **No es el toolbar flotante con otros colores, y esa es la decisión.** El toolbar
+ * ([LibraryBottomToolbar]) representa hasta seis PESTAÑAS de un pager, que son vistas de una misma
+ * pantalla; esto son tres DESTINOS de primer nivel, que es exactamente el caso que la navigation bar
+ * tabula. Con tres, el toolbar flotante quedaba o estirado con dos huecos enormes o ceñido y
+ * pequeño en medio de la pantalla — probadas las dos en device y descartadas.
+ *
+ * Ojo con la historia, porque parece que esto ya se descartó y NO es el mismo caso: el
+ * `ShortNavigationBar` propio de julio y la `LibraryTabsRow` puesta en el slot `bottomBar` se
+ * quitaron el 22 ago porque llevaban dentro las SEIS pestañas —"una fila de pestañas puesta abajo
+ * sigue siendo una fila de pestañas"—. Lo que cambia aquí no es el componente sino lo que contiene.
+ *
+ * **Va como CAPA y no en el slot `bottomBar`**, igual que el rail y que el toolbar. No es por
+ * apariencia —una barra apoyada sí podría reservar su hueco— sino para no partir en dos el reparto
+ * de insets: el colchón de las listas ya se compone a mano en `LibraryScreen` para las otras dos
+ * presentaciones, y con el slot puesto `paddingValues.calculateBottomPadding()` traería el alto en
+ * un modo y cero en los otros, o sea dos aritméticas para lo mismo. El alto lo reserva `listInsets`
+ * con [LibraryNavBarPillLift].
+ *
+ * **Su color sale de la HORQUILLA, no del token.** `NavigationBarTokens.ContainerColor` es
+ * `surfaceContainer`, que en esta app ES el fondo de página: con él la barra desaparecería contra
+ * la pantalla. La regla de la app dice que las barras BAJAN desde el fondo, así que va en
+ * `chromeSurface` — el MISMO color que la fila de pestañas de arriba y que el rail, que es lo
+ * correcto además por otro lado: las tres son la misma navegación en tres sitios. (El toolbar es la
+ * excepción y deriva su color del fondo real, porque FLOTA y necesita leerse como un objeto
+ * separado; una barra apoyada al borde no tiene ese problema.)
+ *
+ * **`EqualWeight` y no `Centered`**: con tres destinos en un teléfono, repartir el ancho a partes
+ * iguales es lo que M3 recomienda para pantallas estrechas, y da tres blancos táctiles del mismo
+ * tamaño — el centrado deja los extremos más cerca del borde de lo que el pulgar espera.
+ *
+ * **La etiqueta va SIEMPRE y en los tres**, que es lo que hace una navigation bar normal: aquí no
+ * hace falta la maquinaria de "solo si cabe" del toolbar, porque el glifo y el texto van en columna
+ * —no compiten por el ancho— y el componente reparte y recorta él mismo si un idioma o una fuente
+ * ampliada lo piden.
+ */
+// Sin `@OptIn`: `ShortNavigationBar`, su item, el arrangement y la posición del icono son API
+// ESTABLE en 1.5.0-alpha24 (comprobado en las fuentes de la versión pineada). Un opt-in de más no
+// rompe nada, pero dice que esto se apoya en algo provisional cuando no es el caso.
+@Composable
+internal fun LibraryNavigationBar(
+    pages: List<LibraryPage>,
+    selectedIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    containerColor: Color,
+    modifier: Modifier = Modifier
+) {
+    if (pages.isEmpty()) return
+    val safeIndex = selectedIndex.coerceIn(0, pages.lastIndex)
+    val haptics = LocalHapticFeedback.current
+
+    ShortNavigationBar(
+        containerColor = containerColor,
+        contentColor = AppColors.onSurfaceVariant,
+        // `SafeBarInsets` y no el default del componente (`systemBarsForVisualComponents`): girado,
+        // lo que hay que esquivar en los costados es también la perforación de pantalla, que ese
+        // default no cubre. Es el mismo juego que consumen el rail y el resto del cromo de la app.
+        windowInsets = SafeBarInsets.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+        ),
+        arrangement = ShortNavigationBarArrangement.EqualWeight,
+        modifier = modifier
+    ) {
+        // **Ripple APAGADO** (`LocalRippleConfiguration provides null`, el mecanismo que M3
+        // documenta para eso, y el mismo que ya usa `LibraryTabs` en la fila del modo clásico).
+        //
+        // `NavigationItem` dibuja DOS capas superpuestas: un `IndicatorRipple` con la forma del
+        // indicador —gris, porque hereda el `onSurfaceVariant` del contenido de la barra— y el
+        // `Indicator` de color. Al tocar un destino se veían las dos moverse a la vez, con ritmos
+        // distintos: un borrón gris creciendo bajo el glifo y, encima, el indicador tiñéndose. Dos
+        // animaciones para un solo toque (visto en device el 30 ago 2026).
+        //
+        // De las dos, la que INFORMA es la de color: dice dónde estás. El ripple gris es feedback
+        // de pulsación, y aquí es redundante — el indicador aparece en el mismo gesto y en el mismo
+        // sitio. Se conserva el háptico, que es el otro acuse de recibo del toque.
+        CompositionLocalProvider(LocalRippleConfiguration provides null) {
+            pages.forEachIndexed { index, page ->
+                val selected = index == safeIndex
+                ShortNavigationBarItem(
+                    selected = selected,
+                    onClick = {
+                        if (!selected) {
+                            // Tick de segmento: el MISMO háptico que la fila de arriba, el toolbar y el
+                            // rail — moverse entre destinos se siente igual se toque donde se toque.
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            onTabSelected(index)
+                        }
+                    },
+                    icon = { MaterialSymbol(page.iconName, size = TabIconSize, fill = selected) },
+                    label = { Text(text = stringResource(page.titleRes)) },
+                    // **`Top`, que es la anatomía de la navigation bar: glifo arriba, etiqueta debajo y
+                    // el indicador rodeando SOLO el glifo.** Es el default del componente y se deja
+                    // escrito igual, porque es justo la línea que distingue esta pieza del toolbar.
+                    //
+                    // Estuvo un rato en `Start` —glifo y etiqueta en la misma línea, dentro de un
+                    // indicador que envuelve a los dos— y el usuario lo cantó en device: así no se ve
+                    // una barra de navegación, se ve el toolbar de antes con el contenedor estirado.
+                    // Tenía sentido en el toolbar, donde el destino ES un `ToggleButton` con su
+                    // contenido en fila; aquí es lo que hay que no repetir.
+                    iconPosition = NavigationItemIconPosition.Top,
+                    colors = appShortNavigationBarItemColors()
+                )
             }
         }
     }
@@ -372,14 +518,14 @@ internal val LibraryRailWidth = 80.dp
  */
 @Composable
 internal fun LibraryNavRail(
-    tabs: List<TabInfo>,
+    pages: List<LibraryPage>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
     containerColor: Color,
     modifier: Modifier = Modifier
 ) {
-    if (tabs.isEmpty()) return
-    val safeIndex = selectedIndex.coerceIn(0, tabs.lastIndex)
+    if (pages.isEmpty()) return
+    val safeIndex = selectedIndex.coerceIn(0, pages.lastIndex)
     val haptics = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
     NavigationRail(
@@ -411,7 +557,7 @@ internal fun LibraryNavRail(
                 ),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                tabs.forEachIndexed { index, tab ->
+                pages.forEachIndexed { index, page ->
                     val selected = index == safeIndex
                     // Al cambiar de pestaña deslizando el pager, la activa puede quedar fuera del
                     // scroll: el rail es un ESPEJO del pager y tiene que enseñar dónde estás. Con
@@ -430,10 +576,10 @@ internal fun LibraryNavRail(
                                 onTabSelected(index)
                             }
                         },
-                        icon = { MaterialSymbol(tab.iconName, size = TabIconSize, fill = selected) },
+                        icon = { MaterialSymbol(page.iconName, size = TabIconSize, fill = selected) },
                         label = {
                             Text(
-                                text = stringResource(tab.titleRes),
+                                text = stringResource(page.titleRes),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

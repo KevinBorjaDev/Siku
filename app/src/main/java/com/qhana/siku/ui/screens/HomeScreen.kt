@@ -37,32 +37,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.ui.components.secondaryContentColor
-import com.qhana.siku.ui.components.AdaptiveCollage
+import com.qhana.siku.ui.components.ArtCarouselCard
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.MaterialSymbol
-import com.qhana.siku.ui.components.onContainerColor
 import com.qhana.siku.ui.components.QuickActionButton
+import com.qhana.siku.ui.components.TONAL_LAYER_DELTA
 import com.qhana.siku.ui.components.rememberTonalLayerColors
 import com.qhana.siku.ui.components.formatListeningTime
-import com.qhana.siku.ui.components.vividAccentColor
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.HomeDiscover
@@ -108,6 +100,21 @@ private val StatsBadgeSize = 48.dp
  * propósito: aquél es la identidad de la fila y éste solo su affordance, así que no deben pesar
  * igual.
  */
+/**
+ * Cuánto se separa el chevron del contenedor de la tarjeta: **el DOBLE del salto tonal normal**.
+ *
+ * Los 8 puntos de `TONAL_LAYER_DELTA` están calibrados sobre las superficies NEUTRAS de la app —la
+ * escala de `surfaceContainer`, donde 8 puntos son todo el recorrido de la escala de contenedores—.
+ * Esta tarjeta va en `primaryContainer` y es vívida: sobre un color saturado, 8 puntos de tono se
+ * leen mucho menos que sobre un gris, porque el croma domina la percepción y no cambia entre las dos
+ * capas. Medido a ojo en device dos veces, y las dos el círculo se desvanecía.
+ *
+ * El doble es el mismo recurso —y el mismo número— que ya usa el indicador activo del toolbar de la
+ * biblioteca (`LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA`) por una razón parecida: cuando una capa tiene que
+ * leerse sobre otra que ya es una capa, un solo salto no basta.
+ */
+private const val StatsChevronToneDelta = TONAL_LAYER_DELTA * 2
+
 private val StatsChevronSize = 40.dp
 
 /**
@@ -371,7 +378,22 @@ private fun GreetingHeader(stats: HomeStats) {
 @Composable
 private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
     // El fondo sobre el que se apoya el chevron es el contenedor de la FILA, no el de la página.
-    val chevronColors = rememberTonalLayerColors(background = AppColors.secondaryContainer)
+    //
+    // **Y el ROL del que deriva tiene que ser el de esa misma fila** (29 ago 2026): el default de
+    // `rememberTonalLayerColors` es `secondaryContainer`, o sea que tomaba su hue y su CROMA —bajos,
+    // porque es un contenedor pálido— y solo movía el tono 8 puntos respecto al fondo. Sobre el
+    // `secondaryContainer` de antes eso funcionaba porque los cromas coincidían; sobre el
+    // `primaryContainer` de ahora, que es vívido, un círculo de croma bajo a 8 puntos de tono se
+    // desvanece: la separación tonal estaba, pero la de croma jugaba en contra. Pasando el rol de la
+    // propia fila, hue y croma coinciden y **lo único que los separa es el tono**, que es justo lo
+    // que la regla promete. Regla general: al derivar una capa sobre un contenedor, el rol que se
+    // pasa es el de ESE contenedor, no el default.
+    val chevronColors = rememberTonalLayerColors(
+        background = AppColors.primaryContainer,
+        role = AppColors.primaryContainer,
+        onRole = AppColors.onPrimaryContainer,
+        delta = StatsChevronToneDelta
+    )
     AppSurface(
         modifier = Modifier
             .fillMaxWidth()
@@ -382,7 +404,13 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         // demasiado los extremos. `extraLarge` son 28 y es TOKEN, no un número a ojo — el MiniPlayer
         // usa este mismo par para conmutar entre píldora y rectángulo redondeado.
         shape = MaterialTheme.shapes.extraLarge,
-        color = AppColors.secondaryContainer
+        // `primaryContainer` y no `secondaryContainer` (29 ago 2026, visto en device): con el
+        // secundario llevaba EXACTAMENTE el mismo color que los `QuickActionButton` de justo
+        // debajo, y no se distinguía de ellos. Y no son lo mismo: esto NAVEGA a otra pantalla,
+        // aquéllos arrancan reproducción sin moverte de aquí. El acento principal para lo que es un
+        // destino, el secundario para las acciones — la jerarquía completa de la zona está en el
+        // KDoc de `CountChip`, que es el escalón de más abajo.
+        color = AppColors.primaryContainer
     ) {
         Row(
             modifier = Modifier
@@ -395,13 +423,23 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         ) {
             AppSurface(
                 shape = MaterialShapes.Cookie9Sided.toShape(),
-                color = AppColors.primary,
+                // `onPrimaryContainer` como CONTENEDOR del distintivo, no `primary`: sobre la
+                // tarjeta en `primaryContainer` esos dos comparten matiz y banda tonal, así que el
+                // distintivo se fundía con su fondo. El par `on-` del contenedor está, por
+                // definición, al otro extremo de la escala — que es justo lo que hace falta para
+                // que un sello se lea. Su glifo va del color del contenedor, cerrando el par.
+                color = AppColors.onPrimaryContainer,
                 modifier = Modifier.size(StatsBadgeSize)
             ) {
                 // fillMaxSize: sin él el Box se ciñe al glifo y `Center` no centra nada dentro del
                 // distintivo (el mismo detalle que ya mordió en la píldora de Favoritos).
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaterialSymbol("bar_chart", fill = true, size = 24.sp, color = AppColors.onPrimary)
+                    MaterialSymbol(
+                        "bar_chart",
+                        fill = true,
+                        size = 24.sp,
+                        color = AppColors.primaryContainer
+                    )
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -409,7 +447,10 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                 Text(
                     text = stringResource(R.string.stats_home_entry_title),
                     style = MaterialTheme.typography.bodyLargeEmphasized,
-                    color = AppColors.onSecondaryContainer,
+                    // `onPrimaryContainer`, el par del contenedor: al subir la tarjeta a
+                    // `primaryContainer` esto se quedó en `onSecondaryContainer` y era texto oscuro
+                    // sobre un fondo saturado. Un `on-` sin su contenedor no promete nada.
+                    color = AppColors.onPrimaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -422,8 +463,8 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = secondaryContentColor(
-                        AppColors.onSecondaryContainer,
-                        AppColors.secondaryContainer
+                        AppColors.onPrimaryContainer,
+                        AppColors.primaryContainer
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -604,7 +645,7 @@ private fun SongCarousel(
                 songId = song.id,
                 modifier = Modifier.maskClip(HomeCardShape).fillMaxSize()
             ) {
-                HomeCarouselCard(
+                ArtCarouselCard(
                     art = song.albumArtUri?.toString(),
                     title = song.title,
                     subtitle = song.artist,
@@ -669,7 +710,7 @@ private fun ContextCarousel(
                 ctx is PlaybackContext.Favorites -> favoriteCovers
                 else -> null
             }
-            HomeCarouselCard(
+            ArtCarouselCard(
                 art = ctx.coverUri(),
                 title = ctx.displayTitle(),
                 subtitle = ctx.displaySubtitle(),
@@ -774,7 +815,7 @@ private fun RelatedArtistCarousel(
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope
             )
-            HomeCarouselCard(
+            ArtCarouselCard(
                 art = artist.artUri,
                 title = artist.name,
                 subtitle = pluralStringResource(
@@ -808,172 +849,6 @@ private fun CarouselItemScope.labelAlpha(): () -> Float = {
     // legible: remapeamos para que por debajo de ~0.65 sea 0 y suba suave (t²) hasta 1 en el foco.
     val t = ((fraction - 0.65f) / 0.35f).coerceIn(0f, 1f)
     t * t
-}
-
-/**
- * Velo bajo el emblema. Suficiente para que un glifo blanco se lea sobre una portada clara, y no
- * tanto como para que el collage deje de reconocerse: la tarjeta tiene que seguir enseñando de qué
- * está hecha la lista.
- */
-private const val EmblemScrimAlpha = 0.45f
-
-/** El emblema es la marca de la tarjeta, así que va por encima del glifo de relleno (44sp). */
-private val EmblemGlyphSize = 52.sp
-
-/**
- * Tarjeta de carrusel del inicio: carátula a sangre con degradado inferior y etiqueta superpuesta.
- * [modifier] llega con el recorte del carrusel ([maskClip]); [artModifier] es para el shared element
- * de la carátula (álbumes). Opcionalmente pinta un [badgeIcon] (esquina sup-der, distintivo de tipo)
- * y un indicador de "en reproducción" ([isCurrent], sup-der).
- */
-@Composable
-private fun HomeCarouselCard(
-    art: String?,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    artModifier: Modifier = Modifier,
-    isCurrent: Boolean = false,
-    badgeIcon: String? = null,
-    placeholderIcon: String = "music_note",
-    // Collage de carátulas (contextos sin carátula propia: aleatorio / toda la biblioteca).
-    // Con al menos una URI reemplaza a [art]/[placeholderIcon]; se adapta a cuántas haya.
-    collage: List<String>? = null,
-    /**
-     * Glifo de identidad sobre la imagen, para una tarjeta cuya portada NO dice de qué es. Se pinta
-     * relleno y sobre un velo, y solo cuando hay algo debajo: con el placeholder ya se está
-     * dibujando ese mismo símbolo en grande, y encimarle otro sería el mismo icono dos veces.
-     */
-    emblemIcon: String? = null,
-    // Alfa de la etiqueta (título/subtítulo + degradado). Se lee en fase de dibujo para que en el
-    // multi-browse solo el ítem GRANDE (el foco) muestre su label y los que asoman lo oculten.
-    labelAlpha: () -> Float = { 1f }
-) {
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            // Sin indication: el ripple rectangular gris se hacía muy visible al presionar
-            // (no hay long-press que lo amerite).
-            .clickable(interactionSource = null, indication = null, onClick = onClick)
-            .background(AppColors.surfaceContainerHighest)
-    ) {
-        when {
-            !collage.isNullOrEmpty() -> AdaptiveCollage(collage, Modifier.fillMaxSize())
-            art != null -> {
-                val context = LocalContext.current
-                // Sin clave propia: la de Coil (data + tamaño + transformaciones) ya es la
-                // correcta. La versión anterior componía `<identidad de la tarjeta>@<uri>` para que
-                // un cambio de imagen invalidara la entrada —la foto del artista que llega del
-                // backfill, "ninguno de estos", una carátula reparada—, pero el URI SOLO consigue
-                // eso mismo (si la imagen cambia, cambia la clave) sin el efecto secundario que
-                // traía el prefijo: dos tarjetas que muestran la misma portada guardaban dos copias
-                // del mismo bitmap. Ver el kdoc de la petición en [AlbumArt].
-                val request = ImageRequest.Builder(context)
-                    .data(art)
-                    .crossfade(200)
-                    .build()
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = artModifier.fillMaxSize()
-                )
-            }
-            else -> {
-                Box(modifier = artModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaterialSymbol(placeholderIcon, size = 44.sp, color = AppColors.onSurfaceVariant)
-                }
-            }
-        }
-
-        // Emblema: velo + glifo RELLENO. El velo no es decoración — un corazón blanco sobre un
-        // collage de portadas claras desaparece, y es el mismo motivo por el que existe el
-        // degradado de la etiqueta de abajo. Va con el alfa del label para que en el multi-browse
-        // los ítems que solo asoman enseñen su portada limpia, igual que hacen con el título.
-        val emblem = emblemIcon
-        if (emblem != null && !collage.isNullOrEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = labelAlpha() }
-                    .background(Color.Black.copy(alpha = EmblemScrimAlpha)),
-                contentAlignment = Alignment.Center
-            ) {
-                MaterialSymbol(emblem, fill = true, size = EmblemGlyphSize, color = Color.White)
-            }
-        }
-
-        // Degradado inferior para legibilidad de la etiqueta sobre cualquier carátula. Se
-        // desvanece junto con el label en los ítems que asoman (no-foco).
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = labelAlpha() }
-                .background(
-                    Brush.verticalGradient(
-                        0.45f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.72f)
-                    )
-                )
-        )
-
-        // Etiqueta (título + subtítulo) sobre el degradado. Solo el ítem grande (foco) la muestra.
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .graphicsLayer { alpha = labelAlpha() }
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmallEmphasized,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        // Distintivo de tipo (esquina superior DERECHA).
-        if (badgeIcon != null) {
-            val badge = vividAccentColor(AppColors.primary)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(badge)
-                    .padding(4.dp)
-            ) {
-                MaterialSymbol(badgeIcon, size = 16.sp, color = onContainerColor(badge))
-            }
-        }
-
-        // Indicador de "en reproducción" (esquina superior derecha).
-        if (isCurrent) {
-            val accent = vividAccentColor(AppColors.primary)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(accent)
-                    .padding(4.dp)
-            ) {
-                MaterialSymbol("graphic_eq", size = 16.sp, color = onContainerColor(accent), fill = true)
-            }
-        }
-    }
 }
 
 @Composable

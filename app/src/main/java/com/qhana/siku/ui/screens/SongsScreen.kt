@@ -585,7 +585,7 @@ private fun SourceFilterRow(
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
-        // El chip de conteo (TonalChip) es más alto que los AssistChip/FilterChip; centrar
+        // El chip de conteo (CountChip) es más alto que los AssistChip/FilterChip; centrar
         // cada fila los alinea (si no, el default Top deja los chips cortos pegados arriba).
         itemVerticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -596,12 +596,11 @@ private fun SourceFilterRow(
         // El conteo va SIEMPRE primero: es lo que dice qué lista es ésta, y su sitio no puede
         // depender de si hay acciones o no — si se corriera, la misma fila cambiaría de anclaje
         // según una preferencia de pestañas que no tiene nada que ver con ella.
-        TonalChip {
+        CountChip {
             Text(
                 text = androidx.compose.ui.res.pluralStringResource(
                     R.plurals.song_count, songCount, songCount
                 ),
-                color = AppColors.onSecondaryContainer
             )
         }
         // Detrás del conteo y delante del orden y los filtros: son lo único de esta fila que HACE

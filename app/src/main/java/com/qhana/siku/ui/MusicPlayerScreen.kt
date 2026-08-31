@@ -62,6 +62,7 @@ import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.navigation.AppNavHost
 import com.qhana.siku.ui.navigation.Screen
 import com.qhana.siku.ui.screens.LibraryBottomBarPillLift
+import com.qhana.siku.ui.screens.LibraryNavBarPillLift
 import com.qhana.siku.ui.screens.LibraryRailWidth
 import com.qhana.siku.ui.screens.POSITION_TICK_MS
 import com.qhana.siku.ui.viewmodel.AuthViewModel
@@ -307,13 +308,21 @@ fun MusicPlayerScreen(
     // Dos piezas flotando en la misma capa leyendo media condición cada una es exactamente lo que
     // esta función existe para evitar.
     val libraryBottomTabs by playbackViewModel.libraryBottomTabs.collectAsStateWithLifecycle()
+    // Incondicional, como la de arriba: un `collectAsState` dentro de un `if` renace con su
+    // valor inicial cada vez que la rama vuelve a entrar (convención 15).
+    val libraryModernNav by playbackViewModel.libraryModernNav.collectAsStateWithLifecycle()
     val libraryChromeMode = libraryChrome(
         route = currentRoute,
         bottomTabs = libraryBottomTabs,
+        modernNav = libraryModernNav,
         landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     )
-    val chromeLift =
-        if (libraryChromeMode == LibraryChrome.BottomBar) LibraryBottomBarPillLift else 0.dp
+    // Lo mismo que hace `PlayerOverlay` con la píldora: cada pieza de abajo aparta lo suyo.
+    val chromeLift = when (libraryChromeMode) {
+        LibraryChrome.BottomBar -> LibraryBottomBarPillLift
+        LibraryChrome.NavBar -> LibraryNavBarPillLift
+        else -> 0.dp
+    }
     val chromeRailInset =
         if (libraryChromeMode == LibraryChrome.Rail) LibraryRailWidth else 0.dp
     val requestedLayer = when {

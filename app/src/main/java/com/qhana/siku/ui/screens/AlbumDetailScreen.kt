@@ -51,7 +51,7 @@ import com.qhana.siku.ui.components.CreatePlaylistDialog
 import com.qhana.siku.ui.components.DetailPlayButtons
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.entityImageSharedBounds
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
@@ -542,22 +542,20 @@ private fun AlbumImmersiveHeader(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TonalChip {
-                    MaterialSymbol("music_note", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("music_note", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (songCount == 1) "1 canción" else "$songCount canciones",
-                        color = AppColors.onSecondaryContainer
                     )
                 }
                 // El año solo aparece si alguna pista lo declara: un chip "0" o vacío sería peor
                 // que no tenerlo, y hay bibliotecas enteras sin ese tag.
                 if (year > 0) {
                     Spacer(modifier = Modifier.width(8.dp))
-                    TonalChip {
+                    CountChip {
                         Text(
                             text = year.toString(),
-                            color = AppColors.onSecondaryContainer
                         )
                     }
                 }

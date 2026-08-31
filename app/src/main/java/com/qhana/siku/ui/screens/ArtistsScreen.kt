@@ -14,8 +14,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialShapes
-import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +39,7 @@ import com.qhana.siku.R
 import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.model.ArtistSortOrder
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.ui.components.BannerAmber
 import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.FilteredEmptyHint
@@ -50,41 +49,12 @@ import com.qhana.siku.ui.components.SortChip
 import com.qhana.siku.ui.components.SourceFilterChips
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
-import com.qhana.siku.ui.components.RoundedPolygonMaskTransformation
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.ArtistPhotoMask
+import com.qhana.siku.ui.components.ArtistPhotoShape
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.rememberRowActionColors
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
-
-/**
- * Máscara COMPARTIDA por todas las filas: una sola instancia (el path unitario se calcula una vez)
- * y un solo cacheKey para el memory cache de Coil.
- *
- * La forma es **`MaterialShapes.Cookie7Sided`** desde el 21 ago 2026; antes fue un heptágono propio
- * (`HeptagonShape`, eliminado al quedarse sin consumidores) y, un rato ese mismo día, `Gem`.
- *
- * **Sale de [ArtistPhotoShape] y de ningún otro sitio.** La forma de esta foto vive en TRES
- * consumidores —esta máscara, la silueta que se declara para el vuelo del shared element, y el
- * fondo del placeholder— y con la forma escrita a mano en cada uno es posible cambiar unos y no
- * otros. Pasó: al pasar de `Gem` a `Cookie7Sided` se cambió solo la máscara, así que el bitmap
- * llevaba una cookie horneada mientras el overlay del vuelo lo recortaba con una gema. El síntoma
- * no parecía de forma sino de MOVIMIENTO —al volver del detalle la imagen se contraía hacia
- * adentro—, porque lo que se veía era una silueta cerrándose sobre otra distinta.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private val ArtistPhotoShape: RoundedPolygon get() = MaterialShapes.Cookie7Sided
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private val ArtistPhotoMask by lazy {
-    RoundedPolygonMaskTransformation(ArtistPhotoShape, cacheKey = ARTIST_PHOTO_CACHE_KEY)
-}
-
-/**
- * Identifica la TRANSFORMACIÓN dentro de la clave del memory cache de Coil. **Cambiar la forma
- * obliga a cambiar esto**, o los recortes ya cacheados con la forma vieja se sirven como si fueran
- * los nuevos.
- */
-private const val ARTIST_PHOTO_CACHE_KEY = "cookie7"
 
 /**
  * Pestaña "Artistas": lista con foto Deezer, nombre y contadores. Las fotos NO se fetchean
@@ -145,17 +115,18 @@ fun ArtistsScreen(
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                // Centrar cada fila: el TonalChip de conteo es más alto que los demás chips.
+                // Centrar cada fila: los chips ya miden todos 32dp (ver `CountChip`), pero el
+                // `SortChip` crece con el ajuste de tamaño de texto del sistema y el de
+                // conteo no tiene por qué acompañarlo — alineados arriba, se descuadran.
                 itemVerticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 4.dp)
             ) {
-                TonalChip {
+                CountChip {
                     Text(
                         text = pluralStringResource(R.plurals.artist_count, artists.size, artists.size),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
                 SortChip(

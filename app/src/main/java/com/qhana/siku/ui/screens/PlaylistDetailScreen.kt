@@ -49,7 +49,7 @@ import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.rememberActiveRowContentColor
 import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.components.rememberReorderableListItemShape
@@ -696,21 +696,19 @@ private fun PlaylistImmersiveHeader(
             )
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TonalChip {
-                    MaterialSymbol("music_note", size = 14.sp, color = AppColors.onSecondaryContainer)
+                CountChip {
+                    MaterialSymbol("music_note", size = 14.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = pluralStringResource(R.plurals.song_count, songs.size, songs.size),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
                 if (totalDurationMin > 0) {
-                    TonalChip {
-                        MaterialSymbol("schedule", size = 14.sp, color = AppColors.onSecondaryContainer)
+                    CountChip {
+                        MaterialSymbol("schedule", size = 14.sp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "$totalDurationMin min",
-                            color = AppColors.onSecondaryContainer
                         )
                     }
                 }

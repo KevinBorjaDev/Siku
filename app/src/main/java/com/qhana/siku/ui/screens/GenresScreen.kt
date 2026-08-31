@@ -54,7 +54,7 @@ import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.rememberRowActionColors
 import com.qhana.siku.ui.theme.AppColors
@@ -139,14 +139,13 @@ fun GenresScreen(
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                // Centrar cada fila: el TonalChip de conteo es más alto que los demás chips.
+                // Centrar cada fila: el CountChip de conteo es más alto que los demás chips.
                 itemVerticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                TonalChip {
+                CountChip {
                     Text(
                         text = pluralStringResource(R.plurals.genre_count, genres.size, genres.size),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
                 FilterChip(

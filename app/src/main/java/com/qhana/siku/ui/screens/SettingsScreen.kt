@@ -209,7 +209,17 @@ private fun SettingsSwitchTile(
     description: String,
     checked: Boolean,
     shapes: ListItemShapes,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    /**
+     * false = el ajuste sigue ahí pero no responde, porque OTRO ajuste lo gobierna (hoy: el estilo
+     * moderno manda sobre dónde van las pestañas). Se inhabilita en vez de ocultarse para que se
+     * vea que la configuración sigue guardada y por qué no se aplica.
+     *
+     * Basta con dárselo al `SegmentedListItem`: los colores del estado deshabilitado ya vienen
+     * completos de `appSegmentedListItemColors`, y el `Switch` es display-only —el gesto lo atiende
+     * la fila—, así que apagar la fila lo apaga a él.
+     */
+    enabled: Boolean = true
 ) {
     // `SegmentedListItem` en su sobrecarga TOGGLEABLE: es el componente real de M3 para una fila de
     // lista que conmuta. Antes esto era un `Surface` + `Row` + `Modifier.toggleable` que reponía a
@@ -221,6 +231,7 @@ private fun SettingsSwitchTile(
     SegmentedListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        enabled = enabled,
         shapes = shapes,
         // El token del componente es `surface`; estas listas se apilan SOBRE `surface`, así que la
         // fila tiene que subir un escalón tonal o desaparece contra el fondo. Mismo criterio (y mismo
@@ -230,7 +241,14 @@ private fun SettingsSwitchTile(
         leadingContent = { MaterialSymbol(icon, size = 24.sp) },
         // Display-only: quien maneja el gesto es la fila. Con su propio `onCheckedChange` el tap se
         // atendería dos veces.
-        trailingContent = { Switch(colors = appSwitchColors(), checked = checked, onCheckedChange = null) },
+        trailingContent = {
+            Switch(
+                colors = appSwitchColors(),
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = null
+            )
+        },
         content = { SettingsTileText(title, description) },
         modifier = Modifier.fillMaxWidth()
     )
@@ -1594,8 +1612,8 @@ fun SettingsAppearanceScreen(
                 { shapes ->
                     SettingsActionRow(
                         icon = "tab",
-                        title = stringResource(R.string.settings_tabs_header),
-                        description = stringResource(R.string.settings_tabs_desc),
+                        title = stringResource(R.string.settings_nav_header),
+                        description = stringResource(R.string.settings_nav_desc),
                         enabled = true,
                         onClick = { onNavigate(Screen.SettingsTabs.route) },
                         navigates = true,
@@ -1736,22 +1754,39 @@ fun SettingsTabsScreen(
 ) {
     val tabs by viewModel.libraryTabs.collectAsStateWithLifecycle()
     val bottomTabs by viewModel.libraryBottomTabs.collectAsStateWithLifecycle()
+    val modernNav by viewModel.libraryModernNav.collectAsStateWithLifecycle()
 
     SettingsScaffold(
-        title = stringResource(R.string.settings_tabs_header),
+        title = stringResource(R.string.settings_nav_header),
         onBackClick = onBackClick
     ) {
-        // DÓNDE se dibujan las pestañas, antes de CUÁLES hay: es la decisión que enmarca a la
-        // otra, y esta pantalla es el único sitio de Ajustes donde el usuario ya está pensando
-        // en pestañas. En horizontal el ajuste no manda — allí van al lado siempre.
+        // El ESTILO primero, y luego dónde van las pestañas y cuáles hay: es la decisión que
+        // enmarca a las otras dos, igual que "dónde" enmarcaba a "cuáles" cuando eran las únicas.
+        //
+        // Los dos controles de pestañas se INHABILITAN con el estilo moderno, no se ocultan: si
+        // desaparecieran, el usuario no tendría forma de entender por qué su configuración dejó de
+        // aplicarse. Su valor persistido NO se toca, así que apagar el estilo moderno devuelve
+        // exactamente lo que tenía. En horizontal el ajuste de abajo no manda en ningún caso —
+        // allí las pestañas van al lado siempre.
         SettingsGroup(
             listOf<@Composable (ListItemShapes) -> Unit>(
+                { shapes ->
+                    SettingsSwitchTile(
+                        icon = "explore",
+                        title = stringResource(R.string.settings_modern_nav),
+                        description = stringResource(R.string.settings_modern_nav_desc),
+                        checked = modernNav,
+                        shapes = shapes,
+                        onCheckedChange = { viewModel.setLibraryModernNav(it) }
+                    )
+                },
                 { shapes ->
                     SettingsSwitchTile(
                         icon = "bottom_navigation",
                         title = stringResource(R.string.settings_bottom_tabs),
                         description = stringResource(R.string.settings_bottom_tabs_desc),
                         checked = bottomTabs,
+                        enabled = !modernNav,
                         shapes = shapes,
                         onCheckedChange = { viewModel.setLibraryBottomTabs(it) }
                     )
@@ -1767,11 +1802,14 @@ fun SettingsTabsScreen(
                 Text(
                     text = stringResource(R.string.settings_tabs_desc),
                     style = MaterialTheme.typography.bodySmall,
-                    color = AppColors.onSurfaceVariant,
+                    color = AppColors.onSurfaceVariant.copy(
+                        alpha = if (modernNav) DISABLED_CONTENT_ALPHA else 1f
+                    ),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 LibraryTabsCustomizer(
                     config = tabs,
+                    enabled = !modernNav,
                     onConfigChange = { viewModel.setLibraryTabs(it) }
                 )
             }
@@ -1845,6 +1883,14 @@ private fun LibraryTabId.iconName(): String = when (this) {
 @Composable
 private fun LibraryTabsCustomizer(
     config: List<LibraryTabState>,
+    /**
+     * false con el estilo moderno encendido: ahí no hay pestañas que ordenar ni ocultar. Se
+     * INHABILITA en vez de ocultarse para que se vea que la configuración sigue guardada y por
+     * qué no responde. El alpha de atenuación es el que M3 tabula para el contenido deshabilitado
+     * —la excepción legítima a "la jerarquía se hace con tono, no con alpha"—, y aquí hay que
+     * aplicarlo a mano porque estas filas son una `Row` propia y no un componente de la librería.
+     */
+    enabled: Boolean = true,
     onConfigChange: (List<LibraryTabState>) -> Unit
 ) {
     var items by remember { mutableStateOf(config) }
@@ -1852,6 +1898,7 @@ private fun LibraryTabsCustomizer(
 
     val visibleCount = items.count { it.visible }
     val atMin = visibleCount <= LibraryTabsConfig.MIN_VISIBLE
+    val contentAlpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA
 
     sh.calvin.reorderable.ReorderableColumn(
         list = items,
@@ -1874,25 +1921,32 @@ private fun LibraryTabsCustomizer(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
                     ) {
-                        Box(modifier = with(itemScope) { Modifier.draggableHandle() }.padding(8.dp)) {
-                            MaterialSymbol("drag_indicator", color = AppColors.onSurfaceVariant)
+                        Box(
+                            modifier = with(itemScope) { Modifier.draggableHandle(enabled = enabled) }
+                                .padding(8.dp)
+                        ) {
+                            MaterialSymbol(
+                                "drag_indicator",
+                                color = AppColors.onSurfaceVariant.copy(alpha = contentAlpha)
+                            )
                         }
                         MaterialSymbol(
                             item.tab.iconName(),
-                            color = AppColors.onSurfaceVariant,
+                            color = AppColors.onSurfaceVariant.copy(alpha = contentAlpha),
                             modifier = Modifier.padding(end = 12.dp)
                         )
                         Text(
                             text = stringResource(item.tab.labelRes()),
                             style = MaterialTheme.typography.bodyLarge,
+                            color = AppColors.onSurface.copy(alpha = contentAlpha),
                             modifier = Modifier.weight(1f)
                         )
                         Switch(
                             colors = appSwitchColors(),
                             checked = item.visible,
                             // Deshabilitar SOLO la última encendida: apagarla dejaría la
-                            // biblioteca sin pestañas.
-                            enabled = !item.visible || !atMin,
+                            // biblioteca sin pestañas. Y todas con el estilo moderno.
+                            enabled = enabled && (!item.visible || !atMin),
                             onCheckedChange = { checked ->
                                 val newList = items.map {
                                     if (it.tab == item.tab) it.copy(visible = checked) else it
@@ -1906,7 +1960,7 @@ private fun LibraryTabsCustomizer(
             }
         }
     }
-    if (atMin) {
+    if (atMin && enabled) {
         Text(
             text = stringResource(R.string.settings_tabs_min),
             style = MaterialTheme.typography.labelSmall,

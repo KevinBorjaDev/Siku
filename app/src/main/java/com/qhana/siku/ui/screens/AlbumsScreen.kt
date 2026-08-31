@@ -39,7 +39,7 @@ import com.qhana.siku.ui.components.FilteredEmptyHint
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.SortChip
 import com.qhana.siku.ui.components.SourceFilterChips
-import com.qhana.siku.ui.components.TonalChip
+import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.theme.AppColors
 
 /**
@@ -111,14 +111,15 @@ fun AlbumsScreen(
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                // Centrar cada fila: el TonalChip de conteo es más alto que los demás chips.
+                // Centrar cada fila: los chips ya miden todos 32dp (ver `CountChip`), pero el
+                // `SortChip` crece con el ajuste de tamaño de texto del sistema y el de
+                // conteo no tiene por qué acompañarlo — alineados arriba, se descuadran.
                 itemVerticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                TonalChip {
+                CountChip {
                     Text(
                         text = pluralStringResource(R.plurals.album_count, albums.size, albums.size),
-                        color = AppColors.onSecondaryContainer
                     )
                 }
                 SortChip(

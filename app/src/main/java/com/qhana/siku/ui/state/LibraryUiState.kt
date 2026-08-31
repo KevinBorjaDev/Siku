@@ -59,6 +59,8 @@ data class PlaybackSettingsState(
     val miniPlayerRoundPlayButton: Boolean = false,
     /** Pestañas de la biblioteca ABAJO (navigation bar) en vez de en la fila bajo la búsqueda. */
     val libraryBottomTabs: Boolean = false,
+    /** Estilo moderno: tres destinos (Inicio · Biblioteca · Listas) en vez de las seis pestañas. */
+    val libraryModernNav: Boolean = MusicPreferences.DEFAULT_LIBRARY_MODERN_NAV,
     /** Chip de formato del NowPlaying con la ficha técnica (bitrate/bits + frecuencia). */
     val nowPlayingDetailedFormat: Boolean = false,
     /** Deslizar la carátula/el player y el doble toque para saltar. Encendido por defecto. */
@@ -100,6 +102,7 @@ data class LibraryUiState(
     val miniPlayerRoundedRect: Boolean get() = playbackSettings.miniPlayerRoundedRect
     val miniPlayerRoundPlayButton: Boolean get() = playbackSettings.miniPlayerRoundPlayButton
     val libraryBottomTabs: Boolean get() = playbackSettings.libraryBottomTabs
+    val libraryModernNav: Boolean get() = playbackSettings.libraryModernNav
     val nowPlayingDetailedFormat: Boolean get() = playbackSettings.nowPlayingDetailedFormat
     val playerGestures: Boolean get() = playbackSettings.playerGestures
     val useSystemEq: Boolean get() = playbackSettings.useSystemEq

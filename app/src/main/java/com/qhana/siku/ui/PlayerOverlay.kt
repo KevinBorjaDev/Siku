@@ -69,6 +69,7 @@ import com.qhana.siku.ui.theme.appFadeExit
 import com.qhana.siku.ui.theme.appTextButtonColors
 import android.content.res.Configuration
 import com.qhana.siku.ui.screens.LibraryBottomBarPillLift
+import com.qhana.siku.ui.screens.LibraryNavBarPillLift
 import com.qhana.siku.ui.screens.LibraryRailWidth
 import com.qhana.siku.ui.theme.appSpatialSpec
 import com.qhana.siku.ui.viewmodel.LibraryViewModel
@@ -165,13 +166,23 @@ fun BoxScope.PlayerOverlay(
     // `LibraryScreen` para decidir qué dibuja. Dos copias serían dos verdades, y con la píldora
     // en una capa hermana del NavHost el desacuerdo se vería (flotando sobre la barra, o debajo).
     val libraryBottomTabs by playbackViewModel.libraryBottomTabs.collectAsStateWithLifecycle()
+    // Incondicional, como la de arriba: un `collectAsState` dentro de un `if` renace con su
+    // valor inicial cada vez que la rama vuelve a entrar (convención 15).
+    val libraryModernNav by playbackViewModel.libraryModernNav.collectAsStateWithLifecycle()
     val chrome = libraryChrome(
         route = currentRoute,
         bottomTabs = libraryBottomTabs,
+        modernNav = libraryModernNav,
         landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     )
     val chromeRailInset = if (chrome == LibraryChrome.Rail) LibraryRailWidth else 0.dp
-    val chromeLiftTarget = if (chrome == LibraryChrome.BottomBar) LibraryBottomBarPillLift else 0.dp
+    // Cada pieza de abajo aparta la píldora lo SUYO: el toolbar flota con su margen, la barra
+    // del estilo moderno está pegada al borde. Ver `LibraryChrome`.
+    val chromeLiftTarget = when (chrome) {
+        LibraryChrome.BottomBar -> LibraryBottomBarPillLift
+        LibraryChrome.NavBar -> LibraryNavBarPillLift
+        else -> 0.dp
+    }
     // `Animatable` y no `animateDpAsState` por el caso raro pero visible: si se abre el
     // reproductor y desde ahí se navega a un detalle, el objetivo cambia con la píldora oculta y
     // la animación correría a ciegas para verse ya empezada al volver. Con la píldora fuera de

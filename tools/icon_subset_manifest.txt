@@ -1,6 +1,5 @@
 add
 album
-anchor
 arrow_back
 arrow_drop_down
 arrow_forward
@@ -31,6 +30,7 @@ error
 exit_to_app
 expand_content
 expand_more
+explore
 favorite
 filter_alt_off
 folder
@@ -58,10 +58,8 @@ low_priority
 lyrics
 manage_search
 mobile
-mode
 more_horiz
 more_vert
-music_cast
 music_note
 music_note_2
 music_note_add
@@ -113,9 +111,10 @@ swipe
 sync
 sync_arrow_down
 tab
-timer_play
 title
 travel_explore
+trending_down
+trending_up
 tune
 usb
 visibility

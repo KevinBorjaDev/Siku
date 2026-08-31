@@ -1103,6 +1103,20 @@ interface SongDao {
     )
     fun getAllTimeDistinctGenresFlow(): Flow<Int>
 
+    /**
+     * Reproducciones de siempre que tienen género: el denominador de los porcentajes de la sección
+     * de géneros. Gemela de `PlayEventDao.classifiedPlaysFlow` para el periodo "Siempre", y con el
+     * mismo filtro que [getAllTimeTopGenresFlow] — lo que no entra en el ranking tampoco cuenta para
+     * el 100 %.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(playCount), 0) FROM songs
+        WHERE playCount > 0 AND genre IS NOT NULL AND TRIM(genre) != ''
+        """
+    )
+    fun getAllTimeClassifiedPlaysFlow(): Flow<Int>
+
     /** Nº de canciones cuya ÚLTIMA escucha cae dentro de [since..now] (stat del saludo del inicio). */
     @Query("SELECT COUNT(*) FROM songs WHERE lastPlayedAt IS NOT NULL AND lastPlayedAt >= :since")
     fun getPlayedSinceCountFlow(since: Long): Flow<Int>
