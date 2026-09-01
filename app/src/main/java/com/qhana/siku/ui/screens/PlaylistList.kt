@@ -22,7 +22,7 @@ import com.qhana.siku.R
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.repository.PlaylistCoverMeta
 import com.qhana.siku.ui.components.AppMenuPopup
-import com.qhana.siku.ui.components.secondaryContentColor
+import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.GroupedListRow
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.MenuItemIcon
@@ -331,7 +331,7 @@ private fun FavoritesItem(
                 Text(
                     text = pluralStringResource(R.plurals.song_count, count, count),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = secondaryContentColor(
+                    color = rememberSecondaryContentColor(
                         AppColors.onSecondaryContainer,
                         AppColors.secondaryContainer
                     )

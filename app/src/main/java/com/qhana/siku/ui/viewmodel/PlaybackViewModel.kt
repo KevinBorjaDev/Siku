@@ -39,6 +39,7 @@ import com.qhana.siku.data.repository.LyricsCandidate
 import com.qhana.siku.data.repository.LyricsCandidatesResult
 import com.qhana.siku.data.repository.LyricsResult
 import com.qhana.siku.data.util.NetworkManager
+import com.qhana.siku.data.util.LrcSyntax
 import com.qhana.siku.domain.usecase.ParseLyricsUseCase
 import com.qhana.siku.domain.usecase.PlaybackErrorRecoveryUseCase
 import com.qhana.siku.domain.usecase.MusicPlaybackUseCase
@@ -110,6 +111,7 @@ class PlaybackViewModel @Inject constructor(
         // TTL para reintentar buscar letras tras un NotFound persistido. Pasado este
         // tiempo asumimos que algún colaborador pudo subirlas a LrcLib.
         private const val LYRICS_NOT_FOUND_RETRY_TTL_MS = 14L * 24 * 60 * 60 * 1000
+
 
         /**
          * Cadencia máxima de los badges de descarga ([getDownloadStatusFlow]).
@@ -1425,6 +1427,15 @@ class PlaybackViewModel @Inject constructor(
     private var prefetchLyricsJob: kotlinx.coroutines.Job? = null
     private var searchCandidatesJob: kotlinx.coroutines.Job? = null
 
+
+    /**
+     * Ajuste hecho y todavía sin escribir: `songId to texto`.
+     *
+     * Es UNO solo, y por eso [shiftLyrics] vuelca el anterior si era de otra canción. Lo consume
+     * [flushLyricsShift] al salir de la pantalla; no hay temporizador que lo persiga.
+     */
+    private var pendingLyricsShift: Pair<String, String>? = null
+
     /**
      * Decide si vale la pena buscar las letras de esta canción:
      * - Si ya tenemos lyrics (incluyendo el sentinel "[INSTRUMENTAL]"), no.
@@ -1674,6 +1685,84 @@ class PlaybackViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Corre la letra [deltaMs] milisegundos (positivo = más tarde), o la deja a cero con `null`.
+     *
+     * **Hace falta porque el dato que decidiría esto no existe en ningún metadato.** LrcLib tiene
+     * varias transcripciones de la misma canción, cada una hecha sobre un máster distinto, y
+     * `/api/get` empareja con ±2 s de tolerancia: un remaster que arranca dos segundos más tarde
+     * que el original casa igual y devuelve tiempos corridos. No se puede elegir mejor filtrando
+     * por duración —las dos duran lo mismo— ni por ninguna otra cosa que la app sepa; lo único que
+     * lo sabe es el oído del usuario. Caso real: *The Zephyr Song* del remaster de 2014 contra la
+     * transcripción del original, 2,03 s (31 ago 2026).
+     *
+     * **Se guarda dentro del propio texto**, como marca `[offset:]` del formato, no en una columna
+     * aparte: ver [LrcSyntax.withShift] para por qué. Consecuencia buscada: si el usuario guarda
+     * después la letra en su `.lrc` o en los tags, el ajuste viaja con ella y otro reproductor lo
+     * respeta.
+     *
+     * El estado se recalcula solo al releer el texto ([NowPlayingUiState.lyricsShiftMs] es
+     * derivado), así que aquí no hay ningún contador que mantener.
+     *
+     * **La letra se corre EN EL ACTO y el disco se escribe al SALIR**, y esa asimetría es el punto.
+     * Cuadrar la sincronía son diez o treinta toques seguidos —el usuario aprieta, escucha medio
+     * verso y vuelve a apretar—, y cada uno escribía una fila de `songs`. Room invalida por TABLA,
+     * así que cada toque re-ejecutaba TODAS las consultas suscritas de `LibraryViewModel`, que está
+     * vivo detrás y trae varios `GROUP BY` de tabla completa (`getArtists`, `getAlbums`,
+     * `getTopGenresFlow`…). Es el mismo coste por el que existe `sampledDuringSync`, provocado aquí
+     * por un botón.
+     *
+     * **No hay debounce, y no lo hay a propósito.** La primera versión de esto llevaba un plazo de
+     * 700 ms, o sea un número inventado para adivinar cuándo termina una ráfaga de toques. El final
+     * de la interacción no hay que adivinarlo: **es salir de la pantalla**, y eso es un evento
+     * ([flushLyricsShift] desde el `onDispose` de `LyricsScreen`). Un temporizador solo habría
+     * añadido una ventana en la que cerrar la app pierde el último toque — el que el usuario acaba
+     * de decidir que era el bueno.
+     */
+    fun shiftLyrics(deltaMs: Long?) {
+        val song = currentSong.value ?: return
+        val current = _nowPlayingUiState.value.lyrics ?: return
+        val shifted = LrcSyntax.withShift(
+            current,
+            if (deltaMs == null) 0L else LrcSyntax.shiftMillisOf(current) + deltaMs
+        )
+        if (shifted == current) return
+        // Síncrono: el siguiente toque acumula sobre ESTE texto, así que el estado tiene que ser la
+        // verdad antes de que la mano vuelva a bajar.
+        _nowPlayingUiState.update {
+            it.copy(lyrics = shifted, lyricLines = parseLyricsUseCase(shifted))
+        }
+        // El pendiente es UNO. Si el que había era de otra canción —cambió de pista con las letras
+        // abiertas— se escribe antes de pisarlo, o su ajuste se perdería en silencio. Es el caso que
+        // el temporizador cubría a medias y que un evento cubre entero.
+        pendingLyricsShift?.let { (id, text) -> if (id != song.id) writeLyrics(id, text) }
+        pendingLyricsShift = song.id to shifted
+    }
+
+    /**
+     * Escribe el ajuste pendiente. Lo llama la pantalla de letras al salir de la composición, que
+     * es el final real de la interacción — mismo patrón que `flushExcludedFolderChanges`, y el
+     * mismo motivo: marcar cinco veces seguidas encadenaba cinco trabajos de los que solo el último
+     * dice la verdad (convención 13, esperar por SEÑAL y no por intervalo).
+     *
+     * Va en el `onDispose` y no colgado del botón de cerrar porque hay más salidas —el gesto de
+     * atrás, cerrar el reproductor, un cambio de configuración— y todas tienen que volcar.
+     */
+    fun flushLyricsShift() {
+        val (songId, text) = pendingLyricsShift ?: return
+        pendingLyricsShift = null
+        writeLyrics(songId, text)
+    }
+
+    /**
+     * Un solo sitio escribe la letra ajustada, con el `songId` EXPLÍCITO y no releído del estado:
+     * lo que se guarda tiene que ser de la canción que lo produjo, aunque para cuando la corrutina
+     * corra ya esté sonando otra.
+     */
+    private fun writeLyrics(songId: String, text: String) {
+        viewModelScope.launch { repository.saveLyrics(songId, text) }
     }
 
     fun dismissLyricsSearch() {

@@ -3,6 +3,7 @@ package com.qhana.siku.data.manager
 import android.content.Context
 import android.os.BatteryManager
 import android.os.StatFs
+import android.os.SystemClock
 import android.util.Log
 import com.qhana.siku.R
 import com.qhana.siku.data.config.AppConfig
@@ -447,7 +448,9 @@ class MusicDownloader @Inject constructor(
             fun emitProgress(force: Boolean) {
                 if (totalBytes <= 0L) return
                 val done = current.downloadedBytes
-                val now = System.currentTimeMillis()
+                // Monótono: es un intervalo entre dos avisos, no una hora. Ver
+                // [DownloadSegment.lastProgressAtMs].
+                val now = SystemClock.elapsedRealtime()
                 val byPercent = (done - lastEmitted.get()).toFloat() / totalBytes >= PROGRESS_EMIT_STEP
                 val byTime = now - lastEmitAt.get() >= PROGRESS_EMIT_INTERVAL_MS
                 if (force || byPercent || byTime) {
@@ -606,7 +609,9 @@ class MusicDownloader @Inject constructor(
                 val watchdog = launch {
                     while (isActive) {
                         delay(STALL_CHECK_INTERVAL_MS)
-                        val now = System.currentTimeMillis()
+                        // El MISMO reloj con el que los tramos marcan su avance, y monótono por lo
+                        // que dice [DownloadSegment.lastProgressAtMs]: aquí se decide abortar.
+                        val now = SystemClock.elapsedRealtime()
                         val stalled = synchronized(schedulerLock) {
                             val victim = inProgress.firstOrNull {
                                 now - it.lastProgressAtMs > STALL_TIMEOUT_MS

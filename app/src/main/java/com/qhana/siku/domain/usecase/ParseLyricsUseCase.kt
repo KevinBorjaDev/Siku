@@ -33,8 +33,11 @@ class ParseLyricsUseCase @Inject constructor() {
             if (times.millis.isEmpty()) {
                 // Una línea suelta entre versos con marca es basura del archivo, no letra; se
                 // recoge aparte y solo se usa si NINGUNA línea tenía marca (o sea, texto plano).
-                // Las que empiezan por corchete son la metadata del formato (`[ar:…]`, `[offset:…]`).
-                if (raw.isNotBlank() && !raw.trimStart().startsWith(METADATA_PREFIX)) {
+                // Cuál es metadata del formato (`[ar:…]`, `[offset:…]`) lo decide [LrcSyntax] y no
+                // este archivo: aquí vivía una copia de la regla, y `LrcSyntax.stripTags` —que
+                // pinta la MISMA letra en la vista plana— no la tenía, así que el `[offset:]` que
+                // la app escribe al ajustar la sincronía salía ahí como si fuera el primer verso.
+                if (raw.isNotBlank() && !LrcSyntax.isMetadataLine(raw)) {
                     untimed += raw.trim()
                 }
                 return@forEach
@@ -42,8 +45,9 @@ class ParseLyricsUseCase @Inject constructor() {
             timed += raw.substring(times.consumedUntil).toVerses(times.millis)
         }
 
+        // Texto plano: no hay tiempos, así que no hay nada que compensar.
         if (timed.isEmpty()) return untimed.map { LyricLine(NO_TIMESTAMP, it) }
-        return timed.sortedBy { it.startTime }.closeOpenWords()
+        return timed.sortedBy { it.startTime }.closeOpenWords().shiftedBy(LrcSyntax.shiftMillisOf(text))
     }
 
     // --- Marcas de línea -----------------------------------------------------------------------
@@ -84,6 +88,33 @@ class ParseLyricsUseCase @Inject constructor() {
         return times.mapIndexed { index, millis ->
             if (index == 0) LyricLine(millis, first.text, first.words)
             else LyricLine(millis, first.text)
+        }
+    }
+
+    /**
+     * Aplica la compensación global del archivo (`[offset:]`, ver [LrcSyntax.shiftMillisOf]).
+     *
+     * **Se aplica AQUÍ, sobre el resultado ya armado, y no al leer cada marca**: es una sola resta
+     * en un sitio en vez de tres —tiempos de verso, de inicio de palabra y de fin— y así no puede
+     * quedarse a medias, que es como se vería si alguien añadiera después otra fuente de tiempos.
+     *
+     * No se reordena tras desplazar: un offset global mueve todo lo mismo, así que el orden que ya
+     * tenían no cambia.
+     *
+     * Los tiempos NO se acotan a cero. Un desplazamiento grande puede dejar los primeros versos en
+     * negativo, y eso es lo correcto: significa que ya habían pasado cuando la canción empezó, y
+     * quien compara posición contra tiempo los da por vistos sin ningún caso especial. Acotarlos
+     * los amontonaría todos en el 0 y el primer verso "empezaría" con la canción.
+     */
+    private fun List<LyricLine>.shiftedBy(millis: Long): List<LyricLine> {
+        if (millis == 0L) return this
+        return map { line ->
+            line.copy(
+                startTime = line.startTime + millis,
+                words = line.words.map {
+                    it.copy(startTime = it.startTime + millis, endTime = it.endTime + millis)
+                }
+            )
         }
     }
 
@@ -212,9 +243,6 @@ class ParseLyricsUseCase @Inject constructor() {
 
         /** Duración cero: la palabra se enciende entera en cuanto el barrido llega a ella. */
         const val INSTANT = 0L
-
-        /** Con qué empieza una línea de metadata del formato (`[ar:…]`, `[ti:…]`, `[offset:…]`). */
-        const val METADATA_PREFIX = "["
 
         /** Versos que algunos generadores dejan como relleno donde no se canta nada. */
         val FILLER_TEXTS = setOf(".", "-")

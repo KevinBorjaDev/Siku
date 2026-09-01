@@ -20,6 +20,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -750,3 +752,70 @@ val appNavFadeEnter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> Ent
 val appNavFadeExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
     fadeOut(tween(EXPRESSIVE_FAST_EFFECTS_MS, easing = ExpressiveFastEffectsEasing))
 }
+
+/**
+ * Duración del *fade through* de un cambio de destino: `motionDurationLong1` del spec.
+ *
+ * No sale de los tokens Expressive de este archivo porque no es una transición de ruta ni un
+ * componente: es el patrón tabulado de M3 para cambiar de destino, y su reparto interno
+ * ([FADE_THROUGH_THRESHOLD]) está definido sobre ESTA duración. Partirla en dos tokens sueltos
+ * rompería la proporción, que es lo único que hace que el patrón se reconozca.
+ */
+const val FADE_THROUGH_MS = 300
+
+/**
+ * Dónde se cruzan las dos mitades: el saliente se apaga en el primer 35 % y el entrante aparece en
+ * el 65 % restante (`FadeThroughProvider.FADE_THROUGH_THRESHOLD` en material-components-android).
+ *
+ * **Es lo que lo distingue de un crossfade**, y por eso no es negociable: en un crossfade las dos
+ * vistas conviven semitransparentes y se ve el fondo a través de las dos; aquí nunca coinciden.
+ */
+const val FADE_THROUGH_THRESHOLD = 0.35f
+
+/**
+ * Escala inicial del entrante (`MaterialFadeThrough.DEFAULT_START_SCALE`).
+ *
+ * **La escala corre la duración COMPLETA, no solo mientras se ve el alfa**, y ese desfase es la
+ * firma del patrón: el contenido ya está creciendo antes de hacerse visible, así que cuando aparece
+ * ya viene en movimiento en vez de arrancar parado. Encogerla al tramo visible lo convierte en un
+ * "zoom al aparecer", que es otra cosa.
+ *
+ * El saliente NO escala (`setScaleOnDisappear(false)`): solo se apaga.
+ */
+const val FADE_THROUGH_START_SCALE = 0.92f
+
+/** Cuánto dura el apagado del saliente. */
+private const val FADE_THROUGH_OUT_MS = (FADE_THROUGH_MS * FADE_THROUGH_THRESHOLD).toInt()
+
+/**
+ * El *fade through* del spec, para el `AnimatedContent` que cambia de destino.
+ *
+ * Traducción directa de `MaterialFadeThrough`: alfa del saliente en `[0, 35 %]`, alfa del entrante
+ * en `[35 %, 100 %]` y escala del entrante de [FADE_THROUGH_START_SCALE] a 1 durante el 100 %.
+ *
+ * **Necesita las DOS vistas a la vez**, y de ahí que el contenido del destino lo pinte un
+ * `AnimatedContent` y no las páginas del pager: con `beyondViewportPageCount = 0` el pager descarta
+ * la saliente en el frame del cambio, así que el primer 35 % se quedaría sin nada que apagar — 105 ms
+ * de fondo a la vista, que se leen como lentitud. Un patrón cuyo reparto depende de que haya un
+ * saliente no se puede aplicar donde no lo hay.
+ *
+ * La curva es la de este archivo y no la `emphasized` del spec clásico: son la misma decisión en dos
+ * generaciones (aquélla es pre-Expressive), y mezclar sistemas de curvas es justo lo que la sección
+ * Motion prohíbe. Lo que se respeta del spec son las PROPORCIONES, que es lo que hace reconocible al
+ * patrón.
+ */
+fun appFadeThrough(): ContentTransform =
+    (
+        fadeIn(
+            tween(
+                durationMillis = FADE_THROUGH_MS - FADE_THROUGH_OUT_MS,
+                delayMillis = FADE_THROUGH_OUT_MS,
+                easing = ExpressiveDefaultEffectsEasing
+            )
+        ) + scaleIn(
+            initialScale = FADE_THROUGH_START_SCALE,
+            animationSpec = tween(FADE_THROUGH_MS, easing = ExpressiveDefaultEffectsEasing)
+        )
+    ) togetherWith fadeOut(
+        tween(FADE_THROUGH_OUT_MS, easing = ExpressiveDefaultEffectsEasing)
+    )

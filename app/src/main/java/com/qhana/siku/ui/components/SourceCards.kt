@@ -52,6 +52,7 @@ import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appButtonColors
+import com.qhana.siku.ui.theme.appOutlinedButtonBorder
 import com.qhana.siku.ui.theme.appOutlinedButtonColors
 import com.qhana.siku.ui.theme.appSliderColors
 import com.qhana.siku.ui.theme.appTextButtonColors
@@ -123,6 +124,10 @@ fun SourceCard(
                     if (isConfigured) {
                         OutlinedButton(
                             colors = appOutlinedButtonColors(),
+                            // El `enabled` va también al borde: es el único de los siete que se
+                            // deshabilita, y M3 atenúa el trazo en ese estado (lo hace su default,
+                            // que aquí se sustituye).
+                            border = appOutlinedButtonBorder(primaryActionEnabled),
                             onClick = onPrimaryAction,
                             enabled = primaryActionEnabled,
                             shapes = ButtonDefaults.shapes()
@@ -394,7 +399,7 @@ fun LocalFoldersSourceCard(
                         Text(stringResource(R.string.settings_local_pick))
                     }
                 } else {
-                    OutlinedButton(colors = appOutlinedButtonColors(), onClick = { folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
+                    OutlinedButton(colors = appOutlinedButtonColors(), border = appOutlinedButtonBorder(), onClick = { folderPicker.launch(null) }, shapes = ButtonDefaults.shapes()) {
                         Text(stringResource(R.string.settings_local_add))
                     }
                 }

@@ -1,5 +1,6 @@
 package com.qhana.siku.data.manager
 
+import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -50,14 +51,20 @@ internal class DownloadSegment(
      *
      * Arranca en "ahora" y se refresca al TOMAR el tramo ([rewindToConfirmed], que es lo primero que
      * hace su dueño) para no contar como parado el rato que pasó en la cola sin nadie.
+     *
+     * **Reloj MONÓTONO, y no es un detalle**: esto mide un plazo de 60 s contra el que se ABORTA una
+     * descarga. Con `currentTimeMillis` —lo que había— una corrección de hora del sistema hacia
+     * adelante mataba una conexión que iba perfectamente, y hacia atrás dejaba pasar un cuelgue real
+     * hasta que el reloj se pusiera al día. No se persiste en el sidecar (ahí solo va `confirmed`),
+     * así que el valor no tiene que sobrevivir al proceso y puede ser de un reloj sin época.
      */
     @Volatile
-    var lastProgressAtMs: Long = System.currentTimeMillis()
+    var lastProgressAtMs: Long = SystemClock.elapsedRealtime()
         private set
 
     /** Le da al tramo una ventana nueva de vigilancia sin haber escrito nada (lo usa el watchdog). */
     fun markActive() {
-        lastProgressAtMs = System.currentTimeMillis()
+        lastProgressAtMs = SystemClock.elapsedRealtime()
     }
 
     /** Primer byte que falta pedir. Solo tiene sentido leerlo con el segmento parado. */
@@ -87,7 +94,7 @@ internal class DownloadSegment(
     /** Los [count] bytes reservados ya están escritos en el archivo. */
     fun confirm(count: Int) = synchronized(lock) {
         confirmed += count
-        lastProgressAtMs = System.currentTimeMillis()
+        lastProgressAtMs = SystemClock.elapsedRealtime()
     }
 
     /**
@@ -103,7 +110,7 @@ internal class DownloadSegment(
     fun rewindToConfirmed() = synchronized(lock) {
         reserved = confirmed
         // Tomarlo cuenta como actividad: la espera en la cola no es un stall.
-        lastProgressAtMs = System.currentTimeMillis()
+        lastProgressAtMs = SystemClock.elapsedRealtime()
     }
 
     /**

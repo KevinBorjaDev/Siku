@@ -3,7 +3,6 @@ package com.qhana.siku.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,10 +32,12 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -53,11 +54,14 @@ import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.LyricsSearchSheet
 import com.qhana.siku.ui.components.MaterialSymbol
+import com.qhana.siku.ui.components.TONAL_LAYER_DELTA
+import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.maxContrastOn
 import com.qhana.siku.ui.components.MIN_STEP_MS
 import com.qhana.siku.ui.components.pixelPacedClock
 import com.qhana.siku.ui.state.LyricsFailure
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.components.rememberTonalLayerColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.LyricLine
 import kotlinx.coroutines.coroutineScope
@@ -66,8 +70,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import java.util.Locale
 
 import com.qhana.siku.ui.theme.appSpatialSpec
+import com.qhana.siku.ui.theme.appOutlinedButtonBorder
+import com.qhana.siku.ui.theme.appOutlinedButtonColors
+import com.qhana.siku.ui.theme.appTextButtonColors
 import com.qhana.siku.ui.theme.appFastSpatialSpec
 import com.qhana.siku.ui.theme.appSlowSpatialSpec
 import com.qhana.siku.ui.theme.appSlowEffectsSpec
@@ -96,52 +104,74 @@ private val LyricLineHeight = 34.sp
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /**
- * Transporte flotante de las letras: la MISMA gramática que el del NowPlaying (ver
- * `PlayButtonHeight` y vecinos en NowPlayingControls.kt) en una escala compacta, porque aquí los
- * controles flotan ENCIMA del texto y cada dp de alto tapa un verso.
+ * Transporte flotante de las letras: **el del NowPlaying a 0,8**, redondeado a la rejilla de 4.
  *
- * Las tres decisiones son las de allá, y son lo que hay que respetar si se toca esto:
+ * Es una versión más chica A PROPÓSITO: estos controles flotan ENCIMA del texto y cada dp de alto
+ * tapa un verso, mientras que allá tienen una fila para ellos solos. Lo que se copia son las
+ * RELACIONES —play contra lateral, alto contra ancho, glifo contra botón—, nunca los valores. Se
+ * probó igualarlos y se revirtió el mismo día (31 ago 2026).
+ *
+ * Las decisiones que hay que respetar si se toca esto:
  *  1. **Los ALTOS son fijos**: solo el ANCHO cambia con el estado, que es lo único que el spec mueve
  *     entre variantes de un icon button. Antes los laterales se estiraban a cápsula vertical
  *     (48→64) y eso hacía latir el alto de la fila entera al pausar.
- *  2. **El play mantiene la proporción 1,5:1** en pausa (96×64, como 120×80 allá): es lo que lo hace
- *     leerse como píldora y no como un óvalo.
- *  3. **Los laterales van a la talla VISUAL del play** (20 ago 2026): la cookie de 9 lados es una
- *     estrella con `innerRadius = 0.8` (`MaterialShapes.cookie9()`, leído del jar de material3
- *     1.5.0-alpha24 — no está expuesto como API) inscrita en sus bounds, así que sus lóbulos tocan
- *     el borde pero el cuerpo mide 0,8, y el contorno se percibe en la media de los dos radios. Un
- *     círculo que PESE lo mismo mide 0,9 de esos bounds — 64 × 0,9 = 57,6 → **56** en la rejilla de
- *     4, con el mismo glifo (28). En pausa se estrechan con la proporción narrow/uniform (0,8):
- *     56 × 0,8 = 44,8 → **44**. Antes eran un icon button `Small` (40 de alto, 40/32 de ancho,
- *     icono 24) y se leían como piezas de otro rango.
+ *  2. **Un solo factor para todo.** Cambiar una medida suelta es lo que ya rompió esto una vez: los
+ *     laterales estuvieron a 56 —el valor ABSOLUTO de allá— junto a un play de 64, y la relación
+ *     play/lateral caía a 1,14 contra 1,43. Con los laterales casi tan altos como el play, éste
+ *     dejaba de leerse como la acción principal; se reportó como "el play se ve chico" y no lo era.
+ *  3. **NO devolver los laterales a 56.** Estuvieron así desde el 20 ago derivados del PESO VISUAL
+ *     de la cookie: la de 9 lados es una estrella con `innerRadius = 0.8`
+ *     (`MaterialShapes.cookie9()`, leído del jar de material3 1.5.0-alpha24 — no está expuesto como
+ *     API) inscrita en sus bounds, así que sus lóbulos tocan el borde pero el cuerpo mide 0,8 y el
+ *     contorno se percibe en la media de los dos radios; un círculo que PESE lo mismo mide 0,9 de
+ *     esos bounds, y 64 × 0,9 ≈ 56. La cuenta es correcta y el CRITERIO es el equivocado: iguala el
+ *     bulto de las tres piezas, que es justo lo que borra la jerarquía entre una acción principal y
+ *     dos secundarias. El NowPlaying recorrió lo mismo —subió los laterales a la talla del play el
+ *     20 ago y lo revirtió el 21— por esta razón.
  *
- *     **Esta escala vive SOLO aquí.** El NowPlaying la usó un día y el 21 ago volvió al icon button
- *     Medium del spec: allá los laterales grandes le quitaban el protagonismo al play y alto a la
- *     carátula, dos problemas que esta pantalla no tiene —sus controles flotan sobre el texto y no
- *     compiten con ninguna portada—, así que aquí se queda.
- *
- * Del play, como en el NowPlaying, solo el ICONO sale de token; sus medidas son propias.
+ * Del play, como en el NowPlaying, solo el ICONO sale de token; el glifo del lateral es una talla
+ * menor que el suyo, igual que allá (24 contra 32).
  */
+/** 80 × 0,8. */
 private val LyricsPlayHeight = 64.dp
 
+/** 80 × 0,8. */
 private val LyricsPlayPlayingWidth = 64.dp
 
+/** 120 × 0,8; conserva la proporción 1,5:1 que lo hace píldora y no óvalo. */
 private val LyricsPlayPausedWidth = 96.dp
 
-private val LyricsSideHeight = 56.dp
+/** 56 × 0,8 = 44,8. */
+private val LyricsSideHeight = 44.dp
 
 private val LyricsSideUniformWidth = LyricsSideHeight
 
-private val LyricsSideNarrowWidth = 44.dp
+/** 48 × 0,8 = 38,4. */
+private val LyricsSideNarrowWidth = 40.dp
 
-private val LyricsPlayIconSize = 28.sp
+/** 32 × 0,8 = 25,6. */
+private val LyricsPlayIconSize = 26.sp
 
-private val LyricsSideIconSize = LyricsPlayIconSize
+/**
+ * 24 × 0,8 = 19,2.
+ *
+ * **El glifo escala con su botón y no se queda quieto**, y tampoco es el del play — allá tampoco lo
+ * es (24 contra 32): el lateral es una pieza menor. Los dos compartían aquí el mismo tamaño, así
+ * que al bajar el lateral a 44 un glifo de 28 habría ocupado 0,64 del contenedor contra el 0,43 de
+ * allá: apretado contra el borde, y con el mismo peso visual que el del play.
+ */
+private val LyricsSideIconSize = 20.sp
 
 private val ControlsFadeHeight = 132.dp
 
 /** Separación de los controles flotantes respecto al borde inferior de la pantalla. */
 private val ControlsBottomInset = 48.dp
+
+/**
+ * Costado de la fila de controles: el mismo que el de la cabecera, para que el corrector y la
+ * búsqueda queden a plomo con el cerrar y el guardar de arriba.
+ */
+private val ControlsSideInset = 16.dp
 
 // Paddings de SyncedLyricsView. Se reutilizan en `contentPadding` y en el cálculo
 // del scroll offset para centrar la línea activa en el área visible "limpia"
@@ -191,6 +221,12 @@ fun LyricsScreen(
     onGoogleSearch: () -> Unit,
     onSearchManually: () -> Unit,
     onSelectCandidate: (LyricsCandidate) -> Unit,
+    /** Compensación aplicada, en ms: positivo = la letra sale más tarde. */
+    lyricsShiftMs: Long,
+    /** Corre la letra N ms; `null` la deja a cero. */
+    onShiftLyrics: (Long?) -> Unit,
+    /** Escribe ya el ajuste pendiente. Se llama al salir de la pantalla; ver el `DisposableEffect`. */
+    onFlushLyricsShift: () -> Unit,
     onDismissSearch: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -203,6 +239,15 @@ fun LyricsScreen(
     // La posición NO se lee aquí: se pasa el flow hacia abajo y solo la vista sincronizada lo
     // colecta, dentro de su `derivedStateOf`. Leerla en este cuerpo con `by` suscribía la pantalla
     // ENTERA al tick de un segundo (ver [SyncedLyricsView]).
+
+    // El ajuste de sincronía se escribe con retraso para no invalidar la tabla `songs` en cada
+    // toque (ver `PlaybackViewModel.shiftLyrics`), y salir de aquí es el final real de esa
+    // interacción. Va en el `onDispose` y no colgado del botón de cerrar porque hay más salidas
+    // —el gesto de atrás, cambiar de canción, cerrar el reproductor— y todas tienen que volcar.
+    // La lambda se lee con `rememberUpdatedState`: el efecto no se relanza nunca, así que capturar
+    // la del primer frame lo dejaría llamando a un callback viejo.
+    val flushShift by rememberUpdatedState(onFlushLyricsShift)
+    DisposableEffect(Unit) { onDispose { flushShift() } }
 
     // Auto-detect mode capability
     val hasSyncedData = remember(lyricLines) { lyricLines.any { it.startTime > 0 } }
@@ -230,6 +275,10 @@ fun LyricsScreen(
 
     // State initialization
     var viewMode by remember { mutableStateOf(if (hasSyncedData) LyricsViewMode.SYNCED else LyricsViewMode.PLAIN) }
+
+    // Ajuste de sincronía: cerrado por defecto y por canción. Es una corrección puntual, no un
+    // control de uso continuo, así que dejarlo abierto le robaría alto a la letra para siempre.
+    var showTiming by remember(songId) { mutableStateOf(false) }
 
     // Reset viewMode cuando cambia la canción O las letras (ej.: selección manual de candidato).
     // Sin la dependencia en `lyrics`, el viewMode podía quedar pegado en PLAIN si la canción
@@ -299,35 +348,30 @@ fun LyricsScreen(
                     Spacer(modifier = Modifier.width(48.dp))
                 }
 
-                // Búsqueda manual + guardar. Solo con letra en pantalla: en el estado vacío las
-                // acciones las da EmptyStateView, adaptadas a la causa.
+                // **Arriba solo queda GUARDAR** (device, 31 ago 2026). El corrector de sincronía y
+                // la búsqueda manual se fueron ABAJO, flanqueando el transporte: los tres juntos
+                // aquí llenaban la barra al lado del conmutador de vista, mientras abajo había una
+                // fila con el play centrado y los dos costados vacíos. Guardar se queda porque es
+                // el único de los tres que actúa sobre el ARCHIVO y no sobre lo que se está viendo.
                 //
-                // Ya no hay botón de "volver a buscar": con la búsqueda manual al lado —que además
-                // deja ELEGIR la versión en vez de repetir la misma consulta— era el mismo gesto
-                // dos veces. Su hueco lo ocupa guardar. `onFetchLyrics` sigue vivo para el estado
-                // vacío, donde sí significa algo distinto: "busca, que aquí no hay nada".
+                // Solo con letra en pantalla: en el estado vacío las acciones las da
+                // `EmptyStateView`, adaptadas a la causa. Y no hay botón de "volver a buscar" — con
+                // la búsqueda manual, que además deja ELEGIR la versión, era el mismo gesto dos
+                // veces; `onFetchLyrics` sigue vivo para el estado vacío, donde sí significa otra
+                // cosa: "busca, que aquí no hay nada".
                 if (!showEmptyState) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ExpressiveActionIcon(
-                            onClick = onSearchManually,
-                            icon = "manage_search",
-                            description = stringResource(R.string.lyrics_search_manual_desc),
-                            contentColor = safeAccent.copy(alpha = if (isResolving) 0.3f else 1f),
-                            enabled = !isResolving
-                        )
-                        // Una canción marcada como instrumental no tiene nada que guardar.
-                        val canSave = !isResolving && !isSavingLyrics && lyrics != INSTRUMENTAL_SENTINEL
-                        ExpressiveActionIcon(
-                            onClick = onSaveLyrics,
-                            icon = "save",
-                            description = stringResource(R.string.lyrics_save_desc),
-                            contentColor = safeAccent.copy(alpha = if (canSave) 1f else 0.3f),
-                            enabled = canSave
-                        )
-                    }
+                    // Una canción marcada como instrumental no tiene nada que guardar.
+                    val canSave = !isResolving && !isSavingLyrics && lyrics != INSTRUMENTAL_SENTINEL
+                    ExpressiveActionIcon(
+                        onClick = onSaveLyrics,
+                        icon = "save",
+                        description = stringResource(R.string.lyrics_save_desc),
+                        // Sin alfa a mano: `FilledIconButton` deshabilitado ya usa el
+                        // `disabledContentColor` que M3 tabula, así que el `copy(alpha = …)` que
+                        // había aquí no llegaba a aplicarse.
+                        contentColor = safeAccent,
+                        enabled = canSave
+                    )
                 } else {
                     // Mantiene el balance del Row (el cerrar queda a la izquierda, no centrado).
                     Spacer(modifier = Modifier.width(48.dp))
@@ -428,11 +472,47 @@ fun LyricsScreen(
                     .height(ControlsFadeHeight)
                     .background(fadeBrush)
             )
-            Row(
+            // El panel del corrector, PEGADO a su disparador: el toggle vive ahora abajo, así que
+            // abrirlo arriba dejaría el mando y su efecto en dos extremos de la pantalla.
+            AnimatedVisibility(
+                visible = showTiming && hasSyncedData,
+                // Mismo fondo OPACO que la fila de controles: la barra ya no flota sobre la letra,
+                // es parte del área de mandos. Sin esto quedaba una franja de versos asomando entre
+                // la píldora y el transporte, que se lee como un fallo de dibujo y no como un
+                // elemento flotante.
+                modifier = Modifier.background(backgroundColor)
+            ) {
+                LyricsTimingBar(
+                    shiftMs = lyricsShiftMs,
+                    onShift = onShiftLyrics,
+                    accentColor = safeAccent,
+                    backgroundColor = backgroundColor
+                )
+            }
+
+            // **`Box` y no una fila de tres huecos**: así el play sigue centrado en la PANTALLA y no
+            // en el espacio que dejen los laterales, que es lo que pasaría repartiendo pesos —y el
+            // transporte cambia de ancho al reproducir/pausar, de modo que el centro se movería.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(backgroundColor)
-                    .padding(bottom = ControlsBottomInset),
+                    // El MISMO costado que la barra de arriba (`ControlsSideInset`): mientras el
+                    // transporte era el único hijo iba centrado y el costado daba igual, pero los
+                    // dos flanqueantes se alinean a los BORDES y sin esto quedaban pegados al canto
+                    // de la pantalla — el toggle marcado, que lleva contenedor lleno, se leía
+                    // directamente como cortado.
+                    // `start`/`end`/`bottom` y no `horizontal` + `bottom`: son sobrecargas
+                    // DISTINTAS de `padding` y no se pueden mezclar en la misma llamada.
+                    .padding(
+                        start = ControlsSideInset,
+                        end = ControlsSideInset,
+                        bottom = ControlsBottomInset
+                    )
+            ) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center),
                 // Misma separación que el grupo del NowPlaying (`NowPlayingConfig.GroupSpacing`):
                 // es el mismo control, y el 10dp que había era el único valor de los dos transportes
                 // fuera de la rejilla de 4 de Material.
@@ -558,6 +638,54 @@ fun LyricsScreen(
                 ) {
                     MaterialSymbol("skip_next", size = LyricsSideIconSize, color = sideContent, fill = true)
                 }
+            }
+
+            // Corrector de sincronía, al COSTADO del transporte. Solo con letra sincronizada:
+            // sobre texto plano no hay ningún tiempo que correr.
+            //
+            // **Toggle de M3 y no un icono al que se le baja el alfa**: esto tiene ESTADO —el panel
+            // abierto, o un ajuste puesto con el panel cerrado— y M3 ya tabula cómo se ve un toggle
+            // marcado (contenedor lleno y shape-morph). Bajarle la opacidad al glifo sería inventar
+            // un número para decir lo que el componente dice solo, y por el camino que este
+            // proyecto tiene prohibido: la jerarquía va por TONO, no por alfa.
+            if (hasSyncedData) {
+                // Fuera del `semantics {}`, que no es un ámbito composable.
+                val timingDescription = stringResource(R.string.lyrics_timing_desc)
+                FilledIconToggleButton(
+                    checked = showTiming,
+                    onCheckedChange = { showTiming = !showTiming },
+                    shapes = IconButtonDefaults.toggleableShapes(),
+                    colors = IconButtonDefaults.filledIconToggleButtonColors(
+                        // El juego COMPLETO de roles visibles, que es la convención de
+                        // `AppComponentColors`: pasar solo el par marcado dejaría el estado normal
+                        // —el que casi siempre se ve— con el color del tema base en vez del acento.
+                        containerColor = Color.Transparent,
+                        contentColor = safeAccent,
+                        checkedContainerColor = safeAccent,
+                        checkedContentColor = backgroundColor
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(ACTION_ICON_SIZE)
+                        .semantics { contentDescription = timingDescription }
+                ) {
+                    MaterialSymbol("schedule", size = LyricsFlankIconSize)
+                }
+            }
+
+            // Búsqueda manual, al otro costado. Solo con letra en pantalla: en el estado vacío la
+            // ofrece `EmptyStateView`, con el texto adaptado a la causa.
+            if (!showEmptyState) {
+                ExpressiveActionIcon(
+                    onClick = onSearchManually,
+                    icon = "manage_search",
+                    description = stringResource(R.string.lyrics_search_manual_desc),
+                    contentColor = safeAccent,
+                    enabled = !isResolving,
+                    iconSize = LyricsFlankIconSize,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
+            }
             }
         }
 
@@ -1253,8 +1381,12 @@ private fun LyricsActionButton(
             onClick = onClick,
             modifier = modifier,
             shapes = ButtonDefaults.shapes(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor),
-            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
+            // El borde por el helper de la app y no a mano: era `BorderStroke(1.dp, accento al
+            // 50 %)`, o sea el ancho tabulado escrito como literal y una atenuación inventada donde
+            // M3 ya define un rol (`outlineVariant`). Ver [appOutlinedButtonBorder]. El acento se
+            // queda donde toca, en la etiqueta y el glifo.
+            colors = appOutlinedButtonColors(accentColor),
+            border = appOutlinedButtonBorder(),
             contentPadding = contentPadding
         ) {
             MaterialSymbol(icon, size = 18.sp, color = accentColor)
@@ -1263,3 +1395,207 @@ private fun LyricsActionButton(
         }
     }
 }
+
+/**
+ * Ajuste de la sincronía de la letra: la corre adelante o atrás y enseña cuánto lleva corrida.
+ *
+ * **Existe porque el dato que lo decidiría no está en ningún metadato.** LrcLib guarda varias
+ * transcripciones de la misma canción, hechas sobre másters distintos, y su `/api/get` empareja con
+ * ±2 s de tolerancia: un remaster que arranca dos segundos más tarde que el original casa igual y
+ * devuelve tiempos corridos. No hay forma de elegir mejor —las dos versiones duran lo mismo— y lo
+ * único que sabe cuál cuadra es el oído del usuario, así que la app le da el mando en vez de
+ * adivinar. Caso que lo motivó: *The Zephyr Song* del remaster de 2014, 2,03 s (31 ago 2026).
+ *
+ * **Dos escalones y no uno**: el grueso ([TIMING_STEP_COARSE_MS]) es para esto —desfases de
+ * segundos entre másters— y el fino ([TIMING_STEP_FINE_MS]) para el retardo de unos auriculares
+ * Bluetooth, que es de décimas. Con un solo paso, o corregir dos segundos son veinte toques o el
+ * ajuste fino no existe.
+ *
+ * Solo se ofrece con letra SINCRONIZADA: sobre texto plano no hay ningún tiempo que correr.
+ */
+@Composable
+private fun LyricsTimingBar(
+    shiftMs: Long,
+    onShift: (Long?) -> Unit,
+    accentColor: Color,
+    /** Fondo sobre el que se apoya la fila: de él se DERIVA su contenedor, ver abajo. */
+    backgroundColor: Color,
+    modifier: Modifier = Modifier
+) {
+    // **Contenedor propio y no controles sueltos sobre el fondo** (device, 31 ago 2026). Sin él la
+    // fila flotaba sobre la letra con el mismo fondo, así que las cifras se leían como un verso más
+    // —y encima quedaban a la altura donde el usuario está buscando texto—. El color se DERIVA del
+    // fondo real con `tonalLayerContainer` en vez de tomar un rol fijo: aquí el fondo lo pone la
+    // carátula, así que ningún rol puede prometer separación (es la regla de la horquilla de
+    // superficies, y el mismo criterio que la píldora de búsqueda o el chip de origen).
+    val layer = rememberTonalLayerColors(background = backgroundColor)
+    // **Del MISMO fondo con el DOBLE de separación, no encadenado sobre `layer`.** Es la regla que
+    // documenta `rememberTonalLayerColors`: fondo → barra → círculo son tres capas con "aléjate del
+    // extremo", y sobre un fondo de tono medio el segundo paso invierte el sentido y devuelve el
+    // círculo al color de la barra. Pidiéndole a las dos su distancia al mismo fondo, la dirección
+    // la decide una sola vez el tono medido y apilan hacia el mismo lado. Mismo criterio que el
+    // indicador activo del toolbar de la biblioteca.
+    val valueLayer = rememberTonalLayerColors(
+        background = backgroundColor,
+        delta = TONAL_LAYER_DELTA * 2
+    )
+    val valueContainer = valueLayer.container
+    // Sin ajuste puesto, el valor es contenido SECUNDARIO, y eso en esta app se hace acercando el
+    // TONO al del contenedor —no bajando el alfa—: un alfa fijo da un contraste que depende de lo
+    // que haya debajo, y aquí lo que hay debajo lo pone la carátula. Se calcula SIEMPRE y no dentro
+    // del `if` (convención 15: un composable con estado no va en una condición).
+    val idleValueColor = rememberSecondaryContentColor(valueLayer.content, valueContainer)
+    AppSurface(
+        modifier = modifier
+            .fillMaxWidth()
+            // Separada de los controles: pegada al transporte las dos piezas se leían como un solo
+            // bloque de mandos, y el ajuste es de otra naturaleza —corrige el DATO, no reproduce—.
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = TimingBarBottomGap),
+        color = layer.container,
+        shape = CircleShape
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TimingStepButton("−${TIMING_STEP_COARSE_MS / MILLIS_PER_SECOND}", accentColor) {
+                onShift(-TIMING_STEP_COARSE_MS)
+            }
+            TimingStepButton("−0,${TIMING_STEP_FINE_MS / TENTHS_DIVISOR}", accentColor) {
+                onShift(-TIMING_STEP_FINE_MS)
+            }
+
+            // **Contenedor circular propio para el valor.** Es el ancla de la fila —lo que hay que
+            // poder leer de un vistazo— y rodeado de cuatro botones del mismo acento se perdía entre
+            // ellos: el peso en negrita ayudaba, pero la jerarquía la da la SUPERFICIE.
+            //
+            // Con ancho MÍNIMO y no envuelto: si la píldora creciera con las cifras, los cuatro
+            // botones se moverían de sitio en cada toque y apuntar dos veces al mismo sería una
+            // persecución.
+            AppSurface(
+                    color = valueContainer,
+                    shape = CircleShape,
+                    modifier = Modifier.padding(vertical = TimingValuePadding)
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.lyrics_timing_seconds_short,
+                            formatLyricsShift(shiftMs)
+                        ),
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                        // **Desviación DECLARADA del rol** (device, 31 ago 2026), que es la única forma
+                        // admitida de salirse de la escala: `labelLargeEmphasized` deja el valor al mismo
+                        // peso aparente que los cuatro pasos, y como además comparten el acento la fila se
+                        // leía como cinco cifras iguales. El valor es el ANCLA —lo que hay que leer de un
+                        // vistazo— y los pasos son los mandos: el contraste tipográfico es lo que los
+                        // separa. Se toca aquí y solo aquí; la escala global de `Type.kt` no cambia.
+                        fontWeight = FontWeight.Bold,
+                        color = if (shiftMs == 0L) idleValueColor else accentColor,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .widthIn(min = TIMING_VALUE_MIN_WIDTH)
+                            .padding(horizontal = 12.dp, vertical = TimingValuePadding)
+                    )
+            }
+
+            TimingStepButton("+0,${TIMING_STEP_FINE_MS / TENTHS_DIVISOR}", accentColor) {
+                onShift(TIMING_STEP_FINE_MS)
+            }
+            TimingStepButton("+${TIMING_STEP_COARSE_MS / MILLIS_PER_SECOND}", accentColor) {
+                onShift(TIMING_STEP_COARSE_MS)
+            }
+
+            // **Siempre presente y APAGADO cuando no hay nada que quitar**, no oculto. Apareciendo y
+            // desapareciendo movía los cuatro botones de sitio justo mientras el usuario los está
+            // pulsando en serie, y el primer toque que cambia el ajuste corría el que ibas a dar
+            // después. El mismo criterio que el botón de guardar de la barra de arriba.
+            ExpressiveActionIcon(
+                onClick = { onShift(null) },
+                icon = "restart_alt",
+                description = stringResource(R.string.lyrics_timing_reset),
+                // Sin tocar el alfa: `FilledIconButton` deshabilitado usa el `disabledContentColor`
+            // que M3 tabula, así que un `copy(alpha = …)` aquí no llegaba ni a aplicarse.
+            contentColor = accentColor,
+                iconSize = 20.sp,
+                enabled = shiftMs != 0L
+            )
+        }
+    }
+}
+
+/** Un escalón del ajuste. Botón de TEXTO porque lo que lo identifica es la cifra, no un glifo. */
+@Composable
+private fun TimingStepButton(label: String, accentColor: Color, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    TextButton(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+            onClick()
+        },
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        // Por el helper de la app y no `ButtonDefaults.textButtonColors` a pelo: es la misma llamada,
+        // pero centralizada es donde se arregla de una vez si algún rol de este botón deja de salir
+        // de `AppColors` (ver AppComponentColors.kt).
+        colors = appTextButtonColors(accentColor),
+        modifier = Modifier.widthIn(min = TIMING_STEP_MIN_WIDTH)
+    ) {
+        Text(text = label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+    }
+}
+
+/**
+ * El desplazamiento como NÚMERO con su signo: `0`, `+1,5`, `−2`.
+ *
+ * Con signo SIEMPRE (menos en el cero) porque la dirección es la mitad del dato, y con el menos
+ * tipográfico (`−`) y no el guion del teclado, que a este tamaño se lee como un separador.
+ *
+ * **La unidad NO se pega aquí**: la pone `R.string.lyrics_timing_seconds_short`, porque el símbolo
+ * de una unidad es texto de interfaz y esta era, con la duración de las listas, la única cadena
+ * visible de la app escrita en el código. Que hoy la `s` coincida en los dos idiomas no la vuelve
+ * neutra: la vuelve invisible para quien traduzca al tercero.
+ */
+private fun formatLyricsShift(millis: Long): String {
+    if (millis == 0L) return "0"
+    val sign = if (millis > 0) "+" else "−"
+    val magnitude = abs(millis)
+    // Un ajuste redondo se enseña sin decimal ("2 s" y no "2,0 s"); el resto con una cifra, que es
+    // toda la precisión que el paso fino puede producir.
+    val text = if (magnitude % MILLIS_PER_SECOND == 0L) {
+        (magnitude / MILLIS_PER_SECOND).toString()
+    } else {
+        String.format(Locale.getDefault(), "%.1f", magnitude / MILLIS_PER_SECOND.toFloat())
+    }
+    return "$sign$text"
+}
+
+/** Paso grueso: los desfases entre másters se miden en segundos. */
+private const val TIMING_STEP_COARSE_MS = 1_000L
+
+/** Paso fino: el retardo de unos auriculares Bluetooth se mide en décimas. */
+private const val TIMING_STEP_FINE_MS = 100L
+
+private const val MILLIS_PER_SECOND = 1_000L
+private const val TENTHS_DIVISOR = 100L
+
+/** Lado de los iconos de la barra de acciones; el que fija `ExpressiveActionIcon`. */
+private val ACTION_ICON_SIZE = 48.dp
+
+/**
+ * Glifo de los dos iconos que flanquean el transporte.
+ *
+ * Más chico que el de la barra de arriba (24sp) a propósito: ahí compiten con el conmutador de
+ * vista y aquí con el play, que es la pieza dominante de la pantalla. Al mismo tamaño le robaban
+ * atención al control principal.
+ */
+private val LyricsFlankIconSize = 22.sp
+
+/** Aire de la píldora del valor dentro de la barra: la deja como pieza inscrita, no como parche. */
+private val TimingValuePadding = 4.dp
+
+/** Separación entre la barra de ajuste y la fila de controles. */
+private val TimingBarBottomGap = 12.dp
+
+private val TIMING_VALUE_MIN_WIDTH = 64.dp
+private val TIMING_STEP_MIN_WIDTH = 52.dp
+

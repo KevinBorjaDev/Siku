@@ -40,7 +40,6 @@ import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.model.ArtistSortOrder
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.ui.components.BannerAmber
-import com.qhana.siku.ui.components.secondaryContentColor
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.FilteredEmptyHint
 import com.qhana.siku.ui.components.GroupedListRow

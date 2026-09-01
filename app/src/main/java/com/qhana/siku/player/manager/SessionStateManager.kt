@@ -45,20 +45,31 @@ class SessionStateManager @Inject constructor(
         // item de la cola).
         if (snapshot.isEmpty()) return
 
-        val queueIds = snapshot.map { it.id }
-        musicPreferences.saveQueueIds(queueIds)
-        musicPreferences.saveShuffleState(shuffleEnabled, originalPlaylist.map { it.id })
-        if (currentIndex >= 0) {
-            // Se guarda también el ID de la canción actual: al restaurar, la cola puede
-            // encoger (canciones borradas de la BD) y el índice solo señalaría otro tema.
-            musicPreferences.saveLastState(currentIndex, position, snapshot.getOrNull(currentIndex)?.id)
-        }
+        // UNA escritura y no tres encadenadas: las tres partes describen el mismo instante, y cada
+        // `update` cuesta una reescritura del archivo con su `fsync` (ver `MusicPreferences.Store`).
+        // Se guarda también el ID de la canción actual: al restaurar, la cola puede encoger
+        // (canciones borradas de la BD) y el índice solo señalaría otro tema.
+        musicPreferences.saveSession(
+            queueIds = snapshot.map { it.id },
+            shuffleEnabled = shuffleEnabled,
+            originalQueueIds = originalPlaylist.map { it.id },
+            currentIndex = currentIndex,
+            position = position,
+            currentSongId = snapshot.getOrNull(currentIndex)?.id
+        )
     }
 
     /**
      * Guarda SOLO índice+posición+id actual, sin re-serializar los IDs de la cola. Para el
      * guardado al pausar, donde la cola no cambió y volver a escribir la lista completa es
      * trabajo inútil (con colas grandes, un map+escritura por cada pausa).
+     *
+     * **Ese ahorro no fue real hasta el 30 ago 2026**, y merece quedar escrito porque el KDoc
+     * prometía algo que la capa de abajo anulaba: la sesión vivía en el mismo archivo de DataStore
+     * que las 82 claves de configuración, y DataStore reescribe el archivo ENTERO en cada
+     * escritura, así que la cola se volvía a serializar igual. Lo único que se ahorraba era el
+     * `map` en memoria. Ahora la sesión tiene archivo propio (ver `MusicPreferences.Store`) y esto
+     * escribe de verdad tres valores.
      */
     fun savePosition(currentIndex: Int, position: Long, currentSongId: String?) {
         if (currentIndex >= 0) {

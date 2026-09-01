@@ -60,127 +60,208 @@ import kotlinx.coroutines.runBlocking
  */
 class MusicPreferences(context: Context) {
 
-    private val dataStore: DataStore<Preferences> = context.musicPrefsDataStore
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * ESTADO EN MEMORIA = la única fuente de verdad, y también lo que emiten los flows
-     * reactivos. Se llena sync al construir (una vez; la clase es `@Singleton`) y a partir de
-     * ahí solo lo escribe [update]. El disco es un destino, no una fuente.
+     * Un archivo de DataStore con su caché en memoria delante.
      *
-     * Antes había DOS verdades: `loadX()` leía este caché (síncrono, ya actualizado) mientras
-     * los `xFlow` leían `dataStore.data` (asíncrono, va por detrás). Un `collect` de
-     * `dataStore.data` reasignaba además el caché, así que el disco podía hacer RETROCEDER el
-     * estado en RAM — dos escritores para el mismo estado, justo lo que la app tiene prohibido
-     * en otro sitio por haber costado ya un bug. Con esto, escribir una preferencia se ve en el
-     * mismo frame en todo lo que la observe, sin esperar al disco ni depender de su orden.
-     */
-    private val prefs = MutableStateFlow(emptyPreferences())
-
-    /**
-     * ¿La carga inicial leyó el disco de verdad?
+     * Existe porque hay DOS archivos y toda esta mecánica —caché como única verdad,
+     * [Store.diskStateKnown], la cola FIFO de un solo consumidor— es delicada y se ganó a base de
+     * bugs: tenerla escrita dos veces sería garantizar que un arreglo se aplique a una copia y no a
+     * la otra.
      *
-     * Es la diferencia entre "el usuario no tiene nada guardado" y "no pude leer lo que hay", que
-     * es la MISMA `emptyPreferences()` y hasta la auditoría del 30 jul 2026 no se distinguían. Con
-     * un error transitorio de IO al arrancar, el caché nacía vacío y como cada volcado escribe el
-     * snapshot COMPLETO (`clear()` + volcado), la primera preferencia que tocara el usuario
-     * persistía ese vacío: se iban de golpe las carpetas locales (la app volvía al onboarding), el
-     * delta token, las curvas del EQ y los colores manuales. Un fallo pasajero se convertía en
-     * pérdida definitiva.
+     * **Por qué dos archivos**: DataStore **reescribe el archivo ENTERO en cada escritura**
+     * (`FileStorage.writeScope` serializa todo a un `.tmp`, hace `fsync` y lo renombra), así que el
+     * coste de guardar un dato no depende de ese dato sino de **con quién comparte archivo**. La
+     * posición de reproducción se guarda en cada cambio de canción y en cada pausa, y vivía junto a
+     * `last_queue_ids` y `original_queue_ids`, que son la cola ENTERA y la cola original de shuffle
+     * serializadas como ids namespaced y sin tope: con la biblioteca en aleatorio, cientos de ids de
+     * ~80 caracteres. Cada pausa reescribía todo eso —y las otras 82 claves— para actualizar tres
+     * números.
      *
-     * Mientras esto sea `false` el estado en RAM es una suposición, no la verdad, y [update] se
-     * niega a volcarlo (ver allí).
+     * Eso además dejaba sin efecto una optimización que el código creía tener:
+     * `SessionStateManager.savePosition` existe para "no re-serializar los IDs de la cola… con colas
+     * grandes, un map+escritura por cada pausa", y solo se ahorraba el `map` en memoria — el volcado
+     * escribía la cola igual. Con la sesión en su propio archivo ese ahorro es real, y de paso la
+     * configuración deja de reescribirse por algo que no es configuración.
      */
-    @Volatile
-    private var diskStateKnown = false
+    private inner class Store(
+        private val dataStore: DataStore<Preferences>,
+        private val tag: String
+    ) {
+        /**
+         * ESTADO EN MEMORIA = la única fuente de verdad, y también lo que emiten los flows
+         * reactivos. Se llena sync al construir (una vez; la clase es `@Singleton`) y a partir de
+         * ahí solo lo escribe [update]. El disco es un destino, no una fuente.
+         *
+         * Antes había DOS verdades: `loadX()` leía este caché (síncrono, ya actualizado) mientras
+         * los `xFlow` leían `dataStore.data` (asíncrono, va por detrás). Un `collect` de
+         * `dataStore.data` reasignaba además el caché, así que el disco podía hacer RETROCEDER el
+         * estado en RAM — dos escritores para el mismo estado, justo lo que la app tiene prohibido
+         * en otro sitio por haber costado ya un bug. Con esto, escribir una preferencia se ve en el
+         * mismo frame en todo lo que la observe, sin esperar al disco ni depender de su orden.
+         */
+        val prefs = MutableStateFlow(emptyPreferences())
 
-    init {
-        runBlocking { loadInitialSnapshot() }
-    }
+        val cache: Preferences get() = prefs.value
 
-    /**
-     * Lee el disco reintentando: el primer acceso a DataStore también corre la migración desde
-     * SharedPreferences, así que un fallo aquí no es necesariamente permanente.
-     */
-    private suspend fun loadInitialSnapshot() {
-        repeat(INITIAL_READ_ATTEMPTS) { attempt ->
-            try {
-                prefs.value = dataStore.data.first()
-                diskStateKnown = true
-                return
-            } catch (e: Exception) {
-                android.util.Log.e(
-                    "MusicPreferences",
-                    "Error leyendo preferencias (intento ${attempt + 1}/$INITIAL_READ_ATTEMPTS)",
-                    e
-                )
-            }
-        }
-        // Se sigue adelante con el caché vacío —la app tiene que arrancar— pero SIN permiso para
-        // escribirlo encima de lo que haya en disco.
-        android.util.Log.e(
-            "MusicPreferences",
-            "Preferencias ilegibles: se arranca con valores por defecto y NO se persistirá nada " +
-                "hasta poder leer el disco"
-        )
-    }
+        /**
+         * ¿La carga inicial leyó el disco de verdad?
+         *
+         * Es la diferencia entre "el usuario no tiene nada guardado" y "no pude leer lo que hay",
+         * que es la MISMA `emptyPreferences()` y hasta la auditoría del 30 jul 2026 no se
+         * distinguían. Con un error transitorio de IO al arrancar, el caché nacía vacío y como cada
+         * volcado escribe el snapshot COMPLETO (`clear()` + volcado), la primera preferencia que
+         * tocara el usuario persistía ese vacío: se iban de golpe las carpetas locales (la app
+         * volvía al onboarding), el delta token, las curvas del EQ y los colores manuales. Un fallo
+         * pasajero se convertía en pérdida definitiva.
+         *
+         * Mientras esto sea `false` el estado en RAM es una suposición, no la verdad, y [update] se
+         * niega a volcarlo (ver allí).
+         */
+        @Volatile
+        var diskStateKnown = false
+            private set
 
-    private val cache: Preferences get() = prefs.value
+        /**
+         * Cola FIFO de volcados a disco con UN SOLO consumidor. Cada escritura vuelca el snapshot
+         * COMPLETO (clear + volcado), así que el orden importa: con un `launch` por escritura sobre
+         * `Dispatchers.IO` —lo que había antes— dos volcados casi simultáneos corren en hilos
+         * distintos y nada garantiza que el más nuevo llegue el último. Cuando se invertían, el
+         * snapshot viejo pisaba al nuevo y la preferencia recién guardada desaparecía del disco (y,
+         * cuando los flows leían de ahí, también de la UI). Ya había mordido con las carpetas
+         * locales y se parcheó fusionando esas dos escrituras a mano; esto lo arregla para todas.
+         */
+        private val diskWrites = Channel<Preferences>(Channel.UNLIMITED)
 
-    /**
-     * Cola FIFO de volcados a disco con UN SOLO consumidor. Cada escritura vuelca el snapshot
-     * COMPLETO (clear + volcado), así que el orden importa: con un `launch` por escritura sobre
-     * `Dispatchers.IO` —lo que había antes— dos volcados casi simultáneos corren en hilos
-     * distintos y nada garantiza que el más nuevo llegue el último. Cuando se invertían, el
-     * snapshot viejo pisaba al nuevo y la preferencia recién guardada desaparecía del disco (y,
-     * cuando los flows leían de ahí, también de la UI). Ya había mordido con las carpetas
-     * locales y se parcheó fusionando esas dos escrituras a mano; esto lo arregla para todas.
-     */
-    private val diskWrites = Channel<Preferences>(Channel.UNLIMITED)
-
-    init {
-        scope.launch {
-            for (snapshot in diskWrites) {
+        /**
+         * Lee el disco reintentando: el primer acceso a DataStore también corre la migración desde
+         * SharedPreferences, así que un fallo aquí no es necesariamente permanente.
+         */
+        suspend fun loadInitialSnapshot() {
+            repeat(INITIAL_READ_ATTEMPTS) { attempt ->
                 try {
-                    dataStore.edit { target ->
-                        target.clear()
-                        @Suppress("UNCHECKED_CAST")
-                        snapshot.asMap().forEach { (k, v) -> target[k as Preferences.Key<Any>] = v }
-                    }
+                    prefs.value = dataStore.data.first()
+                    diskStateKnown = true
+                    return
                 } catch (e: Exception) {
-                    android.util.Log.e("MusicPreferences", "Error persistiendo preferencias", e)
+                    android.util.Log.e(
+                        tag,
+                        "Error leyendo preferencias (intento ${attempt + 1}/$INITIAL_READ_ATTEMPTS)",
+                        e
+                    )
+                }
+            }
+            // Se sigue adelante con el caché vacío —la app tiene que arrancar— pero SIN permiso para
+            // escribirlo encima de lo que haya en disco.
+            android.util.Log.e(
+                tag,
+                "Preferencias ilegibles: se arranca con valores por defecto y NO se persistirá nada " +
+                    "hasta poder leer el disco"
+            )
+        }
+
+        fun startDiskWriter() {
+            scope.launch {
+                for (snapshot in diskWrites) {
+                    try {
+                        dataStore.edit { target ->
+                            target.clear()
+                            @Suppress("UNCHECKED_CAST")
+                            snapshot.asMap().forEach { (k, v) -> target[k as Preferences.Key<Any>] = v }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(tag, "Error persistiendo preferencias", e)
+                    }
                 }
             }
         }
+
+        fun update(block: (MutablePreferences) -> Unit) {
+            // Aplicar en memoria de forma SÍNCRONA para que `loadX()` posteriores vean el cambio
+            // inmediatamente. Sin esto hay race condition: por ejemplo `clearDeltaToken()` seguido
+            // de `loadDeltaToken()` en la misma función devolvería el token viejo, porque la
+            // escritura a disco corre en background.
+            val mutated = cache.toMutablePreferences()
+            block(mutated)
+            val newCache = mutated.toPreferences()
+            prefs.value = newCache
+            // Sin una lectura buena del disco, este snapshot NO describe lo que el usuario tiene
+            // guardado: le faltaría todo lo que no se pudo leer. Y como el volcado hace `clear()` +
+            // snapshot completo, persistirlo BORRARÍA esas preferencias en vez de dejarlas intactas.
+            // La app funciona en memoria con los valores por defecto; el disco se queda como está.
+            if (!diskStateKnown) return
+            // Se persiste el SNAPSHOT (no se re-ejecuta `block`): así un `block` no idempotente
+            // —incremento, append— no se aplica dos veces sobre bases distintas (memoria vs. disco)
+            // divergiendo. `trySend` sobre un canal UNLIMITED nunca falla ni bloquea.
+            diskWrites.trySend(newCache)
+        }
     }
 
-    private fun update(block: (MutablePreferences) -> Unit) {
-        // Aplicar en memoria de forma SÍNCRONA para que `loadX()` posteriores vean el cambio
-        // inmediatamente. Sin esto hay race condition: por ejemplo `clearDeltaToken()` seguido
-        // de `loadDeltaToken()` en la misma función devolvería el token viejo, porque la
-        // escritura a disco corre en background.
-        val mutated = cache.toMutablePreferences()
-        block(mutated)
-        val newCache = mutated.toPreferences()
-        prefs.value = newCache
-        // Sin una lectura buena del disco, este snapshot NO describe lo que el usuario tiene
-        // guardado: le faltaría todo lo que no se pudo leer. Y como el volcado hace `clear()` +
-        // snapshot completo, persistirlo BORRARÍA esas preferencias en vez de dejarlas intactas.
-        // La app funciona en memoria con los valores por defecto; el disco se queda como está.
-        if (!diskStateKnown) return
-        // Se persiste el SNAPSHOT (no se re-ejecuta `block`): así un `block` no idempotente
-        // —incremento, append— no se aplica dos veces sobre bases distintas (memoria vs. disco)
-        // divergiendo. `trySend` sobre un canal UNLIMITED nunca falla ni bloquea.
-        diskWrites.trySend(newCache)
+    /** Configuración: todo lo que el usuario elige y espera encontrar igual la próxima vez. */
+    private val main = Store(context.musicPrefsDataStore, "MusicPreferences")
+
+    /**
+     * Estado de la SESIÓN de reproducción (cola, índice, posición, shuffle).
+     *
+     * Archivo aparte porque es lo único que se escribe con frecuencia y a la vez lo más pesado que
+     * se guarda; ver el KDoc de [Store]. No lleva `SharedPreferencesMigration`: aquella migración ya
+     * la hizo el archivo principal, y estas claves se traen de allí en [migrateSessionKeysFromMain].
+     */
+    private val session = Store(context.sessionDataStore, "PlaybackSession")
+
+    private val cache: Preferences get() = main.cache
+
+    init {
+        // Los dos snapshots dentro del MISMO `runBlocking`, y en paralelo: este bloqueo lo paga el
+        // arranque de la app, así que el segundo archivo no puede costar una segunda espera.
+        runBlocking {
+            val sessionLoad = scope.launch { session.loadInitialSnapshot() }
+            main.loadInitialSnapshot()
+            sessionLoad.join()
+        }
+        main.startDiskWriter()
+        session.startDiskWriter()
+        migrateSessionKeysFromMain()
     }
 
     /**
-     * Flow derivado del estado en memoria. `distinctUntilChanged` porque [prefs] emite en CADA
+     * Trae la sesión guardada del archivo principal al suyo, una sola vez.
+     *
+     * Un usuario que actualiza tiene su cola en `music_player_prefs`; sin esto perdería lo que
+     * estaba escuchando al abrir la versión nueva. Se copia solo si el archivo de sesión está vacío
+     * —o sea, la primera vez— y se borra del principal en la misma pasada, porque dejarla ahí
+     * mantendría exactamente el peso que todo esto viene a quitar.
+     *
+     * Si el disco no se pudo leer no se hace nada: con `diskStateKnown` en `false` el caché es una
+     * suposición, y migrar desde una suposición borraría la sesión de verdad.
+     */
+    private fun migrateSessionKeysFromMain() {
+        if (!main.diskStateKnown || !session.diskStateKnown) return
+        if (session.cache.asMap().isNotEmpty()) return
+        val pending = SESSION_KEYS.filter { main.cache.contains(it) }
+        if (pending.isEmpty()) return
+        session.update { target ->
+            pending.forEach { key ->
+                // El tipo se declara `Any` a propósito: sin él, leer con una `Key<*>` deja el valor
+                // con el tipo CAPTURADO de la proyección y no casa con la clave ya casteada.
+                val value: Any = main.cache[key] ?: return@forEach
+                @Suppress("UNCHECKED_CAST")
+                target[key as Preferences.Key<Any>] = value
+            }
+        }
+        main.update { target -> pending.forEach { target.remove(it) } }
+    }
+
+    private fun update(block: (MutablePreferences) -> Unit) = main.update(block)
+
+    /**
+     * Flow derivado del estado en memoria. `distinctUntilChanged` porque `prefs` emite en CADA
      * escritura de cualquier preferencia y un observador de una sola clave no debe recomponer
      * porque se guardó la posición de reproducción.
      */
     private fun <T> prefFlow(read: (Preferences) -> T): Flow<T> =
-        prefs.map(read).distinctUntilChanged()
+        main.prefs.map(read).distinctUntilChanged()
 
     // --- Sort order ---
 
@@ -249,17 +330,12 @@ class MusicPreferences(context: Context) {
     fun clearManualColorIds() = update { it.remove(KEY_MANUAL_COLOR_IDS) }
 
     // --- Session (queue + position) ---
-
-    /**
-     * Guarda los IDs de la cola (String desde v13). Se serializa usando ``
-     * (Unit Separator) como delimitador: inofensivo dentro de IDs remotos de OneDrive.
-     */
-    fun saveQueueIds(queueIds: List<String>) = update {
-        it[KEY_LAST_QUEUE] = queueIds.joinToString(QUEUE_DELIMITER)
-    }
+    // Estos accesores van contra `session`, NO contra `update`/`cache`, que son el
+    // archivo de configuración. Es lo que separa la escritura frecuente y pesada del resto; ver el
+    // KDoc de [Store]. Si se añade una clave de sesión, va aquí Y en [SESSION_KEYS].
 
     fun loadQueueIds(): List<String> {
-        val raw = cache[KEY_LAST_QUEUE] ?: return emptyList()
+        val raw = session.cache[KEY_LAST_QUEUE] ?: return emptyList()
         if (raw.isBlank()) return emptyList()
         return try {
             raw.split(QUEUE_DELIMITER).filter { it.isNotBlank() }
@@ -268,7 +344,7 @@ class MusicPreferences(context: Context) {
         }
     }
 
-    fun saveLastState(index: Int, position: Long, songId: String? = null) = update {
+    fun saveLastState(index: Int, position: Long, songId: String? = null) = session.update {
         it[KEY_LAST_INDEX] = index
         it[KEY_LAST_POSITION] = position
         // ID de la canción actual: la restauración lo prefiere sobre el índice, que se
@@ -277,9 +353,9 @@ class MusicPreferences(context: Context) {
     }
 
     fun loadLastState(): Triple<Int, Long, String?> {
-        val index = cache[KEY_LAST_INDEX] ?: 0
-        val position = cache[KEY_LAST_POSITION] ?: 0L
-        return Triple(index, position, cache[KEY_LAST_SONG_ID])
+        val index = session.cache[KEY_LAST_INDEX] ?: 0
+        val position = session.cache[KEY_LAST_POSITION] ?: 0L
+        return Triple(index, position, session.cache[KEY_LAST_SONG_ID])
     }
 
     /**
@@ -287,19 +363,46 @@ class MusicPreferences(context: Context) {
      * cola persistida ya está barajada: sin el orden original, al restaurar no habría a dónde
      * volver al apagar el aleatorio (y el botón quedaría encendido mintiendo).
      */
-    fun saveShuffleState(enabled: Boolean, originalQueueIds: List<String>) = update {
-        it[KEY_SHUFFLE_ENABLED] = enabled
-        if (enabled && originalQueueIds.isNotEmpty()) {
+    /**
+     * Guarda la sesión ENTERA —cola, aleatorio e índice/posición— en UNA sola escritura.
+     *
+     * `SessionStateManager.saveSessionState` encadenaba `saveQueueIds` + `saveShuffleState` +
+     * `saveLastState`, y como cada `update` encola su propio volcado y DataStore reescribe el
+     * archivo entero, eran TRES serializaciones con sus tres `fsync` para un solo guardado — con
+     * ocho call sites en `MusicController`. Las tres describen el mismo instante, así que se
+     * escriben juntas: además de costar un tercio, deja de existir la ventana en la que el disco
+     * tiene la cola nueva con el índice viejo.
+     *
+     * [currentIndex] negativo = no hay item actual y no se toca esa parte, igual que hacía el
+     * `if (currentIndex >= 0)` del caller.
+     */
+    fun saveSession(
+        queueIds: List<String>,
+        shuffleEnabled: Boolean,
+        originalQueueIds: List<String>,
+        currentIndex: Int,
+        position: Long,
+        currentSongId: String?
+    ) = session.update {
+        it[KEY_LAST_QUEUE] = queueIds.joinToString(QUEUE_DELIMITER)
+        it[KEY_SHUFFLE_ENABLED] = shuffleEnabled
+        if (shuffleEnabled && originalQueueIds.isNotEmpty()) {
             it[KEY_ORIGINAL_QUEUE] = originalQueueIds.joinToString(QUEUE_DELIMITER)
         } else {
             it.remove(KEY_ORIGINAL_QUEUE)
         }
+        if (currentIndex >= 0) {
+            it[KEY_LAST_INDEX] = currentIndex
+            it[KEY_LAST_POSITION] = position
+            if (currentSongId != null) it[KEY_LAST_SONG_ID] = currentSongId
+            else it.remove(KEY_LAST_SONG_ID)
+        }
     }
 
-    fun loadShuffleEnabled(): Boolean = cache[KEY_SHUFFLE_ENABLED] ?: false
+    fun loadShuffleEnabled(): Boolean = session.cache[KEY_SHUFFLE_ENABLED] ?: false
 
     fun loadOriginalQueueIds(): List<String> {
-        val raw = cache[KEY_ORIGINAL_QUEUE] ?: return emptyList()
+        val raw = session.cache[KEY_ORIGINAL_QUEUE] ?: return emptyList()
         if (raw.isBlank()) return emptyList()
         return raw.split(QUEUE_DELIMITER).filter { it.isNotBlank() }
     }
@@ -448,14 +551,7 @@ class MusicPreferences(context: Context) {
      * auto-scan re-listaba TODO Graph sin que la nube hubiera cambiado. El logout —el único sitio
      * donde sí hay que limpiarlo— llama a [clearDeltaToken] por su cuenta.
      */
-    fun clearQueue() = update {
-        it.remove(KEY_LAST_QUEUE)
-        it.remove(KEY_LAST_INDEX)
-        it.remove(KEY_LAST_POSITION)
-        it.remove(KEY_LAST_SONG_ID)
-        it.remove(KEY_SHUFFLE_ENABLED)
-        it.remove(KEY_ORIGINAL_QUEUE)
-    }
+    fun clearQueue() = session.update { target -> SESSION_KEYS.forEach { target.remove(it) } }
 
     // Los 7 tunables del extractor de color (quantization, objetivos de luminancia, saturación
     // máxima, factor de peso, stiffness, población mínima) se eliminaron al pasar a
@@ -1296,6 +1392,12 @@ class MusicPreferences(context: Context) {
         private const val DEFAULT_SCAN_WHOLE_DEVICE = false
 
         private const val DATASTORE_NAME = "music_player_prefs"
+
+        /**
+         * Archivo de la sesión de reproducción, aparte del de configuración. El nombre es formato
+         * en disco de una app publicada: cambiarlo dejaría la sesión huérfana en el archivo viejo.
+         */
+        private const val SESSION_DATASTORE_NAME = "playback_session"
         private const val KEY_SORT_ORDER = "sort_order"
         private val KEY_ARTIST_SORT = stringPreferencesKey("artist_sort_order")
         private val KEY_ALBUM_SORT = stringPreferencesKey("album_sort_order")
@@ -1413,6 +1515,27 @@ class MusicPreferences(context: Context) {
         private val KEY_SHUFFLE_ENABLED = booleanPreferencesKey("shuffle_enabled")
         private val KEY_OFFLOAD_BROKEN = booleanPreferencesKey("audio_offload_broken")
         private val KEY_ORIGINAL_QUEUE = stringPreferencesKey("original_queue_ids")
+
+        /**
+         * Las claves que viven en el archivo de SESIÓN, no en el de configuración.
+         *
+         * Es la lista que consume la migración de quien actualiza y `clearQueue`, y por eso está
+         * escrita UNA vez: `clearQueue` las enumeraba a mano y una clave nueva olvidada ahí se
+         * habría quedado sin borrar al purgar la cola — el tipo de olvido que no falla en
+         * compilación. **Una clave de sesión nueva se añade aquí.**
+         *
+         * `KEY_OFFLOAD_BROKEN` NO está y no debe estar: describe el DSP del dispositivo, no la
+         * sesión, así que no se borra al vaciar la cola y se escribe una vez cada mucho.
+         */
+        private val SESSION_KEYS: List<Preferences.Key<*>> = listOf(
+            KEY_LAST_QUEUE,
+            KEY_LAST_INDEX,
+            KEY_LAST_POSITION,
+            KEY_LAST_SONG_ID,
+            KEY_SHUFFLE_ENABLED,
+            KEY_ORIGINAL_QUEUE
+        )
+
         private val KEY_DELTA_TOKEN = stringPreferencesKey("delta_token")
         /** Legacy: carpeta local ÚNICA. Solo se LEE, para migrar al set (ver loadLocalFolderUris). */
         private val KEY_LOCAL_FOLDER_URI = stringPreferencesKey("local_folder_uri")
@@ -1433,6 +1556,17 @@ class MusicPreferences(context: Context) {
         private val Context.musicPrefsDataStore: DataStore<Preferences> by preferencesDataStore(
             name = DATASTORE_NAME,
             produceMigrations = { ctx -> listOf(SharedPreferencesMigration(ctx, DATASTORE_NAME)) }
+        )
+
+        /**
+         * Archivo de la SESIÓN de reproducción. Ver el KDoc de [Store] para por qué está separado.
+         *
+         * Sin `produceMigrations`: nunca existió un SharedPreferences con este nombre. Lo que sí hay
+         * que traer es la sesión del archivo principal de quien actualiza, y de eso se encarga
+         * [migrateSessionKeysFromMain].
+         */
+        private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(
+            name = SESSION_DATASTORE_NAME
         )
     }
 }

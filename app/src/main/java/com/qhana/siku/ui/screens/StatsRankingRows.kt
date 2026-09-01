@@ -255,6 +255,10 @@ internal fun RankCarousel(
                 placeholderIcon = fallbackIcon,
                 onClick = { onClick(entry.name) },
                 modifier = Modifier
+                    // Con `key` puesta, la convención de la app es acompañarla de `animateItem`:
+                    // cambiar de periodo reordena el ranking entero, que es justo lo que este
+                    // modificador existe para que no salte de golpe.
+                    .animateItem()
                     .size(CarouselCardSize)
                     // La tarjeta se recorta a sí misma: aquí no hay `maskClip` de carrusel que se lo
                     // haga, al revés que en el inicio.

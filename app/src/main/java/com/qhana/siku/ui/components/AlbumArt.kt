@@ -31,6 +31,22 @@ import coil3.request.transformations
 private val RingStroke = 3.dp
 private val RingGap = 2.dp
 
+/**
+ * Velo sobre una carátula para que un glifo se lea encima de ella.
+ *
+ * **Vive aquí y lo consumen los dos sitios que lo necesitan** —el indicador de descarga de esta
+ * misma función y el emblema de `ArtCarouselCard`—, porque es UNA decisión: cuánto hay que tapar
+ * una portada cualquiera para que un símbolo blanco encima se lea tanto sobre una carátula negra
+ * como sobre una blanca, sin que el collage deje de reconocerse. Estaba escrito con el mismo valor
+ * en los dos archivos y con un comentario en uno apuntando al otro, que es la señal de que era la
+ * misma regla partida en dos.
+ *
+ * Es translucidez de verdad y no jerarquía de contenido: lo que hay debajo es una imagen
+ * arbitraria, así que no existe el contenedor del que `secondaryContentColor` derivaría un tono.
+ * Es la excepción declarada a "la jerarquía va por TONO".
+ */
+internal const val ARTWORK_SCRIM_ALPHA = 0.45f
+
 // ============== ALBUM ART ==============
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -159,7 +175,7 @@ fun AlbumArt(
                                 .fillMaxSize()
                                 // Con la forma como relleno: sin clip del contenedor, el velo debe
                                 // seguir la cookie por su cuenta (con clip es inocuo, ya va acotado).
-                                .background(scrimColor.copy(alpha = 0.45f), effShape)
+                                .background(scrimColor.copy(alpha = ARTWORK_SCRIM_ALPHA), effShape)
                         )
                     }
                     // LoadingIndicator expressive (morfea entre MaterialShapes): determinado con

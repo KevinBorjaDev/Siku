@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.qhana.siku.ui.theme.AppMenuGroup
+import androidx.compose.animation.AnimatedContent
 import com.qhana.siku.R
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -61,6 +62,7 @@ import kotlinx.coroutines.launch
 
 import com.qhana.siku.ui.theme.appEffectsSpec
 import com.qhana.siku.ui.theme.appFastEffectsSpec
+import com.qhana.siku.ui.theme.appFadeThrough
 import com.qhana.siku.ui.theme.appBannerEnter
 import com.qhana.siku.ui.theme.appBannerExit
 import android.content.res.Configuration
@@ -843,21 +845,31 @@ fun LibraryScreen(
                 // las categorías se lo queda entero. De paso es lo que pide M3 —entre destinos de
                 // una barra de navegación no se desliza— y lo que el usuario decidió: el swipe
                 // significa "moverme por la biblioteca", no "cambiar de sección".
-                HorizontalPager(
-                    state = pagerState,
-                    key = { it },
-                    beyondViewportPageCount = 1,
-                    userScrollEnabled = !modernNav
-                ) { page ->
-                    val libraryPage = pages[page]
+
+                // El contenido de un destino, extraído para que lo puedan pintar DOS caminos: las
+                // páginas del pager (estilo clásico) y el `AnimatedContent` del fade-through (moderno).
+                // Es la misma composición en los dos, así que no hay dos verdades sobre qué es una
+                // página — lo que cambia es quién la coloca y con qué transición.
+                val pageContent: @Composable (Int) -> Unit = { page ->
+                    // `coerceIn` y no `pages[page]` a secas: el `AnimatedContent` sostiene el índice
+                    // SALIENTE durante la transición, y al cambiar de estilo de navegación la lista
+                    // de páginas cambia de tamaño antes de que el efecto que reposiciona el pager
+                    // corra. El pager acotaba solo; esto no.
+                    val libraryPage = pages[page.coerceIn(pages.indices)]
                     // **Solo la pestaña que se VE declara shared elements.** `beyondViewportPageCount`
                     // deja la vecina compuesta y COLOCADA, y una punta colocada participa en el match
                     // aunque esté fuera del viewport: por eso una canción que salía en un carrusel del
                     // Inicio se abría SIN morph desde "Todas" (dos puntas de la misma key, las dos
                     // declarándose destino). Ver [SharedTransitionGate], donde está el caso completo.
                     //
+                    // El gate SIGUE HACIENDO FALTA con el estilo moderno en 0, y no por este pager
+                    // sino por el de dentro: `LibraryCategoriesPane` conserva su `= 1` —ahí el swipe
+                    // entre categorías sí existe— así que el empate de dos puntas puede darse igual,
+                    // un nivel más abajo. Aquí, además, el gate deja de ser gratis de razonar en un
+                    // solo modo: en clásico hay tres páginas vivas y en moderno una.
+                    //
                     // `derivedStateOf` y no leer la página a pelo: así solo recomponen las dos
-                    // páginas que cambian de estado al deslizar, no las cuatro que hay compuestas. La
+                    // páginas que cambian de estado al deslizar, no todas las que haya compuestas. La
                     // clave del `remember` es `page`, que es constante para esta ranura — lo que se
                     // observa es el estado del pager (convención 9c).
                     //
@@ -1037,6 +1049,64 @@ fun LibraryScreen(
                         }
                     }
                     } // SharedTransitionGate
+                }
+
+                HorizontalPager(
+                    state = pagerState,
+                    key = { it },
+                    // **Atado a `userScrollEnabled`, no elegido como un dial de rendimiento**
+                    // (31 ago 2026). Precomponer la vecina existe para tenerla lista durante los
+                    // frames de un RECORRIDO, y en el estilo moderno no hay ninguno: ni arrastre
+                    // (`userScrollEnabled = false`) ni scroll animado (la barra usa `scrollToPage`,
+                    // ver más abajo por qué). O sea que era trabajo sin beneficiario.
+                    //
+                    // Y bajo una barra de navegación **"vecina" no significa nada**: desde Inicio,
+                    // Biblioteca está a un toque y Listas también, que es índice +2 y nunca se
+                    // precomponía. Se estaba acelerando un destino arbitrario elegido por la
+                    // geometría del pager y no por el uso. Con una navbar las opciones coherentes
+                    // son precomponerlos TODOS o NINGUNO, y la estándar es la segunda: componer
+                    // bajo demanda y retener el ESTADO, que es lo que hace un `NavHost`.
+                    //
+                    // Lo que se ahorra estando en Inicio son TRES pantallas compuestas —el panel de
+                    // categorías y sus dos primeras categorías—, y no son solo nodos: son
+                    // suscripciones vivas que recomponen durante un sync, la misma presión contra
+                    // la que existe `sampledDuringSync`.
+                    //
+                    // **El estado no se pierde**: `HorizontalPager` va sobre `LazyLayout`, que
+                    // guarda lo que sea `rememberSaveable` de cada página por su `key` al salir de
+                    // composición — y `key = { it }` está puesta. Sobreviven el índice del pager de
+                    // categorías y el scroll de las listas. Lo que NO sobreviviría es un `remember`
+                    // pelado: hoy no hay ninguno en esas páginas, y si se añade uno con estado que
+                    // deba durar, va en `rememberSaveable`.
+                    //
+                    // En el modo CLÁSICO se queda en 1 y ahí sí está bien puesto: el pager es el
+                    // mecanismo, se arrastra con el dedo, y la vecina es literalmente lo que el
+                    // gesto está descubriendo.
+                    beyondViewportPageCount = if (modernNav) 0 else 1,
+                    userScrollEnabled = !modernNav
+                ) { page ->
+                    // En el estilo moderno la página va VACÍA a propósito: el contenido lo pinta el
+                    // `AnimatedContent` de abajo, que es el único que puede tener el saliente y el
+                    // entrante a la vez —y sin los dos no hay *fade through*, solo un fundido de
+                    // entrada—. El pager sigue compuesto porque es la ÚNICA fuente de verdad de qué
+                    // destino está activo, y porque `scrollToPage` espera al primer layout del pager
+                    // (`PagerState.awaitScrollDependencies`): sin él, tocar la barra no cambiaría nada.
+                    if (!modernNav) pageContent(page)
+                }
+                if (modernNav) {
+                    // El *fade through* del spec, que necesita las dos vistas. Ver [appFadeThrough].
+                    //
+                    // `targetState` es `currentPage` y no `settledPage`: con `scrollToPage` el cambio
+                    // es instantáneo, así que el asentamiento no aporta ninguna información que
+                    // esperar. El gate de shared elements sigue leyendo `settledPage` dentro de
+                    // [pageContent] — durante los 300 ms conviven dos destinos compuestos y solo el
+                    // que se queda puede declarar puntas, que es justo para lo que existe.
+                    AnimatedContent(
+                        targetState = pagerState.currentPage,
+                        transitionSpec = { appFadeThrough() },
+                        modifier = Modifier.fillMaxSize(),
+                        label = "destino"
+                    ) { page -> pageContent(page) }
                 }
             }
 

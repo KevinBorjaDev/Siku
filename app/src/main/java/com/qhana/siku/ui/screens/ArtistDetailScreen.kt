@@ -20,11 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -45,6 +43,7 @@ import coil3.request.crossfade
 import androidx.compose.ui.platform.LocalContext
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.ui.components.detailHeaderScrim
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AlbumTileCard
 import com.qhana.siku.ui.components.ComponentConfig
@@ -599,24 +598,8 @@ private fun ArtistImmersiveHeader(
             }
         }
 
-        // Scrim inferior REFORZADO: funde la foto con el fondo y —clave— deja el título apoyado
-        // sobre `surface` CASI SÓLIDO, no sobre la imagen. Así el `onSurface` del nombre contrasta
-        // SIEMPRE, sea la foto clara u oscura (y se adapta a tema claro/oscuro por el propio rol).
-        // El scrim viejo (0.4→surface) solo llegaba a ~0.73·surface donde EMPIEZA el texto, y una
-        // foto clara tapaba la parte alta de las letras. La imagen sigue inmersiva en el 70 % de
-        // arriba con su fade suave; solo el 15 % inferior (la banda del título) queda sólido.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.3f to Color.Transparent,
-                        0.7f to AppColors.surfaceContainer.copy(alpha = 0.5f),
-                        0.85f to AppColors.surfaceContainer,
-                        1f to AppColors.surfaceContainer
-                    )
-                )
-        )
+        // Scrim inferior: el MISMO de los cuatro detalles, y por eso vive en [detailHeaderScrim].
+        Box(modifier = Modifier.matchParentSize().background(detailHeaderScrim()))
 
         // Nombre + chips superpuestos en la parte baja (back/picker viven en la topbar
         // pineada del caller).

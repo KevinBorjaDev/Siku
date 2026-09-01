@@ -1,6 +1,7 @@
 package com.qhana.siku.data.coordinator
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.qhana.siku.R
 import com.qhana.siku.data.manager.MusicDownloader
@@ -366,6 +367,10 @@ class SyncManager @Inject constructor(
             // y sigue con su música local se quedaría sin refrescos para siempre. Este trabajo se
             // corta por cancelación de su corrutina, que es lo que le corresponde: dura lo que
             // dura un listado.
+            // El token se toma ANTES de listar: lo que este walk podrá dar por atendido es lo que
+            // hubiera cambiado hasta aquí. Una señal que llegue mientras corre (copiar un archivo
+            // durante los ~2,8 s del listado) queda pendiente para el siguiente regreso a la app.
+            val listingToken = localLibraryChangeMonitor.beginListing()
             val ctx = com.qhana.siku.data.source.DiscoverContext(
                 reportScanning = { _, _ -> },
                 isStopped = { false }
@@ -393,7 +398,7 @@ class SyncManager @Inject constructor(
             artworkHealingManager.resolvePendingArtwork(localOnly = true)
             // Se consume la señal SOLO aquí, con el listado ya hecho: si esto se hubiera saltado
             // por el mutex o cancelado a medias, la marca sigue puesta para el siguiente intento.
-            localLibraryChangeMonitor.markRefreshed()
+            localLibraryChangeMonitor.markRefreshed(listingToken)
             added
         } finally {
             localRefreshJob.set(null)
@@ -419,6 +424,10 @@ class SyncManager @Inject constructor(
         // pero el desenlace NO puede ser "Biblioteca al día".
         var authFailure: Exception? = null
         queueStopReason.set(null)
+        // ANTES del discover, por lo mismo que en `refreshLocalSources`: este sync solo puede dar
+        // por atendido lo que había cambiado al empezar. Un sync masivo dura minutos, así que la
+        // ventana en la que se perdería una señal tomándolo al final es enorme.
+        val listingToken = localLibraryChangeMonitor.beginListing()
         try {
             _state.value = SyncStatus.Scanning(0, context.getString(R.string.sync_looking_for_changes))
             val discoverCtx = com.qhana.siku.data.source.DiscoverContext(
@@ -638,7 +647,7 @@ class SyncManager @Inject constructor(
             // scan volvía a listar el almacenamiento entero por tener la cuenta del intervalo
             // parada en el arranque del proceso — la misma duplicación que ya obligó a inventar
             // `skipStartupLocalRefresh` en la UI, colándose por la otra puerta.
-            localLibraryChangeMonitor.markRefreshed()
+            localLibraryChangeMonitor.markRefreshed(listingToken)
         }
 
         val reason = queueStopReason.get()
@@ -1063,7 +1072,8 @@ class SyncManager @Inject constructor(
         val downloadedCount = AtomicInteger(0)
         val failedCount = AtomicInteger(0)
         val bytesDownloaded = java.util.concurrent.atomic.AtomicLong(0L)
-        val startedAt = System.currentTimeMillis()
+        // Monótono: es una DURACIÓN para el log de throughput, no una hora. Ver ListeningClock.
+        val startedAt = SystemClock.elapsedRealtime()
         val attempted = java.util.Collections.synchronizedSet(LinkedHashSet<String>(256))
 
         // Buffer del channel dimensionado con el MÁXIMO y no con el paralelismo inicial: las
@@ -1348,7 +1358,7 @@ class SyncManager @Inject constructor(
         finalizeChannel.close()
         finalizers.joinAll()
 
-        val elapsedSec = (System.currentTimeMillis() - startedAt) / MILLIS_PER_SECOND
+        val elapsedSec = (SystemClock.elapsedRealtime() - startedAt) / MILLIS_PER_SECOND
         val mb = bytesDownloaded.get() / BYTES_PER_MB
         if (mb > 0 && elapsedSec > 0) {
             Log.i(TAG, "Throughput: %.1f MB en %.0fs -> %.2f MB/s (%d conexiones al final)"
@@ -1499,7 +1509,8 @@ class SyncManager @Inject constructor(
         downloadingNow: AtomicInteger,
         spawnWorker: () -> Unit
     ): Job = launch {
-        var windowStartMs = System.currentTimeMillis()
+        // Monótono: la ventana del supervisor mide caudal por segundo, no instantes.
+        var windowStartMs = SystemClock.elapsedRealtime()
         var windowStartBytes = bytesDownloaded.get()
         var windowThrottles = requestCoordinator.throttleEvents
         var windowNetworkWaits = networkWaits.get()
@@ -1508,7 +1519,7 @@ class SyncManager @Inject constructor(
         while (isActive) {
             delay(RESIZE_WINDOW_MS)
 
-            val now = System.currentTimeMillis()
+            val now = SystemClock.elapsedRealtime()
             val bytes = bytesDownloaded.get()
             val windowSec = (now - windowStartMs) / MILLIS_PER_SECOND
             val windowMB = (bytes - windowStartBytes) / BYTES_PER_MB
@@ -1718,6 +1729,10 @@ class SyncManager @Inject constructor(
             } else {
                 PERMANENT_BACKOFF_MS
             }
+            // `currentTimeMillis` a propósito, y es la excepción a la regla del reloj monótono que
+            // siguen los plazos de este archivo: `nextRetryAt` se PERSISTE en Room y lo compara el
+            // gestor de descargas contra la hora del reintento, así que necesita una época. Un reloj
+            // sin ella daría un instante que no significa nada tras reiniciar el teléfono.
             musicRepository.markDownloadFailed(song.id, message, transient, attempts, System.currentTimeMillis() + backoffMs)
         } catch (e: CancellationException) {
             throw e

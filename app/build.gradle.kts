@@ -353,7 +353,165 @@ val verifyIconFontSubset = tasks.register("verifyIconFontSubset") {
     }
 }
 
+/**
+ * Comprueba que no se llama a ninguna API por encima de `minSdk` sin guarda de versión.
+ *
+ * **Existe porque el proyecto no tiene NADA más que lo compruebe**: no hay
+ * `isCoreLibraryDesugaringEnabled` y `assembleRelease` no corre la tarea `lint`, así que una API
+ * nueva compila, pasa la release y solo revienta con `NoSuchMethodError` en el dispositivo viejo —
+ * el mismo modo de fallo silencioso que ya obligó a escribir las dos verificaciones de arriba. Pasó
+ * el 29 ago 2026 con `LocalDate.ofInstant` (API **34** aunque `LocalDate` sea de la 26), que
+ * crasheaba la pantalla de estadísticas en todo Android 8–13.
+ *
+ * **Por qué esto y no desugaring**: el desugaring resolvería `java.time` a cambio de ~1 MB de APK
+ * —en una app cuyo APK se bajó de 17 a 3 MB a base de pelear cada KB— y **no cubriría `android.*`**,
+ * que es la otra mitad del riesgo. Esta tarea cubre las dos y no pesa nada en el binario.
+ *
+ * **Cómo evita el ruido** (la lección de `verifyIconFontSubset`: una verificación que avisa de más
+ * enseña a ignorarla). Solo mira lo que puede resolver con CERTEZA:
+ *  - clases del framework IMPORTADAS cuya `since` supera minSdk;
+ *  - llamadas con receptor de TIPO (`LocalDate.ofInstant(...)`), resolviendo el nombre simple por
+ *    los imports del propio archivo, más las clases implícitas de `java.lang`.
+ *
+ * Entre sobrecargas del mismo nombre se toma la `since` **MÍNIMA**: `Math.floorMod(int,int)` es API
+ * 24 y `(long,int)` es 31, y sin esa regla el uso legítimo del primero saltaría como falso positivo.
+ *
+ * Lo que NO ve, y hay que saberlo: llamadas sobre una INSTANCIA (`layout.getLineBottom()`), tipos
+ * escritos con nombre completo inline, y campos. Para eso está `./gradlew :app:lint`, que hace
+ * análisis de flujo de verdad; esto es la red que corre sola en cada release.
+ *
+ * Se considera guardado si hay `SDK_INT`/`@RequiresApi` en el archivo (para una clase) o en las 15
+ * líneas anteriores (para una llamada).
+ *
+ * Escape de emergencia: -PskipMinSdkApiCheck
+ */
+val skipMinSdkApiCheck = providers.gradleProperty("skipMinSdkApiCheck").isPresent
+
+val verifyMinSdkApis = tasks.register("verifyMinSdkApis") {
+    group = "verification"
+    description = "Comprueba que no se usa ninguna API por encima de minSdk sin guarda de versión."
+
+    val minSdkLevel = android.defaultConfig.minSdk
+        ?: error("minSdk sin declarar: verifyMinSdkApis no sabría contra qué comparar")
+    val platformsDir = File(android.sdkDirectory, "platforms")
+    val sourceDirs = listOf(
+        layout.projectDirectory.dir("src/main/java").asFile,
+        rootProject.layout.projectDirectory.dir("core/src/main/java").asFile
+    )
+    val skip = skipMinSdkApiCheck
+
+    sourceDirs.forEachIndexed { i, dir -> inputs.dir(dir).withPropertyName("kotlinSources$i") }
+
+    doLast {
+        if (skip) return@doLast
+
+        // El índice oficial de niveles de API que trae cada plataforma del SDK. Se toma el de la
+        // plataforma MÁS ALTA instalada: conoce todo lo que conocen las anteriores y además las
+        // APIs nuevas, que son justo las que hay que detectar.
+        val apiFile = platformsDir.listFiles().orEmpty()
+            .filter { it.isDirectory && it.name.startsWith("android-") }
+            .sortedBy { it.name.removePrefix("android-").toDoubleOrNull() ?: 0.0 }
+            .map { File(it, "data/api-versions.xml") }
+            .lastOrNull { it.isFile }
+
+        check(apiFile != null) {
+            "No se encontró ningún `data/api-versions.xml` en $platformsDir. Se instala con " +
+                "cualquier plataforma del SDK. Para saltarse esta comprobación: -PskipMinSdkApiCheck"
+        }
+
+        val classSince = HashMap<String, Int>()
+        // "clase#metodo" -> since MÍNIMA entre sus sobrecargas (ver KDoc).
+        val memberSince = HashMap<String, Int>()
+        val nameRx = Regex("""name="([^"]+)"""")
+        val sinceRx = Regex("""since="(\d+)"""")
+        var currentClass: String? = null
+
+        apiFile.forEachLine { raw ->
+            val line = raw.trim()
+            when {
+                line.startsWith("<class ") -> {
+                    val name = nameRx.find(line)?.groupValues?.get(1)
+                    currentClass = name
+                    if (name != null) classSince[name] = sinceRx.find(line)?.groupValues?.get(1)?.toInt() ?: 1
+                }
+                line.startsWith("</class>") -> currentClass = null
+                line.startsWith("<method ") -> {
+                    val cls = currentClass ?: return@forEachLine
+                    val method = nameRx.find(line)?.groupValues?.get(1)?.substringBefore('(')
+                        ?: return@forEachLine
+                    // Sin `since` propia, el método es tan viejo como su clase.
+                    val since = sinceRx.find(line)?.groupValues?.get(1)?.toInt()
+                        ?: classSince[cls] ?: 1
+                    val key = "$cls#$method"
+                    val previous = memberSince[key]
+                    if (previous == null || since < previous) memberSince[key] = since
+                }
+            }
+        }
+
+        // Las de `java.lang` no se importan, así que no habría forma de resolver su nombre simple.
+        val implicitLang = listOf(
+            "Math", "StrictMath", "System", "String", "Integer", "Long", "Double", "Float",
+            "Character", "Boolean", "Byte", "Short", "Thread", "Runtime", "StringBuilder", "Process"
+        ).associateWith { "java/lang/$it" }
+
+        val importRx = Regex("""^import\s+((?:android|java|javax)(?:\.[A-Za-z0-9_]+)+)""")
+        val callRx = Regex("""\b([A-Z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(""")
+        val problems = sortedSetOf<String>()
+
+        sourceDirs.forEach { dir ->
+            dir.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
+                val lines = file.readLines()
+                val text = lines.joinToString("\n")
+                val fileGuarded = text.contains("SDK_INT") || text.contains("@RequiresApi")
+
+                val simpleToFqn = HashMap(implicitLang)
+                lines.forEach { line ->
+                    importRx.find(line.trim())?.let { match ->
+                        val fq = match.groupValues[1]
+                        simpleToFqn[fq.substringAfterLast('.')] = fq.replace('.', '/')
+                    }
+                }
+
+                // (A) Clases del framework más nuevas que minSdk.
+                if (!fileGuarded) {
+                    simpleToFqn.forEach { (simple, fqn) ->
+                        val since = classSince[fqn] ?: return@forEach
+                        if (since > minSdkLevel && Regex("""\b$simple\b""").containsMatchIn(text)) {
+                            problems += "${file.name}: la clase $fqn es API $since"
+                        }
+                    }
+                }
+
+                // (B) Llamadas con receptor de TIPO, que es como se coló `LocalDate.ofInstant`.
+                lines.forEachIndexed { index, line ->
+                    val trimmed = line.trimStart()
+                    if (trimmed.startsWith("*") || trimmed.startsWith("//")) return@forEachIndexed
+                    callRx.findAll(line).forEach { match ->
+                        val (receiver, method) = match.destructured
+                        val fqn = simpleToFqn[receiver] ?: return@forEach
+                        val since = memberSince["$fqn#$method"] ?: return@forEach
+                        if (since <= minSdkLevel) return@forEach
+                        val context = lines.subList(maxOf(0, index - 15), index + 1).joinToString("\n")
+                        if (context.contains("SDK_INT") || context.contains("@RequiresApi")) return@forEach
+                        problems += "${file.name}:${index + 1}  $receiver.$method() es API $since"
+                    }
+                }
+            }
+        }
+
+        check(problems.isEmpty()) {
+            "APIs por encima de minSdk $minSdkLevel sin guarda de versión. Compilan y pasan la " +
+                "release, pero lanzan NoSuchMethodError en un dispositivo viejo:\n" +
+                problems.joinToString("\n") { "  - $it" } +
+                "\nArreglo: usar una API disponible en minSdk, o guardar con " +
+                "`if (Build.VERSION.SDK_INT >= …)`. Para saltarse esta comprobación: -PskipMinSdkApiCheck"
+        }
+    }
+}
+
 tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
     dependsOn(verifyBaselineProfile)
     dependsOn(verifyIconFontSubset)
+    dependsOn(verifyMinSdkApis)
 }

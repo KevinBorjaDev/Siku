@@ -9,9 +9,8 @@ import com.qhana.siku.player.MusicController
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -42,10 +41,10 @@ class WidgetBridge @Inject constructor(
     /**
      * Lo que el snapshot necesita saber, sin construirlo todavía.
      *
-     * Existe para que el [debounce] vaya ANTES del trabajo y no después: el snapshot cuesta una
+     * Existe para que el coalescido vaya ANTES del trabajo y no después: el snapshot cuesta una
      * consulta de colores más el recorte de la cola, y el `combine` emite por cosas que no son un
      * cambio de canción (cada transición de estado del player, cada avance de índice). Con el
-     * debounce detrás, una ráfaga —restaurar la sesión, saltar cinco pistas seguidas— pagaba el
+     * coalescido detrás, una ráfaga —restaurar la sesión, saltar cinco pistas seguidas— pagaba el
      * cómputo entero N veces para tirar N−1 resultados; delante, se paga una.
      */
     private data class WidgetSignals(
@@ -56,7 +55,7 @@ class WidgetBridge @Inject constructor(
         val favorites: Set<String>
     )
 
-    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun start(scope: CoroutineScope) {
         scope.launch {
             var hadSession = false
@@ -95,8 +94,26 @@ class WidgetBridge @Inject constructor(
     /**
      * El estado del reproductor convertido en [WidgetSnapshot], listo para renderizar. Se separa del
      * gate de presencia para que [flatMapLatest] pueda engancharlo y soltarlo entero.
+     *
+     * **El coalescido es `conflate()` y NO un `debounce`, y ahí había un número mágico.** Hasta el
+     * 31 ago 2026 esto llevaba `debounce(150)`: un plazo elegido a ojo para adivinar cuándo termina
+     * una ráfaga. `conflate` responde a la misma pregunta sin plazo — mientras el `map` + el `push`
+     * están en vuelo (que es lo caro: una escritura de DataStore del snapshot, otra por widget y un
+     * `update()` de Glance con su binder y su repintado en el launcher), lo que llegue se colapsa en
+     * el último valor. **El ritmo lo marca lo que cuesta renderizar, que es el presupuesto honesto**,
+     * y se auto-ajusta al teléfono en vez de necesitar recalibrado.
+     *
+     * De paso desaparecen los 150 ms de retardo que el debounce añadía SIEMPRE, incluso a un cambio
+     * suelto: el widget es lo que se mira sin abrir la app.
+     *
+     * **Lo que NO hace falta es proteger la coherencia**, aunque el `combine` observe cinco flows
+     * que se escriben por separado (`setCurrentIndex` y `_currentSong` son dos escrituras dentro
+     * del mismo bloque síncrono de `onMediaItemTransition`). Un `StateFlow` es CONFLADO y este
+     * colector vive en `Dispatchers.IO`, así que no puede interrumpir al hilo principal a media
+     * función: cuando despierta lee el último valor de cada fuente y los estados intermedios ni se
+     * observan. Esa garantía la da el tipo, no el operador — un `debounce` no añadía nada ahí, y
+     * creer que sí fue lo que hizo pensar que el número era irremplazable.
      */
-    @OptIn(FlowPreview::class)
     private fun playerStateFlow() =
             combine(
                 musicController.currentSong,
@@ -107,8 +124,10 @@ class WidgetBridge @Inject constructor(
             ) { song, state, playlist, index, favorites ->
                 WidgetSignals(song, state, playlist, index, favorites)
             }
-                // Coalesce de ráfagas (restore de sesión, saltos rápidos) en un solo render.
-                .debounce(150)
+                // Coalesce de ráfagas (restore de sesión, saltos rápidos) SIN plazo: ver
+                // [playerStateFlow]. `conflate` va antes del `.map` por lo mismo que estaba el
+                // debounce — el trabajo caro es lo que hay que ahorrarse, no las emisiones.
+                .conflate()
                 .distinctUntilChanged()
                 .map { s ->
                     // Acento de la carátula, como el NowPlaying (caché RAM→BD→extracción; para la

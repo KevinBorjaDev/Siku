@@ -1,6 +1,7 @@
 package com.qhana.siku.ui.viewmodel
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -154,7 +155,8 @@ class AuthViewModel @Inject constructor(
                 delay(SESSION_RESTORE_SLOW_MS)
                 _sessionRestoreSlow.value = true
             }
-            val startedAt = System.currentTimeMillis()
+            // Monótono: es la DURACIÓN de la restauración, el dato que ancla SESSION_RESTORE_SLOW_MS.
+            val startedAt = SystemClock.elapsedRealtime()
             try {
                 // Suspende hasta que MSAL esté listo y siembra `hasSession` con el resultado REAL:
                 // ya no hay timeout que pueda contestar por él. Aquí solo hace falta marcar que se
@@ -163,7 +165,7 @@ class AuthViewModel @Inject constructor(
                 // Cuánto tardó de verdad. Es el dato que le falta a [SESSION_RESTORE_SLOW_MS] para
                 // estar anclado por abajo: el umbral debe quedar holgadamente por encima de lo
                 // normal, y "lo normal" solo se sabe midiéndolo en dispositivos reales.
-                Log.i(TAG, "Sesión resuelta en ${System.currentTimeMillis() - startedAt}ms")
+                Log.i(TAG, "Sesión resuelta en ${SystemClock.elapsedRealtime() - startedAt}ms")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

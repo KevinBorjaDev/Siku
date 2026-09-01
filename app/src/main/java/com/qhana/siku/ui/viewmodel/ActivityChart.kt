@@ -10,7 +10,7 @@ import java.util.Locale
 /**
  * Resolución del histograma de actividad: en qué casilla cae cada escucha.
  *
- * **[sqlFormat] y [pattern] son el MISMO formato escrito dos veces, y por eso viven pegados.** El
+ * **[sqlFormat] y [keyOf] son el MISMO formato escrito dos veces, y por eso viven pegados.** El
  * primero lo aplica SQLite dentro del `GROUP BY` (`PlayEventDao.activityFlow`) y el segundo lo aplica
  * Kotlin para generar las claves que la consulta NO puede devolver: las de las casillas vacías. Si
  * los dos dejaran de coincidir, el histograma no fallaría — dibujaría un mes entero a cero, que es
@@ -18,13 +18,19 @@ import java.util.Locale
  *
  * Es el mismo pacto que ya tienen `EqCurve` con el processor del EQ, o el `nextRetryAt` de las fotos
  * de artista con su SQL.
+ *
+ * **Hubo un tercer sitio y era el peligroso**: un campo `pattern` (`"yyyy-MM-dd"`) que este KDoc
+ * presentaba como la mitad Kotlin del pacto y que **no leía nadie** — las claves se componían con
+ * literales dentro de [buildActivityChart] y, por tercera vez, en [keyOf]. O sea que el pacto que
+ * esto prometía no existía donde decía, y el test validaba la copia que la pantalla no usaba.
+ * Ahora [keyOf] es la única, y la usan la pantalla y el test.
  */
-enum class ActivityBucketing(val sqlFormat: String, val pattern: String) {
+enum class ActivityBucketing(val sqlFormat: String) {
     /** Los días de una semana o de un mes. */
-    DAY("%Y-%m-%d", "yyyy-MM-dd"),
+    DAY("%Y-%m-%d"),
 
     /** Los meses de un año. */
-    MONTH("%Y-%m", "yyyy-MM");
+    MONTH("%Y-%m");
 
     companion object {
         /**
@@ -119,7 +125,7 @@ fun buildActivityChart(
         ActivityChart(
             days.mapIndexed { index, day ->
                 ActivityColumn(
-                    plays = plays[day.toString()] ?: 0,
+                    plays = plays[bucketing.keyOf(day)] ?: 0,
                     label = if (everyDay || index % MONTH_LABEL_STEP == 0) {
                         day.dayOfMonth.toString()
                     } else ""
@@ -132,9 +138,8 @@ fun buildActivityChart(
         val year = selection.startDate().year
         ActivityChart(
             (1..12).map { month ->
-                val key = "$year-${month.toString().padStart(2, '0')}"
                 ActivityColumn(
-                    plays = plays[key] ?: 0,
+                    plays = plays[bucketing.keyOf(LocalDate.of(year, month, 1))] ?: 0,
                     label = Month.of(month).getDisplayName(TextStyle.NARROW, locale)
                 )
             }
@@ -142,7 +147,14 @@ fun buildActivityChart(
     }
 }
 
-/** Solo para el test: la clave que produciría SQLite para [date] con esta resolución. */
+/**
+ * La clave que produce SQLite para [date] con esta resolución: la mitad Kotlin del pacto con
+ * [ActivityBucketing.sqlFormat].
+ *
+ * La usan [buildActivityChart] —para preguntar por cada casilla, incluidas las vacías— y el test.
+ * Que sea la MISMA función en los dos sitios es lo que hace que el test signifique algo: mientras
+ * las claves se componían con literales inline, se validaba una copia que la pantalla no usaba.
+ */
 internal fun ActivityBucketing.keyOf(date: LocalDate): String = when (this) {
     ActivityBucketing.DAY -> date.toString()
     ActivityBucketing.MONTH -> "${date.year}-${date.monthValue.toString().padStart(2, '0')}"

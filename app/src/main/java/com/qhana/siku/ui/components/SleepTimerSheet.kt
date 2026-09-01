@@ -1,5 +1,6 @@
 package com.qhana.siku.ui.components
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,10 +59,13 @@ fun SleepTimerSheet(
             if (state != null) {
                 // Cuenta regresiva viva: el tick existe solo mientras la hoja está en
                 // composición — cerrarla lo mata, el timer real vive en MusicController.
-                var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                // El MISMO reloj con el que se armó el plazo (ver [MusicController.SleepTimerState.endAtMs]):
+                // monótono, no wall-clock. Restar dos relojes distintos daría un restante que se
+                // mueve solo cuando el sistema corrige la hora.
+                var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
                 LaunchedEffect(state.endAtMs) {
                     while (true) {
-                        now = System.currentTimeMillis()
+                        now = SystemClock.elapsedRealtime()
                         delay(COUNTDOWN_TICK_MS)
                     }
                 }
@@ -97,7 +101,7 @@ fun SleepTimerSheet(
                                 Text(
                                     text = stringResource(R.string.sleep_timer_then_finish_song),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = secondaryContentColor(
+                                    color = rememberSecondaryContentColor(
                                         AppColors.onPrimaryContainer,
                                         AppColors.primaryContainer
                                     )

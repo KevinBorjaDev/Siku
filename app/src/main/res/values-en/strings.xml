@@ -258,6 +258,8 @@
         <item quantity="one">%d song</item>
         <item quantity="other">%d songs</item>
     </plurals>
+    <string name="duration_minutes_short">%1$d min</string>
+    <string name="lyrics_timing_seconds_short">%1$s s</string>
     <plurals name="artist_count">
         <item quantity="one">%d artist</item>
         <item quantity="other">%d artists</item>
@@ -359,6 +361,8 @@
     <string name="lyrics_badge_none">No lyrics</string>
     <string name="lyrics_close_desc">Close lyrics</string>
     <string name="lyrics_search_manual_desc">Search lyrics manually</string>
+    <string name="lyrics_timing_desc">Adjust lyrics timing</string>
+    <string name="lyrics_timing_reset">Clear the adjustment</string>
     <string name="lyrics_refetch_desc">Search for the lyrics again</string>
     <string name="lyrics_view_karaoke">Karaoke</string>
     <string name="lyrics_none_available">No lyrics available</string>

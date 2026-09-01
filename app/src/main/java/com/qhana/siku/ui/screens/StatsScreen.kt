@@ -42,7 +42,7 @@ import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appFilledTonalIconButtonColors
 import com.qhana.siku.ui.theme.appTopAppBarColors
-import com.qhana.siku.ui.components.secondaryContentColor
+import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.viewmodel.ActivityChart
 import com.qhana.siku.ui.viewmodel.ActivityColumn
 import com.qhana.siku.ui.viewmodel.StatsUiState
@@ -551,7 +551,7 @@ private fun PeriodArrow(
 private fun PeriodCard(state: StatsUiState, chart: ActivityChart?) {
     val summary = state.summary
     val style = summaryCardStyles()[0]
-    val secondary = secondaryContentColor(style.onContainer, style.container)
+    val secondary = rememberSecondaryContentColor(style.onContainer, style.container)
     AppSurface(
         color = style.container,
         shape = StatsCardShape,
@@ -1072,7 +1072,7 @@ private fun StreakRow(days: Int) {
                     // esta tarjeta. Así el día 31 no repite lo del día 30.
                     text = stringResource(achieved?.second ?: R.string.stats_streak_title),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = secondaryContentColor(onContainer, container),
+                    color = rememberSecondaryContentColor(onContainer, container),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

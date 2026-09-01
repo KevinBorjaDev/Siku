@@ -14,10 +14,10 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.qhana.siku.ui.theme.AppColors
 
 /**
  * Aplica un efecto de brillo (shimmer) animado al componente.
@@ -38,13 +38,18 @@ fun Modifier.shimmerEffect(): Modifier = composed {
         label = "ShimmerOffset"
     )
 
+    // Los tres colores salen de la paleta y no de tres hexes fijos (`#B8B5B5`/`#8F8B8B`, que era lo
+    // que había): es un esqueleto de carga, o sea la superficie de una fila que todavía no está, y
+    // pintado con grises constantes se veía claro sobre el tema oscuro y sin relación con el color
+    // del álbum en el claro. `surfaceVariant` es el escalón que la app ya usa para "hueco", y el
+    // brillo que lo recorre es `surfaceContainerHighest`, el techo de la escala neutra — el mismo
+    // criterio que `AppMenuPopup` para separarse de cualquier fondo sobre el que caiga.
+    val base = AppColors.surfaceVariant
+    val highlight = AppColors.surfaceContainerHighest
+
     background(
         brush = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFFB8B5B5).copy(alpha = 0.2f),
-                Color(0xFF8F8B8B).copy(alpha = 0.4f),
-                Color(0xFFB8B5B5).copy(alpha = 0.2f),
-            ),
+            colors = listOf(base, highlight, base),
             start = Offset(startOffsetX, 0f),
             end = Offset(startOffsetX + size.width.toFloat(), size.height.toFloat())
         )

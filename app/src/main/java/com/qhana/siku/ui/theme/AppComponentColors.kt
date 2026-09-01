@@ -202,10 +202,49 @@ fun appTextButtonColors(
     contentColor: Color = AppColors.primary
 ) = ButtonDefaults.textButtonColors(contentColor = contentColor)
 
-/** Con borde: etiqueta `onSurfaceVariant` (`OutlinedButtonTokens`); el borde sale de `outline`. */
+/**
+ * Con borde: etiqueta `onSurfaceVariant` (`OutlinedButtonTokens.LabelTextColor`).
+ *
+ * **El borde NO va aquí**: en M3 es un parámetro aparte del componente (`border`), no parte de
+ * `ButtonColors`. Lo pone [appOutlinedButtonBorder], y hay que pasarlo — este helper por sí solo
+ * deja el trazo saliendo del tema base. El KDoc de esta función decía "el borde sale de `outline`",
+ * que era falso por partida doble: ni lo controlaba ni el rol es ése.
+ *
+ * @param contentColor se pasa otro cuando el botón vive en una superficie con color propio y tiene
+ *   que leerse como parte de ella (el "buscar en Google" del error de letras, que va del acento del
+ *   álbum). Mismo criterio que [appTextButtonColors].
+ */
 @Composable
-fun appOutlinedButtonColors() =
-    ButtonDefaults.outlinedButtonColors(contentColor = AppColors.onSurfaceVariant)
+fun appOutlinedButtonColors(contentColor: Color = AppColors.onSurfaceVariant) =
+    ButtonDefaults.outlinedButtonColors(contentColor = contentColor)
+
+/**
+ * El borde de un `OutlinedButton`, con el `outlineVariant` de [AppColors].
+ *
+ * **Existe porque el default de M3 no puede acertar en esta app**: `ButtonDefaults.outlinedButtonBorder`
+ * resuelve `OutlinedButtonTokens.OutlineColor` contra `MaterialTheme.colorScheme`, que aquí es el
+ * esquema BASE —el del wallpaper— y no el sembrado con la carátula. Los siete `OutlinedButton` de la
+ * app lo dejaban al default, así que su trazo era el único píxel de esos botones que no seguía al
+ * álbum. Es el mismo caso que documenta la cabecera de este archivo: *un componente al que no se le
+ * pasan colores va a buscarlos al tema*.
+ *
+ * Los dos números salen de los TOKENS de M3 leídos en las fuentes de la versión pineada, no a ojo:
+ * el ancho es `ButtonSmallTokens.OutlinedOutlineWidth` y la opacidad del deshabilitado es
+ * `OutlinedButtonTokens.DisabledContainerOpacity`. Se copian porque los dos objetos son `internal`
+ * a material3 y no se pueden referenciar desde aquí.
+ */
+@Composable
+fun appOutlinedButtonBorder(enabled: Boolean = true): BorderStroke = BorderStroke(
+    width = OUTLINED_BUTTON_OUTLINE_WIDTH,
+    color = if (enabled) AppColors.outlineVariant
+    else AppColors.outlineVariant.copy(alpha = OUTLINED_BUTTON_DISABLED_OUTLINE_ALPHA)
+)
+
+/** `ButtonSmallTokens.OutlinedOutlineWidth` (material3 1.5.0-alpha24). */
+private val OUTLINED_BUTTON_OUTLINE_WIDTH = 1.dp
+
+/** `OutlinedButtonTokens.DisabledContainerOpacity` (material3 1.5.0-alpha24). */
+private const val OUTLINED_BUTTON_DISABLED_OUTLINE_ALPHA = 0.1f
 
 /** Tonal: `secondaryContainer` / `onSecondaryContainer` (`FilledTonalButtonTokens`). */
 @Composable

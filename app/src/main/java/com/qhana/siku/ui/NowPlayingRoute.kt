@@ -271,6 +271,8 @@ fun NowPlayingLayer(
             },
             onFetchLyrics = { force -> playbackViewModel.fetchLyrics(force) },
             onSearchLyricsManually = { playbackViewModel.searchLyricsCandidates() },
+            onShiftLyrics = { playbackViewModel.shiftLyrics(it) },
+            onFlushLyricsShift = { playbackViewModel.flushLyricsShift() },
             onSaveLyrics = { playbackViewModel.requestSaveLyrics() },
             onSelectLyricsCandidate = { candidate ->
                 playbackViewModel.selectLyricsFromCandidate(candidate)

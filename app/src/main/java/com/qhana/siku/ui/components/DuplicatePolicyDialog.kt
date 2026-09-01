@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.qhana.siku.R
 import com.qhana.siku.data.model.DuplicatePolicy
 import com.qhana.siku.ui.theme.appButtonColors
+import com.qhana.siku.ui.theme.appOutlinedButtonBorder
 import com.qhana.siku.ui.theme.appOutlinedButtonColors
 import com.qhana.siku.ui.theme.appTextButtonColors
 
@@ -51,12 +52,14 @@ fun DuplicatePolicyDialog(
                 ) { Text(stringResource(R.string.duplicates_keep_both)) }
                 OutlinedButton(
                     colors = appOutlinedButtonColors(),
+                    border = appOutlinedButtonBorder(),
                     onClick = { onResolve(DuplicatePolicy.PREFER_CLOUD) },
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.duplicates_prefer_cloud)) }
                 OutlinedButton(
                     colors = appOutlinedButtonColors(),
+                    border = appOutlinedButtonBorder(),
                     onClick = { onResolve(DuplicatePolicy.PREFER_LOCAL) },
                     shapes = ButtonDefaults.shapes(),
                     modifier = Modifier.fillMaxWidth()

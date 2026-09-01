@@ -237,6 +237,23 @@ fun secondaryContentColor(content: Color, container: Color): Color {
 }
 
 /**
+ * [secondaryContentColor] memorizado, que es como debe consumirse desde composición.
+ *
+ * La cuenta no es barata: cuatro conversiones a CAM16 más uno o dos `HctSolver`, que es búsqueda
+ * iterativa contra el gamut sRGB. Se llamaba cruda en la composición de los seis sitios que la
+ * usan, y uno de ellos es la rejilla de géneros, o sea **una vez por celda visible en cada
+ * recomposición**. Las otras derivaciones HCT de la app ya van memorizadas
+ * ([rememberTonalLayerColors], `rememberRowAccentColor`, `rememberActiveRowContentColor`); ésta se
+ * quedó fuera del patrón sin ningún motivo.
+ *
+ * Se queda la versión no-`@Composable` porque hay callers que no lo son (el widget, que no tiene
+ * composición de Compose UI detrás).
+ */
+@Composable
+fun rememberSecondaryContentColor(content: Color, container: Color): Color =
+    remember(content, container) { secondaryContentColor(content, container) }
+
+/**
  * Cuánto se acerca el secundario a su contenedor, en puntos de tono HCT. Suficiente para que se lea
  * como segundo nivel de un vistazo, y no más: por encima de esto el suelo de contraste entra en
  * juego en casi todos los contenedores y el ajuste dejaría de notarse donde sí cabía.

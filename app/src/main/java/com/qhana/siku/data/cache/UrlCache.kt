@@ -1,5 +1,6 @@
 package com.qhana.siku.data.cache
 
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -34,11 +35,19 @@ class UrlCache @Inject constructor() {
         private const val MAX_ENTRIES = 512
     }
 
+    /**
+     * @property expiresAt en el reloj MONÓTONO (`SystemClock.elapsedRealtime`), no en wall-clock:
+     *   la caché vive y muere con el proceso, así que no hace falta una época — y con
+     *   `currentTimeMillis` una corrección de hora hacia adelante caducaba de golpe TODAS las
+     *   entradas (32 conexiones saliendo a pedir URLs a la vez contra un proveedor que cobra por
+     *   petición), y hacia atrás servía URLs ya muertas hasta que el reloj se pusiera al día. Mismo
+     *   criterio que [com.qhana.siku.player.manager.ListeningClock].
+     */
     private data class CachedUrl(
         val url: String,
         val expiresAt: Long
     ) {
-        fun isExpired(): Boolean = System.currentTimeMillis() >= expiresAt
+        fun isExpired(): Boolean = SystemClock.elapsedRealtime() >= expiresAt
     }
 
     private val cache = ConcurrentHashMap<String, CachedUrl>()
@@ -52,7 +61,7 @@ class UrlCache @Inject constructor() {
      */
     private val locks = ConcurrentHashMap<String, Mutex>()
 
-    @Volatile private var lastCleanupTime = System.currentTimeMillis()
+    @Volatile private var lastCleanupTime = SystemClock.elapsedRealtime()
 
     /**
      * Obtiene una URL del cache o la genera usando el fetcher proporcionado.
@@ -83,7 +92,7 @@ class UrlCache @Inject constructor() {
 
                 val freshUrl = fetcher()
                 if (freshUrl != null) {
-                    cache[remoteId] = CachedUrl(freshUrl, System.currentTimeMillis() + ttlMs)
+                    cache[remoteId] = CachedUrl(freshUrl, SystemClock.elapsedRealtime() + ttlMs)
                 }
                 freshUrl
             }
@@ -111,7 +120,7 @@ class UrlCache @Inject constructor() {
      * desde la última limpieza.
      */
     private fun cleanupIfNeeded() {
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         // También se limpia al pasarse de tamaño, no solo por tiempo: si no, entre dos
         // limpiezas la caché podía crecer sin límite.
         if (now - lastCleanupTime < CLEANUP_INTERVAL_MS && cache.size <= MAX_ENTRIES) return

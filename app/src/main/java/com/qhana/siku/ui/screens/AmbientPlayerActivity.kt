@@ -30,7 +30,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -38,15 +41,15 @@ import androidx.compose.ui.res.stringResource
 import com.qhana.siku.R
 import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.model.Song
-import com.qhana.siku.data.repository.IMusicRepository
 import com.qhana.siku.player.MusicController
 import com.qhana.siku.ui.components.UnifiedProgressBar
+import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.MusicPlayerTheme
+import com.qhana.siku.ui.viewmodel.AmbientPlayerViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import androidx.compose.foundation.basicMarquee
@@ -60,11 +63,13 @@ class AmbientPlayerActivity : ComponentActivity() {
         const val NO_TIMEOUT = -1
     }
 
+    /**
+     * El transporte va directo al controller: es un singleton de proceso y no hay estado que
+     * mediar. Lo que SÍ pasa por [AmbientPlayerViewModel] es todo lo que viene de la capa de datos
+     * — la canción releída y el favorito.
+     */
     @Inject
     lateinit var musicController: MusicController
-
-    @Inject
-    lateinit var repository: IMusicRepository
 
     private var countDownTimer: CountDownTimer? = null
 
@@ -83,12 +88,12 @@ class AmbientPlayerActivity : ComponentActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.attributes = window.attributes.apply { screenBrightness = 0.01f }
+        window.attributes = window.attributes.apply { screenBrightness = AMBIENT_SCREEN_BRIGHTNESS }
         val timeoutMinutes = intent.getIntExtra(EXTRA_TIMEOUT_MINUTES, NO_TIMEOUT)
         if (timeoutMinutes > 0) startTimeout(timeoutMinutes)
         setContent {
             MusicPlayerTheme(darkTheme = true) {
-                AmbientPlayerScreen(musicController = musicController, repository = repository, onDoubleTap = { finish() })
+                AmbientPlayerScreen(musicController = musicController, onDoubleTap = { finish() })
             }
         }
     }
@@ -114,26 +119,21 @@ class AmbientPlayerActivity : ComponentActivity() {
 @Composable
 fun AmbientPlayerScreen(
     musicController: MusicController,
-    repository: IMusicRepository,
-    onDoubleTap: () -> Unit
+    onDoubleTap: () -> Unit,
+    viewModel: AmbientPlayerViewModel = hiltViewModel()
 ) {
-    val controllerSong by musicController.currentSong.collectAsStateWithLifecycle()
-    val controllerSongId = controllerSong?.id
-    val currentSong by remember(controllerSongId) {
-        if (controllerSongId != null) repository.getSongByIdFlow(controllerSongId) else flowOf(null)
-    }.collectAsStateWithLifecycle(initialValue = controllerSong)
+    // Todo lo que viene de la capa de datos llega ya resuelto: la canción releída de la BD y el
+    // favorito como booleano. Antes esta función recibía `IMusicRepository` y armaba los flows aquí
+    // —el único `@Composable` de la app que lo hacía—, con el `remember` sobre `getFavoritesIds()`
+    // que hacía falta porque ese flow se fabrica nuevo en cada llamada. Ese `remember` era la cura
+    // del síntoma; la causa era tener el repositorio a mano. Ver [AmbientPlayerViewModel].
+    val currentSong by viewModel.currentSong.collectAsStateWithLifecycle()
+    val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val playbackState by musicController.playbackState.collectAsStateWithLifecycle()
     val currentPosition by musicController.currentPosition.collectAsStateWithLifecycle()
     val duration by musicController.duration.collectAsStateWithLifecycle()
-    // Cache del Flow: repository.getFavoritesIds() crea un nuevo Flow en cada recomposición
-    // (por el .map interno). Sin remember, collectAsStateWithLifecycle resuscribe en cada frame
-    // y el valor cae a emptySet entre emisiones, por eso el ícono nunca se veía relleno.
-    val favoritesFlow = remember(repository) { repository.getFavoritesIds() }
-    val favorites by favoritesFlow.collectAsStateWithLifecycle(initialValue = emptySet())
-    val isFavorite = currentSong?.let { it.id in favorites } ?: false
     val isPlaying = playbackState == PlaybackState.PLAYING
     val isBuffering = playbackState == PlaybackState.BUFFERING
-    val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
         detectTapGestures(onDoubleTap = { onDoubleTap() })
@@ -143,10 +143,24 @@ fun AmbientPlayerScreen(
             Column(modifier = Modifier.weight(0.55f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
                 // Roles del spec, no tamaños sueltos: `headlineMediumEmphasized` son exactamente
                 // los 28sp/Medium que estaban escritos a mano, y `bodyLarge` los 16sp del artista.
-                Text(text = currentSong?.title ?: stringResource(R.string.ambient_no_playback), color = Color.White, style = MaterialTheme.typography.headlineMediumEmphasized, maxLines = 1, overflow = TextOverflow.Visible, modifier = Modifier.basicMarquee(repeatDelayMillis = 10000, initialDelayMillis = 1000))
-                Text(text = currentSong?.artist ?: "", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                //
+                // **Aquí la jerarquía SÍ va por alfa, y es la excepción legítima**: la regla de
+                // esta app —jerarquía por TONO, ver [secondaryContentColor]— existe porque un alfa
+                // fijo da un contraste que depende de lo que haya debajo. Debajo de esto hay negro
+                // puro y constante, así que sobre él un alfa ES un tono y la objeción desaparece.
+                // Y aplicar la regla aquí costaría algo: `secondaryContentColor` devuelve UN nivel,
+                // y esta pantalla tiene TRES —título, artista, tiempo—, así que artista y cifras
+                // acabarían del mismo color. Lo que faltaba no era la técnica, eran los nombres.
+                Text(text = currentSong?.title ?: stringResource(R.string.ambient_no_playback), color = Color.White, style = MaterialTheme.typography.headlineMediumEmphasized, maxLines = 1, overflow = TextOverflow.Visible, modifier = Modifier.basicMarquee(repeatDelayMillis = AMBIENT_MARQUEE_REPEAT_DELAY_MS, initialDelayMillis = AMBIENT_MARQUEE_INITIAL_DELAY_MS))
+                Text(text = currentSong?.artist ?: "", color = Color.White.copy(alpha = AMBIENT_ARTIST_ALPHA), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(32.dp))
-                UnifiedProgressBar(currentPosition = currentPosition, duration = duration, onSeek = { musicController.seekTo(it) }, trackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.2f), textColor = Color.White.copy(alpha = 0.5f), showThumb = true, trackHeight = 4.dp, modifier = Modifier.fillMaxWidth())
+                // `inactiveTrackColor` va OPACO, como el rol que la barra usa por defecto: ella le
+                // aplica por dentro `ACCENT_TRACK_ALPHA`. El `.copy(alpha = 0.2f)` que había aquí no
+                // pintaba nada —`Color.copy` REEMPLAZA el alfa, no lo multiplica, así que el 0.25 de
+                // dentro lo borraba— pero decía que sí: un número que parece decidir la opacidad de
+                // la pista y no la decide. Es el mismo caso que anota `PREVIEW_RAIL_ALPHA` en
+                // Ajustes, y el motivo de quitarlo no es que se viera mal sino que se leía mal.
+                UnifiedProgressBar(currentPosition = currentPosition, duration = duration, onSeek = { musicController.seekTo(it) }, trackColor = Color.White, inactiveTrackColor = Color.White, textColor = Color.White.copy(alpha = AMBIENT_TIME_ALPHA), showThumb = true, trackHeight = 4.dp, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(32.dp))
                 AmbientControls(
                     isPlaying = isPlaying,
@@ -155,9 +169,7 @@ fun AmbientPlayerScreen(
                     onPrevious = { musicController.previous() },
                     onPlayPause = { musicController.playPause() },
                     onNext = { musicController.next() },
-                    onToggleFavorite = {
-                        currentSong?.let { song -> scope.launch { repository.toggleFavorite(song.id) } }
-                    },
+                    onToggleFavorite = viewModel::toggleFavorite,
                     onExit = onDoubleTap
                 )
                 Spacer(modifier = Modifier.height(48.dp))
@@ -166,10 +178,21 @@ fun AmbientPlayerScreen(
     }
     // Mismo reloj que el bucle de posición de `MusicPlayerScreen` (ver [POSITION_TICK_MS]): esta
     // pantalla es otra vista del MISMO estado, así que su cadencia no es una decisión aparte.
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            musicController.updatePosition()
-            delay(POSITION_TICK_MS.toLong())
+    //
+    // Y el MISMO gate, que es la otra mitad de "el mismo reloj" y faltaba: `repeatOnLifecycle`
+    // corta el bucle en `onStop`. Sin él, este `while` seguía despertando el hilo principal una vez
+    // por segundo con la actividad en segundo plano —y esta pantalla es justo la que se deja
+    // puesta con el móvil a un lado, porque mantiene la pantalla encendida (`FLAG_KEEP_SCREEN_ON`)
+    // y la escucha dura horas—. `isPlaying` como clave del efecto no lo cubre: pasar a segundo
+    // plano no pausa la reproducción.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, isPlaying) {
+        if (!isPlaying) return@LaunchedEffect
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                musicController.updatePosition()
+                delay(POSITION_TICK_MS.toLong())
+            }
         }
     }
 }
@@ -178,9 +201,13 @@ fun AmbientPlayerScreen(
 private fun AmbientAlbumArt(song: Song?, modifier: Modifier = Modifier) {
     var isImageLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(song) { isImageLoaded = false }
-    AppSurface(modifier = modifier, shape = RoundedCornerShape(24.dp), shadowElevation = 16.dp, color = if (isImageLoaded) Color.Transparent else Color(0xFF2A2A2A)) {
+    // El hueco mientras no hay carátula sale de la PALETA (`surfaceVariant`, el escalón que la app
+    // ya usa para eso — el mismo criterio que el esqueleto de carga), no de un `Color(0xFF2A2A2A)`
+    // a mano: un gris fijo no tiene relación con el tema y era el último hex suelto que quedaba.
+    // El tema de esta actividad se fuerza oscuro, así que el rol resuelve siempre a un gris oscuro.
+    AppSurface(modifier = modifier, shape = RoundedCornerShape(24.dp), shadowElevation = 16.dp, color = if (isImageLoaded) Color.Transparent else AppColors.surfaceVariant) {
         Box(contentAlignment = Alignment.Center) {
-            if (!isImageLoaded) MaterialSymbol("music_note", color = Color.White.copy(alpha = 0.2f), modifier = Modifier.fillMaxSize(0.5f))
+            if (!isImageLoaded) MaterialSymbol("music_note", color = AppColors.onSurfaceVariant, modifier = Modifier.fillMaxSize(0.5f))
             if (song?.albumArtUri != null) AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(song.albumArtUri).crossfade(true).build(), contentDescription = stringResource(R.string.common_album_art), contentScale = ContentScale.Crop, onSuccess = { isImageLoaded = true }, onError = { isImageLoaded = false }, modifier = Modifier.fillMaxSize().scale(1.02f))
         }
     }
@@ -233,6 +260,30 @@ private fun AmbientControls(isPlaying: Boolean, isBuffering: Boolean, isFavorite
         }
     }
 }
+
+/**
+ * Brillo de la pantalla en modo ambiente: casi apagada.
+ *
+ * No es cero porque cero es "usa el brillo del sistema" para `screenBrightness`, no "apágala": el
+ * mínimo útil es el valor positivo más bajo. Es lo que hace que esto sea un reloj de mesita y no
+ * una pantalla encendida toda la noche.
+ */
+private const val AMBIENT_SCREEN_BRIGHTNESS = 0.01f
+
+/** Espera antes de que el título empiece a desplazarse, y entre vueltas. */
+private const val AMBIENT_MARQUEE_INITIAL_DELAY_MS = 1_000
+private const val AMBIENT_MARQUEE_REPEAT_DELAY_MS = 10_000
+
+/**
+ * Los dos escalones bajo el título, sobre el negro del fondo.
+ *
+ * Aquí el alfa vale como jerarquía —y solo aquí—: el fondo es negro puro y CONSTANTE, así que un
+ * alfa se traduce a un tono fijo y el contraste no depende de nada. Ver el comentario largo en
+ * `AmbientPlayerScreen`. Son dos niveles distintos a propósito: el artista acompaña al título y las
+ * cifras de tiempo son el dato más frío de la pantalla.
+ */
+private const val AMBIENT_ARTIST_ALPHA = 0.7f
+private const val AMBIENT_TIME_ALPHA = 0.5f
 
 // --- Geometría de referencia de [AmbientControls] (se escala en bloque si no cabe) ---
 /** Diámetro del play: el botón mayor de la fila. */

@@ -19,11 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.ui.components.detailHeaderScrim
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.safeSideInsets
@@ -480,24 +479,9 @@ private fun AlbumImmersiveHeader(
             }
         }
 
-        // Scrim inferior REFORZADO: funde la carátula con el fondo y —clave— deja el título apoyado
-        // sobre `surface` CASI SÓLIDO, no sobre la imagen. Así el `onSurface` del nombre contrasta
-        // SIEMPRE, sea la carátula clara u oscura (y se adapta a tema claro/oscuro por el propio rol).
-        // El scrim viejo (0.4→surface) solo llegaba a ~0.73·surface donde EMPIEZA el texto, y una
-        // carátula clara tapaba la parte alta de las letras. La imagen sigue inmersiva en el 70 % de
-        // arriba con su fade suave; solo el 15 % inferior (la banda del título) queda sólido.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.3f to Color.Transparent,
-                        0.7f to AppColors.surfaceContainer.copy(alpha = 0.5f),
-                        0.85f to AppColors.surfaceContainer,
-                        1f to AppColors.surfaceContainer
-                    )
-                )
-        )
+        // Scrim inferior: el MISMO de los cuatro detalles, y por eso vive en [detailHeaderScrim] y
+        // no aquí — estaba copiado cuatro veces y el refuerzo solo había llegado a dos.
+        Box(modifier = Modifier.matchParentSize().background(detailHeaderScrim()))
 
         // Nombre + artista superpuestos (el back vive en la topbar pineada del caller).
         Column(

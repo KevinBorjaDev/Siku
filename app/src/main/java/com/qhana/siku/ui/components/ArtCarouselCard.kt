@@ -28,15 +28,29 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.qhana.siku.ui.theme.AppColors
 
-/**
- * Velo bajo el emblema. Suficiente para que un glifo blanco se lea sobre una portada clara, y no
- * tanto como para que el collage deje de reconocerse: la tarjeta tiene que seguir enseñando de qué
- * está hecha la lista.
- */
-private const val EmblemScrimAlpha = 0.45f
-
 /** El emblema es la marca de la tarjeta, así que va por encima del glifo de relleno (44sp). */
 private val EmblemGlyphSize = 52.sp
+
+/**
+ * Dónde empieza a oscurecerse el pie de la tarjeta, y cuánto llega a oscurecerse, para que la
+ * etiqueta se lea sobre CUALQUIER portada.
+ *
+ * Translucidez de verdad (un degradado sobre una imagen), no jerarquía de contenido: eso en esta
+ * app se hace por tono. Aquí no hay contenedor conocido del que derivar nada — lo que hay debajo es
+ * la portada, y cambia con cada tarjeta.
+ */
+private const val LabelScrimStart = 0.45f
+private const val LabelScrimAlpha = 0.72f
+
+/**
+ * Cuánto se acerca el subtítulo al velo respecto del título.
+ *
+ * Es la excepción explícita a "la jerarquía va por tono": el título y el subtítulo se apoyan sobre
+ * el degradado de arriba, cuyo color efectivo depende de la portada que haya debajo, así que no hay
+ * un contenedor del que sacar el tono secundario. Es el mismo caso que las pistas de progreso sobre
+ * carátula.
+ */
+private const val LabelSubtitleAlpha = 0.8f
 
 /**
  * Tarjeta de carrusel con arte a sangre: la carátula ocupa toda la caja, un degradado inferior la
@@ -136,7 +150,7 @@ fun ArtCarouselCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = labelAlpha() }
-                    .background(Color.Black.copy(alpha = EmblemScrimAlpha)),
+                    .background(Color.Black.copy(alpha = ARTWORK_SCRIM_ALPHA)),
                 contentAlignment = Alignment.Center
             ) {
                 MaterialSymbol(emblem, fill = true, size = EmblemGlyphSize, color = Color.White)
@@ -151,8 +165,8 @@ fun ArtCarouselCard(
                 .graphicsLayer { alpha = labelAlpha() }
                 .background(
                     Brush.verticalGradient(
-                        0.45f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.72f)
+                        LabelScrimStart to Color.Transparent,
+                        1f to Color.Black.copy(alpha = LabelScrimAlpha)
                     )
                 )
         )
@@ -176,7 +190,7 @@ fun ArtCarouselCard(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.8f),
+                    color = Color.White.copy(alpha = LabelSubtitleAlpha),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

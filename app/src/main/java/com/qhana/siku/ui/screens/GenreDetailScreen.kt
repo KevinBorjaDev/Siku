@@ -16,8 +16,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -37,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.ui.components.detailHeaderScrim
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AdaptiveCollage
 import com.qhana.siku.ui.components.ComponentConfig
@@ -418,17 +417,11 @@ private fun GenreImmersiveHeader(
             AdaptiveCollage(arts = arts, modifier = Modifier.matchParentSize())
         }
 
-        // Scrim inferior: funde el collage con el fondo y da contraste al texto.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.4f to Color.Transparent,
-                        1f to AppColors.surfaceContainer
-                    )
-                )
-        )
+        // Scrim inferior: el MISMO de los cuatro detalles, y por eso vive en [detailHeaderScrim].
+        // Aquí había una copia con el degradado de DOS paradas, o sea la versión anterior al
+        // refuerzo que artista y álbum sí recibieron: sobre un collage de portadas claras el nombre
+        // del género quedaba con la parte alta de las letras tapada.
+        Box(modifier = Modifier.matchParentSize().background(detailHeaderScrim()))
 
         Column(
             modifier = Modifier

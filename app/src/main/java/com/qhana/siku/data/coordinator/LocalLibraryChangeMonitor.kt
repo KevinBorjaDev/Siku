@@ -6,9 +6,10 @@ import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
 import android.provider.MediaStore
+import android.os.SystemClock
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -52,18 +53,39 @@ class LocalLibraryChangeMonitor @Inject constructor(
     }
 
     /**
-     * Arranca en `true`: al levantar el proceso no sabemos qué pasó mientras estuvo muerto, y el
-     * primer listado nunca debe saltarse por una suposición.
+     * Cuántas señales de cambio se han visto. Es un CONTADOR y no un flag, y esa es la diferencia
+     * entre perder un cambio y no perderlo: [markRefreshed] consume la generación que el listado
+     * leyó al EMPEZAR, así que un `onChange` llegado mientras se listaba —copiar un archivo durante
+     * los ~2,8 s que tarda el walk— deja el contador por delante de lo consumido y el siguiente
+     * regreso a la app vuelve a listar. Con un `AtomicBoolean` puesto a `false` al terminar, esa
+     * señal se borraba sin haberse atendido y el archivo no aparecía hasta el tope de
+     * [MIN_REFRESH_INTERVAL_MS].
+     *
+     * Arranca en 1 con cero consumido: al levantar el proceso no sabemos qué pasó mientras estuvo
+     * muerto, y el primer listado nunca debe saltarse por una suposición.
      */
-    private val dirty = AtomicBoolean(true)
+    private val changes = AtomicLong(1)
 
-    private var lastRefreshAt = 0L
+    /** Generación ya atendida por un listado COMPLETO. */
+    private val consumed = AtomicLong(0)
+
+    /**
+     * `Atomic` y no un `var` liso: lo escribe el hilo del sync y lo lee el que vuelve a la app.
+     *
+     * En el reloj MONÓTONO (`SystemClock.elapsedRealtime`): solo se le resta otra lectura del mismo
+     * reloj para ver si venció [MIN_REFRESH_INTERVAL_MS]. Con `currentTimeMillis`, una corrección de
+     * hora hacia adelante dejaba esta marca en el pasado y forzaba un walk del almacenamiento de más
+     * —2,8 s de I/O—, y hacia atrás la dejaba en el futuro y apagaba el tope durante el desfase, o
+     * sea justo la red que cubre las carpetas que MediaProvider no indexa. Mismo criterio que
+     * [com.qhana.siku.player.manager.ListeningClock].
+     */
+    private val lastRefreshAt = AtomicLong(0)
 
     private val observerThread = HandlerThread("LocalLibraryChangeMonitor").apply { start() }
 
     private val observer = object : ContentObserver(Handler(observerThread.looper)) {
         override fun onChange(selfChange: Boolean, uri: Uri?) {
-            dirty.set(true)
+            changes.incrementAndGet()
         }
     }
 
@@ -89,11 +111,29 @@ class LocalLibraryChangeMonitor @Inject constructor(
      * cancela a la mitad, la marca sigue puesta y el siguiente intento lo hará.
      */
     fun shouldRefresh(): Boolean =
-        dirty.get() || System.currentTimeMillis() - lastRefreshAt >= MIN_REFRESH_INTERVAL_MS
+        changes.get() > consumed.get() ||
+            SystemClock.elapsedRealtime() - lastRefreshAt.get() >= MIN_REFRESH_INTERVAL_MS
 
-    /** El listado terminó: se consume la señal y arranca la cuenta del intervalo. */
-    fun markRefreshed() {
-        dirty.set(false)
-        lastRefreshAt = System.currentTimeMillis()
+    /**
+     * Token de las señales vistas HASTA AHORA, para dárselo luego a [markRefreshed].
+     *
+     * Se pide justo ANTES de listar, nunca después: lo que el listado puede dar por atendido es lo
+     * que había cuando empezó. Todo lo que llegue mientras corre queda sin consumir a propósito —
+     * un archivo copiado durante el walk no está en lo que ese walk vio.
+     */
+    fun beginListing(): Long = changes.get()
+
+    /**
+     * El listado terminó: se consumen las señales que había cuando empezó ([beginListing]) y
+     * arranca la cuenta del intervalo.
+     *
+     * `max` y no una asignación: dos listados pueden solaparse (un sync completo y el refresco al
+     * volver a la app), y el que termine último puede ser el que empezó antes. Asignando, el más
+     * viejo haría RETROCEDER lo consumido y forzaría un listado de más — inofensivo, pero
+     * exactamente el trabajo repetido que esta clase existe para evitar.
+     */
+    fun markRefreshed(listingToken: Long) {
+        consumed.updateAndGet { maxOf(it, listingToken) }
+        lastRefreshAt.set(SystemClock.elapsedRealtime())
     }
 }

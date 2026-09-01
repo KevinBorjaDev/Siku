@@ -289,6 +289,12 @@
         <item quantity="one">%d canción</item>
         <item quantity="other">%d canciones</item>
     </plurals>
+    <!-- Duración total de una lista, en minutos. Va como recurso y no como "$n min" escrito en el
+         código aunque la abreviatura coincida en los dos idiomas: es el símbolo de una unidad y
+         quien traduzca a un tercer idioma no puede encontrarlo si no está aquí. -->
+    <string name="duration_minutes_short">%1$d min</string>
+    <!-- Ajuste de sincronía de la letra, ya con su signo (LyricsTimingBar): "0", "+1,5", "−2". -->
+    <string name="lyrics_timing_seconds_short">%1$s s</string>
     <plurals name="artist_count">
         <item quantity="one">%d artista</item>
         <item quantity="other">%d artistas</item>
@@ -396,6 +402,11 @@
     <string name="lyrics_badge_none">Sin letras</string>
     <string name="lyrics_close_desc">Cerrar letras</string>
     <string name="lyrics_search_manual_desc">Buscar letras manualmente</string>
+    <!-- Ajuste de sincronía de la letra. Ver LyricsTimingBar: existe porque LrcLib tiene varias
+         transcripciones de la misma canción hechas sobre másters distintos, y cuál cuadra con el
+         archivo del usuario no lo dice ningún metadato. -->
+    <string name="lyrics_timing_desc">Ajustar la sincronía de la letra</string>
+    <string name="lyrics_timing_reset">Quitar el ajuste</string>
     <string name="lyrics_refetch_desc">Volver a buscar la letra</string>
     <string name="lyrics_view_karaoke">Karaoke</string>
     <string name="lyrics_none_available">No hay letras disponibles</string>

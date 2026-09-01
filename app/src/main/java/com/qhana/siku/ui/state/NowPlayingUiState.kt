@@ -5,6 +5,7 @@ import com.qhana.siku.data.model.AlbumColors
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.repository.LyricsCandidate
 import com.qhana.siku.ui.viewmodel.LyricLine
+import com.qhana.siku.data.util.LrcSyntax
 
 /**
  * Por qué no hay letra en pantalla. Las tres causas piden acciones DISTINTAS, así que no pueden
@@ -47,5 +48,25 @@ data class NowPlayingUiState(
     val downloadProgress: Float? = null,
     val downloadStatusMessage: String? = null,
     val debugInfo: Any? = null // ArtworkRepository.DebugColorInfo
-)
+) {
+    /**
+     * Retraso aplicado a la letra, en ms: positivo = los versos salen más tarde.
+     *
+     * **Derivado y no un campo**, que es lo que impide que pueda mentir: sale de la marca
+     * `[offset:]` del propio [lyrics] (ver [LrcSyntax.shiftMillisOf]), o sea de lo mismo que se
+     * persiste y que se acaba escribiendo en el `.lrc` del usuario. Como campo habría que
+     * recordarlo en cada `copy` que toque la letra —el prefetch, la búsqueda manual, el candidato
+     * elegido— y el primer olvido dejaría el control enseñando un número que no es el aplicado.
+     *
+     * **`by lazy` y no un `get()`**, que es lo que era: un getter corre el Regex sobre la letra
+     * ENTERA en cada lectura, y quien lo lee es la composición de la pantalla de letras. Como
+     * `copy()` fabrica una instancia nueva, un `lazy` por instancia caduca exactamente cuando el
+     * texto puede haber cambiado — o sea que conserva intacto el "no puede mentir" de arriba y solo
+     * quita el trabajo repetido. `PUBLICATION` porque el cálculo es puro: en el peor caso dos hilos
+     * lo hacen a la vez y llegan al mismo número, que sale más barato que un lock.
+     */
+    val lyricsShiftMs: Long by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        lyrics?.let { LrcSyntax.shiftMillisOf(it) } ?: 0L
+    }
+}
 

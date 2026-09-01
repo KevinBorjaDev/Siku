@@ -144,6 +144,10 @@ data class PlayerActions(
     /** Guardar la letra en el archivo (`.lrc` o embebida, según la preferencia). */
     val onSaveLyrics: () -> Unit,
     val onSelectLyricsCandidate: (com.qhana.siku.data.repository.LyricsCandidate) -> Unit,
+    /** Corre la letra N ms (positivo = más tarde); `null` la deja sin compensación. */
+    val onShiftLyrics: (Long?) -> Unit,
+    /** Escribe ya el ajuste de sincronía pendiente. Lo dispara la pantalla de letras al salir. */
+    val onFlushLyricsShift: () -> Unit,
     val onDismissLyricsSearch: () -> Unit,
     val onUpdatePosition: () -> Unit,
     val onAddToPlaylist: (playlistId: Long, songId: String) -> Unit,
@@ -832,6 +836,9 @@ fun NowPlayingScreen(
                                         isSavingLyrics = isSavingLyrics,
                                         onSearchManually = playerActions.onSearchLyricsManually,
                                         onSelectCandidate = playerActions.onSelectLyricsCandidate,
+                                        lyricsShiftMs = uiState.lyricsShiftMs,
+                                        onShiftLyrics = playerActions.onShiftLyrics,
+                                        onFlushLyricsShift = playerActions.onFlushLyricsShift,
                                         onDismissSearch = playerActions.onDismissLyricsSearch,
                                         onPlayPause = playerActions.onPlayPause,
                                         onNext = playerActions.onNext,

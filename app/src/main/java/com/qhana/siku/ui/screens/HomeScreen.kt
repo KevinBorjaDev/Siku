@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Song
-import com.qhana.siku.ui.components.secondaryContentColor
+import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.ArtCarouselCard
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
@@ -462,7 +462,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         stringResource(R.string.stats_home_entry_empty)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = secondaryContentColor(
+                    color = rememberSecondaryContentColor(
                         AppColors.onPrimaryContainer,
                         AppColors.primaryContainer
                     ),

@@ -15,8 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -36,6 +34,7 @@ import androidx.compose.ui.util.lerp
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.ui.components.detailHeaderScrim
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AdaptiveCollage
 import com.qhana.siku.ui.components.CreatePlaylistDialog
@@ -662,17 +661,10 @@ private fun PlaylistImmersiveHeader(
             else -> AdaptiveCollage(arts, Modifier.matchParentSize())
         }
 
-        // Scrim inferior: funde el collage con el fondo y da contraste al texto.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.4f to Color.Transparent,
-                        1f to AppColors.surfaceContainer
-                    )
-                )
-        )
+        // Scrim inferior: el MISMO de los cuatro detalles, y por eso vive en [detailHeaderScrim].
+        // Aquí había una copia con el degradado de DOS paradas, o sea la versión anterior al
+        // refuerzo que artista y álbum sí recibieron.
+        Box(modifier = Modifier.matchParentSize().background(detailHeaderScrim()))
 
         Column(
             modifier = Modifier
@@ -708,7 +700,7 @@ private fun PlaylistImmersiveHeader(
                         MaterialSymbol("schedule", size = 14.sp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "$totalDurationMin min",
+                            text = stringResource(R.string.duration_minutes_short, totalDurationMin),
                         )
                     }
                 }

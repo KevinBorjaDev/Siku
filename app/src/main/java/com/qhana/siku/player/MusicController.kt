@@ -3,6 +3,7 @@ package com.qhana.siku.player
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -26,6 +27,7 @@ import com.qhana.siku.data.remote.OneDriveResolvingDataSourceFactory
 import com.qhana.siku.data.util.AppLogger
 import com.qhana.siku.data.util.JankProbe
 import com.qhana.siku.data.util.LogLevel
+import com.qhana.siku.player.manager.ListeningClock
 import com.qhana.siku.player.manager.PlaylistManager
 import com.qhana.siku.player.manager.SessionStateManager
 import com.qhana.siku.player.manager.SongCacheManager
@@ -225,12 +227,25 @@ class MusicController @Inject constructor(
      */
     private var playRecordedForSongId: String? = null
 
+    /**
+     * Cuánto se escuchó DE VERDAD de la canción en curso. Ver [ListeningClock]: la posición del
+     * reproductor no sirve para esto, y hasta el 30 ago 2026 era lo que se guardaba.
+     */
+    private val listeningClock = ListeningClock()
+
     // === Sleep timer ===
 
     /**
-     * Estado del temporizador de apagado. [endAtMs] es wall-clock (la UI deriva el restante);
-     * [awaitingSongEnd] indica que el plazo ya venció pero se espera el final de la canción
-     * en curso ([finishSong]) para pausar.
+     * Estado del temporizador de apagado. [awaitingSongEnd] indica que el plazo ya venció pero se
+     * espera el final de la canción en curso ([finishSong]) para pausar.
+     *
+     * **[endAtMs] está en el reloj MONÓTONO** (`SystemClock.elapsedRealtime`), no en wall-clock, y
+     * por eso no se puede formatear como una hora ni persistir: solo sirve para restarle otra
+     * lectura del mismo reloj, que es lo único que hace la UI. Con `currentTimeMillis` —lo que
+     * había— una corrección de hora del sistema a mitad de la cuenta (un NTP tras un rato sin red,
+     * lo normal al volver de un vuelo) movía el restante que se enseña sin mover el `delay` que de
+     * verdad pausa: la hoja anunciaba veinte minutos que ya no quedaban, o llegaba a cero con la
+     * música sonando. Mismo criterio que [com.qhana.siku.player.manager.ListeningClock].
      */
     data class SleepTimerState(
         val endAtMs: Long,
@@ -628,7 +643,7 @@ class MusicController @Inject constructor(
                     // aquí: su discontinuidad SEEK ya pasa por onPositionDiscontinuity.
                     val leavingId = controller.currentMediaItem?.mediaId
                     if (leavingId != null && leavingId != song.id) {
-                        maybeRecordPlay(leavingId, controller.currentPosition)
+                        maybeRecordPlay(leavingId)
                     }
                     val mediaItems = songs.map { it.toMediaItem() }
                     controller.setMediaItems(mediaItems, index, startPosition)
@@ -1066,7 +1081,9 @@ class MusicController @Inject constructor(
     fun startSleepTimer(durationMs: Long, finishSong: Boolean) {
         if (durationMs <= 0) return
         sleepTimerJob?.cancel()
-        val endAt = System.currentTimeMillis() + durationMs
+        // Reloj MONÓTONO: es el mismo del que sale el `delay` de abajo, así que lo que se enseña y
+        // lo que ocurre no pueden separarse. Ver [SleepTimerState.endAtMs].
+        val endAt = SystemClock.elapsedRealtime() + durationMs
         _sleepTimer.value = SleepTimerState(endAt, finishSong)
         sleepTimerJob = scope.launch {
             delay(durationMs)
@@ -1164,7 +1181,7 @@ class MusicController @Inject constructor(
                 // (no hay item siguiente) — se cuenta aquí. Si el usuario re-reproduce y
                 // vuelve a llegar al final, cuenta otra vez: son dos escuchas reales.
                 mediaController?.let { c ->
-                    c.currentMediaItem?.mediaId?.let { maybeRecordPlay(it, c.currentPosition) }
+                    c.currentMediaItem?.mediaId?.let { maybeRecordPlay(it) }
                 }
             }
             updatePlaybackState()
@@ -1215,6 +1232,10 @@ class MusicController @Inject constructor(
             // Empieza un item (otro, o el mismo con repeat-one): su escucha vuelve a estar por
             // contar. Ver [playRecordedForSongId].
             playRecordedForSongId = null
+            // Y su tiempo escuchado vuelve a cero. Va DESPUÉS de que la discontinuidad haya
+            // contado la canción saliente (ExoPlayerImpl notifica en ese orden), y aun así el
+            // acumulador va atado al id para no depender de ello. Ver [ListeningClock].
+            listeningClock.restart(songId, playing = controller.isPlaying)
 
             playlistManager.setCurrentIndex(newIndex)
 
@@ -1260,12 +1281,17 @@ class MusicController @Inject constructor(
                 (reason == Player.DISCONTINUITY_REASON_SEEK &&
                     oldPosition.mediaItemIndex != newPosition.mediaItemIndex)
             if (leftItem) {
-                oldPosition.mediaItem?.mediaId?.let { maybeRecordPlay(it, oldPosition.positionMs) }
+                oldPosition.mediaItem?.mediaId?.let { maybeRecordPlay(it) }
             }
             // Aterrizar al principio de un item = ese item empieza de nuevo, así que su escucha
             // vuelve a estar por contar. Cubre el caso que `onMediaItemTransition` no ve: volver a
             // dar play sobre la MISMA canción que acaba de terminar (o rebobinarla al inicio).
-            if (newPosition.positionMs < PLAY_RESTART_POSITION_MS) playRecordedForSongId = null
+            if (newPosition.positionMs < PLAY_RESTART_POSITION_MS) {
+                playRecordedForSongId = null
+                // Su tiempo también: si no, rebobinar al inicio empezaría la segunda escucha con
+                // lo de la primera ya sumado y la contaría de inmediato.
+                listeningClock.restart(newPosition.mediaItem?.mediaId, playing = mediaController?.isPlaying == true)
+            }
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -1355,12 +1381,19 @@ class MusicController @Inject constructor(
     }
 
     /**
-     * Registra la escucha de [songId] si [playedMs] supera el umbral: mitad de la canción
+     * Registra la escucha de [songId] si lo ESCUCHADO supera el umbral: mitad de la canción
      * o [PLAY_ABSOLUTE_THRESHOLD_MS], lo que llegue primero (criterio scrobbling clásico).
      * Con duración desconocida, [PLAY_UNKNOWN_DURATION_THRESHOLD_MS].
+     *
+     * **Ya no recibe la posición**: la mide [listeningClock], que acumula solo lo
+     * que de verdad sonó. Antes cada call site pasaba la posición del reproductor, y con eso saltar
+     * una canción arrastrando la barra hasta el final la contaba como escuchada entera. El umbral
+     * no cambió; lo que cambió es que ahora se compara contra lo escuchado y no contra dónde quedó
+     * la aguja, que es lo que el criterio scrobbling siempre quiso decir.
      */
-    private fun maybeRecordPlay(songId: String, playedMs: Long) {
+    private fun maybeRecordPlay(songId: String) {
         if (playRecordedForSongId == songId) return // ya contada en esta pasada
+        val playedMs = listeningClock.of(songId)
         val durationMs = songCacheManager.getSongSync(songId)?.duration ?: 0L
         val threshold = if (durationMs > 0) {
             minOf(durationMs / PLAY_HALF_DIVISOR, PLAY_ABSOLUTE_THRESHOLD_MS)
@@ -1387,16 +1420,25 @@ class MusicController @Inject constructor(
     /** Único escritor de [_playerState]: lo LEE del player. Ver el KDoc de [_playerState]. */
     private fun updatePlaybackState() {
         val controller = mediaController ?: return
+        // El reloj de escucha se gobierna AQUÍ y no en cada sitio que pausa o reanuda, por lo
+        // mismo que este método es el único escritor del estado: "¿está sonando?" es una sola
+        // pregunta, y contestarla en varios sitios es cómo un tramo se queda abierto para siempre.
+        // Cubre también lo que no es un toque del usuario (foco de audio perdido, auriculares
+        // desenchufados, un error), que es justo lo que nadie se acuerda de instrumentar.
         if (controller.isPlaying) {
+            listeningClock.start(controller.currentMediaItem?.mediaId)
             _playerState.value = PlaybackState.PLAYING
             return
         }
+        // BUFFERING no cuenta como escuchado: la canción no avanza y no se oye nada.
+        listeningClock.pause()
         _playerState.value = when (controller.playbackState) {
             Player.STATE_BUFFERING -> if (controller.playWhenReady) PlaybackState.BUFFERING else PlaybackState.PAUSED
             Player.STATE_IDLE -> PlaybackState.IDLE
             else -> PlaybackState.PAUSED
         }
     }
+
 
     /**
      * Guarda el estado de la sesión en background para no bloquear UI.

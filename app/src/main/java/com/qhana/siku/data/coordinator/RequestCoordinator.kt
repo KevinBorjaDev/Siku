@@ -1,5 +1,6 @@
 package com.qhana.siku.data.coordinator
 
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,7 +79,15 @@ class RequestCoordinator @Inject constructor() {
     // Estado de prioridad
     private val activePriorityDownloads = AtomicInteger(0)
 
-    // Rate limiting
+    // Rate limiting.
+    //
+    // Las dos marcas están en el reloj MONÓTONO (`SystemClock.elapsedRealtime`) y no en wall-clock,
+    // porque las dos se usan SOLO para restarles otra lectura del mismo reloj: nunca se formatean
+    // ni se persisten. Con `currentTimeMillis` —lo que había— una corrección de hora del sistema
+    // hacia atrás dejaba `throttledUntil` en el futuro y frenaba TODAS las peticiones durante el
+    // desfase, y hacia adelante levantaba el castigo de un 429 antes de tiempo, que es justo lo que
+    // hace que OneDrive lo alargue. Es el mismo criterio que documenta
+    // [com.qhana.siku.player.manager.ListeningClock].
     private var lastRequestTime = 0L
     private val rateLimitMutex = Mutex()
     @Volatile private var throttledUntil = 0L
@@ -134,7 +143,7 @@ class RequestCoordinator @Inject constructor() {
     suspend fun acquireRequestPermit() {
         rateLimitMutex.withLock {
             // Respect actual throttle time from 429 Retry-After header
-            val now = System.currentTimeMillis()
+            val now = SystemClock.elapsedRealtime()
             val throttleRemaining = throttledUntil - now
             if (throttleRemaining > 0) {
                 _workerStatus.value = WorkerStatus.ThrottledByOneDrive(throttleRemaining)
@@ -145,14 +154,14 @@ class RequestCoordinator @Inject constructor() {
             }
 
             // Ensure minimum delay between requests
-            val nowAfterThrottle = System.currentTimeMillis()
+            val nowAfterThrottle = SystemClock.elapsedRealtime()
             val elapsed = nowAfterThrottle - lastRequestTime
             if (elapsed < MIN_REQUEST_DELAY_MS) {
                 val waitTime = MIN_REQUEST_DELAY_MS - elapsed
                 _workerStatus.value = WorkerStatus.RateLimited(waitTime)
                 delay(waitTime)
             }
-            lastRequestTime = System.currentTimeMillis()
+            lastRequestTime = SystemClock.elapsedRealtime()
             _workerStatus.value = WorkerStatus.Running
         }
     }
@@ -164,7 +173,7 @@ class RequestCoordinator @Inject constructor() {
     suspend fun acquirePriorityPermit() {
         rateLimitMutex.withLock {
             // Always respect real throttle (429)
-            val now = System.currentTimeMillis()
+            val now = SystemClock.elapsedRealtime()
             val throttleRemaining = throttledUntil - now
             if (throttleRemaining > 0) {
                 Log.w(TAG, "Priority request waiting for throttle backoff (${throttleRemaining}ms)")
@@ -172,7 +181,7 @@ class RequestCoordinator @Inject constructor() {
                 throttledUntil = 0L
             }
             // Skip minimum delay for priority (user waiting)
-            lastRequestTime = System.currentTimeMillis()
+            lastRequestTime = SystemClock.elapsedRealtime()
         }
     }
 
@@ -204,7 +213,7 @@ class RequestCoordinator @Inject constructor() {
             (THROTTLE_BACKOFF_BASE_SECONDS * n * n).coerceAtMost(THROTTLE_BACKOFF_MAX_SECONDS)
         }
         val waitTimeMs = TimeUnit.SECONDS.toMillis(waitSeconds)
-        throttledUntil = System.currentTimeMillis() + waitTimeMs
+        throttledUntil = SystemClock.elapsedRealtime() + waitTimeMs
         _workerStatus.value = WorkerStatus.ThrottledByOneDrive(waitTimeMs)
         Log.w(
             TAG,

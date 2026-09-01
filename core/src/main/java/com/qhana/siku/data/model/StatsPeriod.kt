@@ -98,8 +98,14 @@ data class StatsSelection(
          * —que dice "Tu mes en música" y acabó enseñando el tiempo del DÍA— cuando entraron los
          * modos día y semana y esto pasó de MONTH a DAY. Nada falla al cambiarlo: el número sigue
          * saliendo, solo que es otro.
+         *
+         * **`atZone().toLocalDate()` y NUNCA `LocalDate.ofInstant(now, zone)`**, que hace justo
+         * esto y se lee mejor: ese método es de Java 9 y en Android es **API 34**, aunque la clase
+         * `LocalDate` exista desde la 26. Con `minSdk 26` y sin desugaring, compila, pasa la
+         * release y lanza `NoSuchMethodError` al abrir esta pantalla en cualquier Android 8–13.
+         * Estuvo así del 29 al 30 ago 2026. Lo cubre `verifyMinSdkApis` en `app/build.gradle.kts`.
          */
         fun current(zone: ZoneId, now: Instant): StatsSelection =
-            StatsSelection(StatsPeriodMode.DAY, LocalDate.ofInstant(now, zone))
+            StatsSelection(StatsPeriodMode.DAY, now.atZone(zone).toLocalDate())
     }
 }

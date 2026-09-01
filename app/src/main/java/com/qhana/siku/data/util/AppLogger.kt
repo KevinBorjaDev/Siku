@@ -1,6 +1,7 @@
 package com.qhana.siku.data.util
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.qhana.siku.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -106,7 +107,9 @@ class AppLogger @Inject constructor(
     private suspend fun consumeLoop() {
         var writer: BufferedWriter? = openWriter()
         var pending = 0
-        var lastFlush = System.currentTimeMillis()
+        // Monótono: el flush por tiempo es un intervalo, no una hora (la hora de cada línea la pone
+        // `timestamp`, que sí es wall-clock porque se escribe en el archivo). Ver ListeningClock.
+        var lastFlush = SystemClock.elapsedRealtime()
         try {
             while (true) {
                 val entry = if (pending == 0) {
@@ -115,7 +118,7 @@ class AppLogger @Inject constructor(
                 } else {
                     // Hay líneas en el buffer: despertar a más tardar cuando toque el flush por
                     // tiempo, para que no se queden ahí si el logueo se detiene de golpe.
-                    val elapsed = System.currentTimeMillis() - lastFlush
+                    val elapsed = SystemClock.elapsedRealtime() - lastFlush
                     val remaining = (FLUSH_INTERVAL_MS - elapsed).coerceAtLeast(0L)
                     withTimeoutOrNull(remaining) { channel.receive() }
                 }
@@ -129,7 +132,7 @@ class AppLogger @Inject constructor(
                     }
                 }
 
-                val now = System.currentTimeMillis()
+                val now = SystemClock.elapsedRealtime()
                 val shouldFlush = pending > 0 &&
                     (pending >= FLUSH_THRESHOLD || now - lastFlush >= FLUSH_INTERVAL_MS)
                 if (shouldFlush) {

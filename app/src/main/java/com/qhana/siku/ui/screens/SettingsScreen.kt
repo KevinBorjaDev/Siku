@@ -79,6 +79,7 @@ import com.qhana.siku.ui.navigation.Screen
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appButtonColors
+import com.qhana.siku.ui.theme.appOutlinedButtonBorder
 import com.qhana.siku.ui.theme.appOutlinedButtonColors
 import com.qhana.siku.ui.theme.appRadioButtonColors
 import com.qhana.siku.ui.theme.appSegmentedListItemColors
@@ -671,6 +672,7 @@ fun SettingsBackupScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             OutlinedButton(
                                 colors = appOutlinedButtonColors(),
+                                border = appOutlinedButtonBorder(),
                                 onClick = { backupViewModel.importPlaylists() },
                                 shapes = ButtonDefaults.shapes(),
                                 modifier = Modifier.weight(1f)
