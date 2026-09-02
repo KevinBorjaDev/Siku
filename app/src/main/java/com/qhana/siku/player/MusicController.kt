@@ -309,19 +309,57 @@ class MusicController @Inject constructor(
     }
 
     /**
-     * Sustituye el `MediaItem` de [index] por el de [song]. Comprueba el `mediaId` antes de
-     * escribir: entre el aviso de descarga y este punto la cola pudo reordenarse o recargarse, y
-     * escribir a ciegas en una posición pondría la canción equivocada en mitad de la cola.
+     * Sustituye el `MediaItem` de [index] por el de [song]. **Único sitio que reemplaza un item de
+     * la cola por su id**, y por eso devuelve si lo consiguió: quien reintenta una reproducción
+     * necesita saberlo para decidir si vuelve a preparar el player.
+     *
+     * Comprueba el `mediaId` antes de escribir: entre el aviso de descarga y este punto la cola
+     * pudo reordenarse o recargarse, y escribir a ciegas en una posición pondría la canción
+     * equivocada en mitad de la cola. Esa comprobación estaba DUPLICADA en
+     * [retryCurrentWithFreshUrl] —las mismas dos guardas y el mismo `replaceMediaItem`, escritos
+     * a mano—, que es la forma habitual de que una se arregle y la otra se quede.
+     *
+     * @return `true` si el item se reemplazó; `false` si el índice ya no existe, si lo que hay ahí
+     *   es otra canción, o si el player rechazó la escritura.
      */
-    private fun replaceQueueItem(controller: MediaController, index: Int, song: Song) {
-        try {
-            if (index >= controller.mediaItemCount) return
-            if (controller.getMediaItemAt(index).mediaId != song.id) return
+    private fun replaceQueueItem(controller: MediaController, index: Int, song: Song): Boolean {
+        return try {
+            // El negativo importa: `currentMediaItemIndex` devuelve `INDEX_UNSET` (-1) con la cola
+            // vacía, y quien pasa ese índice lo hace sin mirar. Sin esta mitad de la guarda,
+            // `getMediaItemAt(-1)` reventaría y el caso se atendería por la vía de la excepción.
+            if (index < 0 || index >= controller.mediaItemCount) return false
+            if (controller.getMediaItemAt(index).mediaId != song.id) return false
             controller.replaceMediaItem(index, song.toMediaItem())
+            true
         } catch (e: Exception) {
             // Cosmético para el player: si falla, la canción se sigue reproduciendo por su URI
             // remoto y la cola se corrige la próxima vez que se cargue entera.
             appLogger.error("No se pudo actualizar el item ${song.id} de la cola: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Quita de la cola nativa las posiciones [indices] (ASCENDENTES), **agrupando las contiguas en
+     * una sola llamada** y de mayor a menor.
+     *
+     * De mayor a menor porque quitar por arriba deja intactos los índices de abajo; agrupadas
+     * porque cada `removeMediaItem` suelto es una mutación separada de la línea de tiempo, y entre
+     * dos de ellas la cola existe a medio purgar — con ExoPlayer avanzando solo si le quitan el
+     * item en curso. Es el mismo motivo por el que [toggleShuffle] reemplaza rangos en vez de
+     * borrar y añadir por partes.
+     *
+     * En el caso que de verdad ocurre —desconectar una fuente, borrar un álbum de la biblioteca—
+     * las canciones caen seguidas en la cola, así que N llamadas pasan a ser una. En el peor caso
+     * (índices salteados) hace exactamente las mismas que antes.
+     */
+    private fun removeQueueIndices(controller: MediaController, indices: List<Int>) {
+        var end = indices.size
+        while (end > 0) {
+            var start = end - 1
+            while (start > 0 && indices[start - 1] == indices[start] - 1) start--
+            controller.removeMediaItems(indices[start], indices[end - 1] + 1)
+            end = start
         }
     }
 
@@ -583,8 +621,21 @@ class MusicController @Inject constructor(
     /**
      * Salta al índice `index` de la cola. Si la cola de ExoPlayer está desincronizada
      * con `PlaylistManager` (p.ej. restore de sesión), la recarga completa antes de saltar.
+     *
+     * @param prebuiltItems los `MediaItem` de la cola YA construidos, para el caso en que haya que
+     *   recargarla entera. Construirlos es una pasada completa sobre la lista creando dos objetos
+     *   por canción, y este cuerpo corre en el hilo principal a propósito (ver abajo), así que en
+     *   una cola grande esa pasada caía dentro del frame del tap — justo el que arranca el container
+     *   transform del reproductor. Quien puede construirlos fuera de Main los pasa aquí ya hechos;
+     *   quien no, deja el `null` y se construyen como siempre. Se ignoran si no cuadran con la cola
+     *   vigente, porque entonces describen otra cosa.
      */
-    fun playAt(index: Int, startPosition: Long = 0, autoPlay: Boolean = true) {
+    fun playAt(
+        index: Int,
+        startPosition: Long = 0,
+        autoPlay: Boolean = true,
+        prebuiltItems: List<MediaItem>? = null
+    ) {
         if (index < 0) {
             Log.w(TAG, "playAt ignored: negative index $index")
             return
@@ -645,9 +696,16 @@ class MusicController @Inject constructor(
                     if (leavingId != null && leavingId != song.id) {
                         maybeRecordPlay(leavingId)
                     }
-                    val mediaItems = songs.map { it.toMediaItem() }
+                    // Los ya construidos si describen ESTA cola; si no, se hacen aquí. La
+                    // comprobación de tamaño es la que impide cargar la cola de otra petición
+                    // que llegara a medias.
+                    val mediaItems = prebuiltItems?.takeIf { it.size == songs.size }
+                        ?: songs.map { it.toMediaItem() }
                     controller.setMediaItems(mediaItems, index, startPosition)
-                    JankProbe.mark { "playAt: setMediaItems(${mediaItems.size}) hecho" }
+                    JankProbe.mark {
+                        "playAt: setMediaItems(${mediaItems.size}) hecho" +
+                            if (prebuiltItems != null) " [prehechos]" else " [construidos en Main]"
+                    }
                 } else if (controller.currentMediaItemIndex != index || startPosition > 0) {
                     controller.seekTo(index, startPosition)
                     JankProbe.mark { "playAt: seekTo hecho" }
@@ -690,7 +748,21 @@ class MusicController @Inject constructor(
      * también el punto de la canción y si estaba sonando o en pausa. Con los defaults (0 y `true`)
      * se comporta como siempre, que es lo que quiere cualquier "reproducir esto".
      */
-    fun setPlaylistAndPlay(
+    /**
+     * [setPlaylistAndPlay] para quien NO está en un contexto suspend: el "deshacer" de un snackbar
+     * y el arranque desde [addToQueue] con la cola vacía. Dispara y sigue — ninguno de los dos
+     * espera el resultado, solo pide que suene.
+     */
+    fun playQueue(
+        songs: List<Song>,
+        startIndex: Int = 0,
+        startPosition: Long = 0,
+        autoPlay: Boolean = true
+    ) {
+        scope.launch { setPlaylistAndPlay(songs, startIndex, startPosition, autoPlay) }
+    }
+
+    suspend fun setPlaylistAndPlay(
         songs: List<Song>,
         startIndex: Int = 0,
         startPosition: Long = 0,
@@ -699,9 +771,10 @@ class MusicController @Inject constructor(
         if (songs.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, songs.lastIndex)
         songs.getOrNull(safeIndex)?.let { syncManager.prioritizeSong(it.id) }
-        songCacheManager.cacheSongs(songs)
-        playlistManager.setPlaylist(songs, safeIndex)
-        playAt(safeIndex, startPosition, autoPlay)
+        val items = prepareQueueOffMain { playlistManager.setPlaylist(songs, safeIndex) }
+        withContext(Dispatchers.Main) {
+            playAt(safeIndex, startPosition, autoPlay, prebuiltItems = items)
+        }
         saveSessionState()
     }
 
@@ -712,27 +785,60 @@ class MusicController @Inject constructor(
      * preserva `originalPlaylist`, para que al desactivar shuffle se restaure el orden real.
      * [startIndex] es el tema que sonará primero (setShuffle lo lleva al índice 0).
      */
-    fun setPlaylistAndPlayShuffled(songs: List<Song>, startIndex: Int) {
+    suspend fun setPlaylistAndPlayShuffled(songs: List<Song>, startIndex: Int) {
         if (songs.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, songs.lastIndex)
         syncManager.prioritizeSong(songs[safeIndex].id)
-        songCacheManager.cacheSongs(songs)
-        playlistManager.setPlaylist(songs, safeIndex)
-        playlistManager.setShuffle(true) // lleva songs[safeIndex] al índice 0 y baraja el resto
-        playAt(playlistManager.currentIndex.value)
+        val items = prepareQueueOffMain {
+            playlistManager.setPlaylist(songs, safeIndex)
+            // lleva songs[safeIndex] al índice 0 y baraja el resto
+            playlistManager.setShuffle(true)
+        }
+        withContext(Dispatchers.Main) {
+            playAt(playlistManager.currentIndex.value, prebuiltItems = items)
+        }
         saveSessionState()
     }
 
-    fun setPlaylist(songs: List<Song>, startSong: Song, startIndex: Int = 0) {
+    suspend fun setPlaylist(songs: List<Song>, startSong: Song, startIndex: Int = 0) {
         if (songs.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, songs.lastIndex)
         syncManager.prioritizeSong(startSong.id)
-        songCacheManager.cacheSong(startSong)
-        songCacheManager.cacheSongs(songs)
-        playlistManager.setPlaylist(songs, safeIndex)
-        playAt(safeIndex)
+        val items = prepareQueueOffMain {
+            songCacheManager.cacheSong(startSong)
+            playlistManager.setPlaylist(songs, safeIndex)
+        }
+        withContext(Dispatchers.Main) { playAt(safeIndex, prebuiltItems = items) }
         saveSessionState()
     }
+
+    /**
+     * Deja la cola lista FUERA del hilo principal y devuelve sus `MediaItem` ya construidos.
+     *
+     * **Es donde estaba el jank de "pulsar Aleatorio en el inicio".** Los tres puntos de entrada
+     * hacían todo esto en Main, y "todo esto" son ocho pasadas completas sobre la biblioteca —
+     * cachear, copiar, mapear ids, barajar, mapear ids otra vez, construir un `MediaItem` y un
+     * `MediaMetadata` por canción— cayendo justo en el frame que arranca el container transform del
+     * reproductor, porque la UI expande en ese mismo frame. Con 777 canciones eso no cabe en 16 ms.
+     *
+     * Se puede mover porque nada de esto tiene afinidad de hilo: `SongCacheManager` es un `LruCache`
+     * con sus bloques `synchronized`, `PlaylistManager` sincroniza cada mutación con su lock, y
+     * construir un `MediaItem` es armar objetos. Lo único que EXIGE Main es darle la orden al
+     * `MediaController`, y eso se queda donde estaba.
+     *
+     * `Default` y no `IO`: es CPU (copiar listas, barajar, construir objetos), no espera de disco.
+     *
+     * @param mutate reordena la cola lógica; corre ya fuera de Main.
+     * @return los items de la cola RESULTANTE, leída después de [mutate] — con shuffle, el orden
+     *   final solo se conoce ahí.
+     */
+    private suspend fun prepareQueueOffMain(mutate: () -> Unit): List<MediaItem> =
+        withContext(Dispatchers.Default) {
+            mutate()
+            val ordered = playlistManager.getCurrentPlaylist()
+            songCacheManager.cacheSongs(ordered)
+            ordered.map { it.toMediaItem() }
+        }
 
     fun cacheSongs(songs: List<Song>) {
         songCacheManager.cacheSongs(songs)
@@ -784,11 +890,14 @@ class MusicController @Inject constructor(
         if (!current.isLocalAudio) return false // ya está en streaming
 
         val streamingSong = current.copy(path = "")
-        val index = controller.currentMediaItemIndex
-        if (index !in 0 until controller.mediaItemCount) return false
+        // Por [replaceQueueItem], que trae las guardas de rango. Gana además la del `mediaId`, que
+        // aquí no estaba: debería pasar siempre —el id no cambia al quitarle el path— y por eso
+        // mismo escribir sin ella era apostar en vez de comprobar.
+        if (!replaceQueueItem(controller, controller.currentMediaItemIndex, streamingSong)) {
+            return false
+        }
 
         return try {
-            controller.replaceMediaItem(index, streamingSong.toMediaItem())
             // El archivo local está a punto de borrarlo la re-descarga: el caché NO debe
             // conservar su `file://`.
             updateSong(streamingSong, locationChanged = true)
@@ -891,8 +1000,8 @@ class MusicController @Inject constructor(
             // siguiente y seguiría reproduciendo.
             if (currentWasPurged) controller.pause()
             // Espejo quirúrgico en la cola nativa (regla de oro: toda mutación de
-            // PlaylistManager se replica en ExoPlayer), de mayor a menor índice.
-            removeIndices.asReversed().forEach { controller.removeMediaItem(it) }
+            // PlaylistManager se replica en ExoPlayer).
+            removeQueueIndices(controller, removeIndices)
         } else if (controller != null && controller.isConnected) {
             // Cola nativa desincronizada con la lógica: recargarla entera ya purgada. Si lo que
             // suena NO se purgó, la recarga debe ser transparente —misma posición y sin cortar el
@@ -946,19 +1055,29 @@ class MusicController @Inject constructor(
             return
         }
 
-        // Reemplazamos los items DESPUÉS del actual con el nuevo orden.
-        if (currentExoIndex + 1 < controller.mediaItemCount) {
-            controller.removeMediaItems(currentExoIndex + 1, controller.mediaItemCount)
-        }
+        // DOS llamadas, una por lado, y el item en curso no se toca: es el único índice que no
+        // entra en ninguno de los dos rangos.
+        //
+        // **`replaceMediaItems` y NO un `removeMediaItems` + `addMediaItems` por lado**, que es
+        // como estaba (cuatro llamadas). No es solo brevedad: en `ExoPlayerImpl` el reemplazo de un
+        // rango AÑADE primero y BORRA después, y publica UN solo `updatePlaybackInfo` al final
+        // (líneas 799-806 de las fuentes de 1.9.0). Hacerlo a mano en dos pasos abría entre ellos
+        // una línea de tiempo real en la que la cola estaba truncada —todo lo posterior al item en
+        // curso, desaparecido— que cualquier oyente del player podía ver. Y la discontinuidad solo
+        // se reporta si cambia el `periodUid` del item en curso, o sea que con estos rangos no se
+        // reporta ninguna: la garantía de que el audio no se corta la da la implementación, no
+        // nuestro cuidado al ordenar las llamadas.
+        //
+        // Las guardas de rango también se van: `fromIndex` mayor que la cola se ignora, `toIndex`
+        // se acota a su tamaño, y un rango vacío con lista vacía no hace nada.
+        //
+        // El orden importa: el primer reemplazo solo toca índices POR ENCIMA del actual, así que
+        // `currentExoIndex` sigue siendo válido para el segundo.
         val after = songs.subList(newIndex + 1, songs.size).map { it.toMediaItem() }
-        if (after.isNotEmpty()) controller.addMediaItems(after)
+        controller.replaceMediaItems(currentExoIndex + 1, controller.mediaItemCount, after)
 
-        // Reemplazamos los items ANTES del actual con el nuevo orden.
-        if (currentExoIndex > 0) {
-            controller.removeMediaItems(0, currentExoIndex)
-        }
         val before = songs.subList(0, newIndex).map { it.toMediaItem() }
-        if (before.isNotEmpty()) controller.addMediaItems(0, before)
+        controller.replaceMediaItems(0, currentExoIndex, before)
     }
     
     fun toggleRepeatMode() {
@@ -1020,7 +1139,7 @@ class MusicController @Inject constructor(
 
         // Cola vacía: no hay dónde "encolar" — arranca la reproducción con estos temas.
         if (playlistManager.getCurrentPlaylist().isEmpty()) {
-            setPlaylistAndPlay(songs)
+            playQueue(songs)
             return songs.size
         }
 
@@ -1550,17 +1669,16 @@ class MusicController @Inject constructor(
         if (index < 0) return
 
         val controller = mediaController?.takeIf { it.isConnected } ?: return
-        if (index >= controller.mediaItemCount) return
-        if (controller.getMediaItemAt(index).mediaId != updatedSong.id) return
+        // Por el helper, que ya trae las guardas (índice vivo + el `mediaId` de esa posición sigue
+        // siendo esta canción) y el try. Aquí estaban copiadas.
+        if (!replaceQueueItem(controller, index, updatedSong)) return
+
+        // Solo se reanuda si lo que falló SIGUE siendo el item en curso: si el usuario ya se
+        // movió a otra canción, la cola queda con el origen fresco para cuando le toque, pero
+        // arrancar audio aquí le arrebataría la que acaba de elegir.
+        if (controller.currentMediaItemIndex != index) return
 
         try {
-            controller.replaceMediaItem(index, updatedSong.toMediaItem())
-
-            // Solo se reanuda si lo que falló SIGUE siendo el item en curso: si el usuario ya se
-            // movió a otra canción, la cola queda con el origen fresco para cuando le toque, pero
-            // arrancar audio aquí le arrebataría la que acaba de elegir.
-            if (controller.currentMediaItemIndex != index) return
-
             controller.prepare()
             controller.play()
             updatePlaybackState()

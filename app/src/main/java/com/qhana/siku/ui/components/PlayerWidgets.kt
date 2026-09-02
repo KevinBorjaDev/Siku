@@ -396,22 +396,46 @@ fun contrastRatio(a: Color, b: Color): Float {
  * por los dos lados (ni negro ni blanco llegan a 4.5:1), y entonces se devuelve el extremo, o sea el
  * máximo que ese lado da. Es la misma acotación que ya hacen `rememberMiniPlayerColors` y
  * `rememberTonalLayerColors`.
+ *
+ * **Prueba las DOS direcciones y, entre las que YA cumplen [minRatio], se queda con la de MÁS
+ * croma** (1 sep 2026, en vez de probar solo la de más margen — [contrastRatio] entre
+ * [Color.Black]/[Color.White] contra [container] ya no decide nada por su cuenta). El piso NO se
+ * relaja NUNCA —eso es justo lo que este ajuste corrige de una versión anterior—, esto solo decide
+ * ENTRE soluciones que YA lo cumplen. Antes, cuando una sola dirección alcanzaba el margen más
+ * grande, era la ÚNICA que se probaba: MEDIDO en el toggle "always on" del NowPlaying con Fiel a la
+ * carátula, eso mandaba el glifo a `RGB(240,244,255)` (prácticamente blanco) sobre un disco
+ * claramente azul, cuando la dirección oscura TAMBIÉN llegaba a 4.5:1 con mucho más matiz — nunca
+ * se llegaba a comparar.
  */
 fun ensureContrast(content: Color, container: Color, minRatio: Float = 3f): Color {
     if (contrastRatio(content, container) >= minRatio) return content
-    // Dirección por CONTRASTE real, no por luminancia 0.5: se oscurece si el negro contrasta más que
-    // el blanco contra el fondo (cruce en ~0.18), se aclara si al revés. Así un fondo medio recibe
-    // icono oscuro (la dirección que sí llega a 3:1), no claro.
-    val goingDark = contrastRatio(Color.Black, container) >= contrastRatio(Color.White, container)
+    val hct = Hct.fromInt(content.toArgb())
     val containerTone = Hct.fromInt(container.toArgb()).tone
     // `*Unsafe` devuelve un tono fuera de [0,100] cuando el ratio es inalcanzable por ese lado; ese
     // valor sirve igual, porque lo único que se hace con él es acotarlo.
-    val tone = (
-        if (goingDark) Contrast.darkerUnsafe(containerTone, minRatio.toDouble())
-        else Contrast.lighterUnsafe(containerTone, minRatio.toDouble())
-    ).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
-    val hct = Hct.fromInt(content.toArgb())
-    val toned = Color(Hct.from(hct.hue, hct.chroma, tone).toInt())
+    val darkTone = Contrast.darkerUnsafe(containerTone, minRatio.toDouble()).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
+    val lightTone = Contrast.lighterUnsafe(containerTone, minRatio.toDouble()).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
+    val darkColor = Color(Hct.from(hct.hue, hct.chroma, darkTone).toInt())
+    val lightColor = Color(Hct.from(hct.hue, hct.chroma, lightTone).toInt())
+    val darkOk = contrastRatio(darkColor, container) >= minRatio
+    val lightOk = contrastRatio(lightColor, container) >= minRatio
+    val (tone, toned) = when {
+        darkOk && lightOk ->
+            if (Hct.fromInt(darkColor.toArgb()).chroma >= Hct.fromInt(lightColor.toArgb()).chroma) {
+                darkTone to darkColor
+            } else {
+                lightTone to lightColor
+            }
+        darkOk -> darkTone to darkColor
+        lightOk -> lightTone to lightColor
+        // Ninguna llega exacta (redondeo de `*Unsafe` cerca del extremo, ver abajo): se queda la
+        // de más contraste real, como antes de este ajuste.
+        else -> if (contrastRatio(darkColor, container) >= contrastRatio(lightColor, container)) {
+            darkTone to darkColor
+        } else {
+            lightTone to lightColor
+        }
+    }
     // `Hct.from` prioriza el TONO y cede croma cuando el matiz no cabe en sRGB, así que la luminancia
     // sale la del tono pedido; el redondeo de esa proyección puede dejarlo unas milésimas corto y por
     // eso se MIDE. Al ceder el croma (gris puro del mismo tono) el ratio es exacto por construcción.

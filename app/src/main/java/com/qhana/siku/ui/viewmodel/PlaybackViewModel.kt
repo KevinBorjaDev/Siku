@@ -1986,7 +1986,7 @@ class PlaybackViewModel @Inject constructor(
             message = context.getString(message),
             actionLabel = context.getString(R.string.common_undo),
             onAction = {
-                musicController.setPlaylistAndPlay(
+                musicController.playQueue(
                     songs = songs,
                     startIndex = index,
                     startPosition = position,

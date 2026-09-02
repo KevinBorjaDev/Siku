@@ -271,14 +271,18 @@ class SongRepository @Inject constructor(
             val existing = songs.map { it.id }.chunked(SQLITE_VAR_LIMIT)
                 .flatMap { songDao.getSongsByIds(it) }.associateBy { it.id }
             val newEntities = mutableListOf<SongEntity>()
-            var modifiedCount = 0
+            // Las altas ya se acumulaban para un `insertSongs` de lote; las otras dos escrituras
+            // del mismo bucle salían una a una, cada una con su transacción y su invalidación de
+            // `songs`. Se acumulan igual y se vuelcan juntas al final.
+            val backfills = mutableListOf<Pair<String, String>>()
+            val modified = mutableListOf<Pair<String, Long>>()
 
             songs.forEach { song ->
                 val current = existing[song.id]
                 // Backfill v23: las filas de nube pre-migración no tienen relativePath; el
                 // scan la reporta y aquí se completa sin tocar el resto de la fila.
                 if (current != null && current.relativePath == null && song.relativePath != null) {
-                    songDao.backfillRelativePath(song.id, song.relativePath!!)
+                    backfills.add(song.id to song.relativePath!!)
                 }
                 if (current == null) {
                     val needsMeta = song.artist == AppConfig.UNKNOWN_ARTIST || song.title == song.path.substringAfterLast("/")
@@ -295,12 +299,14 @@ class SongRepository @Inject constructor(
                             Log.w("SongRepository", "Error deleting modified file ${current.id}", e)
                         }
                     }
-                    songDao.markSongAsModifiedForRedownload(current.id, song.size)
-                    modifiedCount++
+                    modified.add(current.id to song.size)
                 }
             }
+            if (backfills.isNotEmpty() || modified.isNotEmpty()) {
+                songDao.applyUpsertSideEffects(backfills, modified)
+            }
             if (newEntities.isNotEmpty()) songDao.insertSongs(newEntities)
-            newEntities.size + modifiedCount
+            newEntities.size + modified.size
         }
     }
 

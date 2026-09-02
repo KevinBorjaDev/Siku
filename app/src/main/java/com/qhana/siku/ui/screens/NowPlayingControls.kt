@@ -979,16 +979,43 @@ internal fun BottomActionBar(
         ) {
             candidate
         } else {
-            // Alejarse del glifo, con el otro lado como reserva. Los `*Unsafe` CLAMPEAN a 100 y a 0
-            // cuando el piso no es alcanzable, así que la pregunta se le hace al contraste que el
-            // tono da de verdad y no a si la función devolvió algo.
-            val glyphAbove = glyphTone > bar.tone
-            val away =
-                if (glyphAbove) Contrast.darkerUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
-                else Contrast.lighterUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
-            if (Contrast.ratioOfTones(away, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR) away
-            else if (glyphAbove) Contrast.lighterUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
-            else Contrast.darkerUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
+            // Las DOS direcciones — no solo "alejarse del glifo" — y, entre las que YA cumplen el
+            // piso de contraste contra la barra Y dejan al glifo del lado correcto (`keepsGlyph`),
+            // se prefiere la que retiene más croma de la barra (1 sep 2026, mismo criterio que
+            // [ensureContrast]). NINGÚN piso se relaja — eso es justo lo que este ajuste corrige de
+            // una versión anterior: el 1.6:1 sigue siendo el mínimo real, esto solo decide ENTRE
+            // soluciones que YA lo cumplen. Si solo una dirección cumple las dos condiciones, se usa
+            // esa igual que antes; si ninguna las cumple las dos, se cae al comportamiento de
+            // siempre —alejarse del glifo, con el otro lado de reserva— sin tocarlo.
+            val darkTone = Contrast.darkerUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
+            val lightTone = Contrast.lighterUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
+            val darkOk = Contrast.ratioOfTones(darkTone, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR &&
+                keepsGlyph(discTone = darkTone, glyphTone = glyphTone)
+            val lightOk = Contrast.ratioOfTones(lightTone, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR &&
+                keepsGlyph(discTone = lightTone, glyphTone = glyphTone)
+            when {
+                darkOk && lightOk ->
+                    if (
+                        Hct.from(bar.hue, bar.chroma, darkTone).chroma >=
+                        Hct.from(bar.hue, bar.chroma, lightTone).chroma
+                    ) {
+                        darkTone
+                    } else {
+                        lightTone
+                    }
+                darkOk -> darkTone
+                lightOk -> lightTone
+                else -> {
+                    // Ninguna de las dos direcciones deja al glifo del lado correcto: el
+                    // comportamiento de siempre. Los `*Unsafe` CLAMPEAN a 100 y a 0 cuando el piso
+                    // no es alcanzable, así que la pregunta se le hace al contraste que el tono da
+                    // de verdad y no a si la función devolvió algo.
+                    val glyphAbove = glyphTone > bar.tone
+                    val away = if (glyphAbove) darkTone else lightTone
+                    if (Contrast.ratioOfTones(away, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR) away
+                    else if (glyphAbove) lightTone else darkTone
+                }
+            }
         }
         // Matiz y croma DE LA PROPIA BARRA: el activo es "la barra, destacada", así que solo debe
         // moverse en el eje del tono. Antes salían de `secondary` y el resultado, MEDIDO en tema
@@ -1005,11 +1032,16 @@ internal fun BottomActionBar(
     // que cambie al encender sea el disco de detrás. `ensureContrast` lo corrige si el relleno se
     // le acerca demasiado — hace falta porque al construir el color a mano se pierde la garantía
     // del par `on*` de M3, y es el mismo mecanismo del toggle de acento del transporte.
-    val activeContent = ensureContrast(
-        content = toolbarContentColor,
-        container = checkedBg,
-        minRatio = ACTIVE_GLYPH_MIN_CONTRAST
-    )
+    // `remember`ado como `checkedBg`: desde que `ensureContrast` camina el límite de croma
+    // (hasta ~100 pasos, cada uno un `Hct.from`), recalcularlo en cada recomposición sin motivo
+    // sería trabajo tirado.
+    val activeContent = remember(toolbarContentColor, checkedBg) {
+        ensureContrast(
+            content = toolbarContentColor,
+            container = checkedBg,
+            minRatio = ACTIVE_GLYPH_MIN_CONTRAST
+        )
+    }
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         HorizontalFloatingToolbar(
             expanded = true,

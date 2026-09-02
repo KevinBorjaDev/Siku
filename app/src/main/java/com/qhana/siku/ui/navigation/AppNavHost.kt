@@ -312,6 +312,7 @@ fun AppNavHost(
                 favorites = favorites,
                 playlists = playlists,
                 onBackClick = { navController.popBackStack() },
+                onAlbumClick = { album -> appState.navigateToAlbum(album) },
                 onPlayAll = { songs, index ->
                     libraryViewModel.recordContext(
                         PlaybackContext.Genre(genreName, songs.firstOrNull()?.albumArtUri?.toString())

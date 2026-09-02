@@ -128,6 +128,17 @@ class BrowseRepository @Inject constructor(
     }
 
     /**
+     * Álbumes de un género, para la vista "Álbumes" de su detalle. Mismo [partialMatch] que
+     * [getSongsByGenre] — las dos vistas del mismo detalle tienen que seguir el mismo ajuste.
+     */
+    fun getAlbumsByGenre(genre: String, partialMatch: Boolean): Flow<List<AlbumSummary>> =
+        if (partialMatch) {
+            songDao.getAlbumsByGenreLikeFlow("%${SongDao.escapeLike(genre)}%")
+        } else {
+            songDao.getAlbumsByGenreFlow(genre)
+        }
+
+    /**
      * Artistas que comparten género con [seedArtist], para "Porque escuchaste a X". Ver
      * [SongDao.getRelatedArtistsFlow] — incluido el límite de lo que este criterio puede relacionar.
      */

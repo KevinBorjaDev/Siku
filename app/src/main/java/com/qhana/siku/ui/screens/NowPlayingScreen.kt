@@ -312,13 +312,13 @@ fun NowPlayingScreen(
 
     // Fondo del gradiente = `secondaryContainer` → `surface` (rol del esquema, SEED-ONLY): antes era
     // el color CRUDO del álbum mezclado 50%. Sigue teñido del álbum (tema seedeado) y el tema anima
-    // `secondaryContainer` al cambiar de canción (animatedScheme).
+    // `secondaryContainer` al cambiar de canción (el fundido de `ProvideAppColors`).
     val albumPrimary = AppColors.secondaryContainer
 
     // Play button + TODOS los acentos que derivan de esto = rol PRIMARY del esquema. El color
     // elegido/extraído es SOLO el SEED (el tema está seedeado de él vía MusicPlayerTheme), NO se usa
     // 1:1 — eso causaba las inconsistencias/parches (ensureContrast, onAccentContentColor y el viejo
-    // `albumAccent`, ya eliminados). El tema anima primary al cambiar de canción (animatedScheme),
+    // `albumAccent`, ya eliminados). El tema funde primary al cambiar de canción (ver `ProvideAppColors`),
     // así que no hace falta el animateColorAsState local.
     val playButtonColor = AppColors.primary
     // Glifo del play por CONTRASTE real (`maxContrastOn`), NO `onPrimary`: en la mayoría de temas

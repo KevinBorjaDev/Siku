@@ -252,4 +252,148 @@ class PlaylistManagerTest {
         assertEquals("solo", manager.getCurrentSongId())
         assertEquals(1, manager.playlist.value.size)
     }
+
+    // --- La cola y sus ids no pueden separarse -------------------------------------------------
+    //
+    // Hasta el 31 ago 2026 la clase guardaba las dos listas y los ids de cada una en cuatro campos
+    // sueltos, sincronizados a mano en 24 sitios. `clear()` vaciaba tres de ellos y se dejaba
+    // `originalPlaylistIds` con los ids de la cola anterior; al apagar el aleatorio esos ids viejos
+    // pasaban a ser los de la cola VIVA, que estaba vacía. A partir de ahí el manager creía tener
+    // cuatro posiciones que no existían.
+
+    @Test
+    fun `tras clear, apagar el aleatorio no resucita la cola anterior`() {
+        manager.setPlaylist(songs, startIndex = 2)
+        manager.clear()
+
+        manager.setShuffle(false)
+
+        assertTrue(manager.playlist.value.isEmpty())
+        assertTrue(manager.getOriginalPlaylist().isEmpty())
+        assertNull(manager.getCurrentSongId())
+    }
+
+    @Test
+    fun `tras clear, un indice de la cola anterior sigue estando fuera de rango`() {
+        // La consecuencia observable del descuadre: `setCurrentIndex` validaba contra los ids
+        // viejos, así que aceptaba una posición sobre una lista vacía.
+        manager.setPlaylist(songs, startIndex = 0)
+        manager.clear()
+        manager.setShuffle(false)
+
+        manager.setCurrentIndex(2)
+
+        assertEquals(-1, manager.currentIndex.value)
+        assertNull(manager.getCurrentSongId())
+    }
+
+    // --- addToQueue / removeAt: no tenían cobertura y se reescribieron en la misma limpieza -----
+
+    @Test
+    fun `addToQueue anexa al final sin mover el indice actual`() {
+        manager.setPlaylist(songs, startIndex = 1)
+
+        val added = manager.addToQueue(listOf(song("e"), song("f")))
+
+        assertEquals(listOf("e", "f"), added.map { it.id })
+        assertEquals(listOf("a", "b", "c", "d", "e", "f"), manager.playlist.value.map { it.id })
+        assertEquals(1, manager.currentIndex.value)
+        assertEquals("b", manager.getCurrentSongId())
+    }
+
+    @Test
+    fun `addToQueue descarta las que ya estan y los duplicados del propio lote`() {
+        manager.setPlaylist(songs, startIndex = 0)
+
+        val added = manager.addToQueue(listOf(song("b"), song("e"), song("e")))
+
+        assertEquals(listOf("e"), added.map { it.id })
+        assertEquals(listOf("a", "b", "c", "d", "e"), manager.playlist.value.map { it.id })
+    }
+
+    @Test
+    fun `addToQueue sin nada que anadir no toca la cola`() {
+        manager.setPlaylist(songs, startIndex = 3)
+
+        val added = manager.addToQueue(listOf(song("a"), song("c")))
+
+        assertTrue(added.isEmpty())
+        assertEquals(listOf("a", "b", "c", "d"), manager.playlist.value.map { it.id })
+        assertEquals(3, manager.currentIndex.value)
+    }
+
+    @Test
+    fun `addToQueue tambien crece el orden original`() {
+        // Si no, apagar el aleatorio dejaría fuera lo encolado.
+        manager.setPlaylist(songs, startIndex = 0)
+        manager.setShuffle(true)
+
+        manager.addToQueue(listOf(song("e")))
+
+        assertTrue(manager.getOriginalPlaylist().any { it.id == "e" })
+    }
+
+    @Test
+    fun `removeAt sigue a la cancion actual cuando cae una anterior`() {
+        manager.setPlaylist(songs, startIndex = 2) // suena "c"
+
+        manager.removeAt(0)
+
+        assertEquals(listOf("b", "c", "d"), manager.playlist.value.map { it.id })
+        assertEquals("c", manager.getCurrentSongId())
+    }
+
+    @Test
+    fun `removeAt de la cancion actual deja el indice sobre el siguiente superviviente`() {
+        manager.setPlaylist(songs, startIndex = 1) // suena "b"
+
+        manager.removeAt(1)
+
+        assertEquals(listOf("a", "c", "d"), manager.playlist.value.map { it.id })
+        assertEquals("c", manager.getCurrentSongId())
+    }
+
+    @Test
+    fun `removeAt de la ultima cancion actual clampa al final`() {
+        manager.setPlaylist(songs, startIndex = 3) // suena "d"
+
+        manager.removeAt(3)
+
+        assertEquals(listOf("a", "b", "c"), manager.playlist.value.map { it.id })
+        assertEquals(2, manager.currentIndex.value)
+    }
+
+    @Test
+    fun `removeAt que vacia la lista resetea el indice`() {
+        manager.setPlaylist(listOf(song("solo")), startIndex = 0)
+
+        manager.removeAt(0)
+
+        assertTrue(manager.playlist.value.isEmpty())
+        assertEquals(-1, manager.currentIndex.value)
+    }
+
+    @Test
+    fun `removeAt fuera de rango no altera nada`() {
+        manager.setPlaylist(songs, startIndex = 1)
+
+        manager.removeAt(9)
+
+        assertEquals(listOf("a", "b", "c", "d"), manager.playlist.value.map { it.id })
+        assertEquals(1, manager.currentIndex.value)
+    }
+
+    @Test
+    fun `removeAt quita del orden original por id y no por posicion`() {
+        // Con el aleatorio puesto las posiciones no se corresponden, así que quitar por índice
+        // borraría del original una canción distinta de la que se quitó de la cola.
+        manager.setPlaylist(songs, startIndex = 0)
+        manager.setShuffle(true)
+        val removedId = manager.playlist.value[1].id
+
+        manager.removeAt(1)
+
+        assertFalse(manager.getOriginalPlaylist().any { it.id == removedId })
+        assertEquals(3, manager.getOriginalPlaylist().size)
+    }
 }

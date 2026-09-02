@@ -91,10 +91,16 @@ class M3uPlaylistRepository @Inject constructor(
                     PlaylistEntity(uuid = UUID.randomUUID().toString(), name = name)
                 )
 
-                var added = 0
                 var missing = 0
-                var orderIndex = 0
                 val seen = HashSet<String>()
+                // Se ARMA la lista de referencias y se escribe UNA vez, en vez de una inserción por
+                // canción. Cada `addSongToPlaylist` suelto es su propia transacción, o sea su
+                // propia invalidación de `playlist_song_cross_ref` — que la UI observa, así que
+                // importar mil canciones repintaba las pantallas de listas mil veces sobre una
+                // lista a medio construir. Es el mismo criterio con el que este mismo método ya
+                // resolvía la BÚSQUEDA (un `getPathKeys` y un índice en memoria, no una consulta
+                // por línea): la mitad cara estaba resuelta y la otra no.
+                val crossRefs = ArrayList<PlaylistSongCrossRef>(parsed.entries.size)
                 for (entry in parsed.entries) {
                     val songId = index.resolve(entry)
                     if (songId == null) {
@@ -105,13 +111,11 @@ class M3uPlaylistRepository @Inject constructor(
                     // tiene clave compuesta). Se conserva la PRIMERA aparición, que es la que fija
                     // su sitio en el orden.
                     if (!seen.add(songId)) continue
-                    playlistDao.addSongToPlaylist(
-                        PlaylistSongCrossRef(playlistId, songId, orderIndex++)
-                    )
-                    added++
+                    crossRefs.add(PlaylistSongCrossRef(playlistId, songId, crossRefs.size))
                 }
+                playlistDao.addSongsToPlaylist(crossRefs)
 
-                M3uImportSummary(playlistId, name, added, missing)
+                M3uImportSummary(playlistId, name, crossRefs.size, missing)
             }
         }
 

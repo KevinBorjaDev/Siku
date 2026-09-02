@@ -90,6 +90,11 @@ class PlaylistBackupRepository @Inject constructor(
             var added = 0
             var missing = 0
 
+            // Los ids que ESTA biblioteca tiene, de una vez. Antes era un `existsById` por canción
+            // del backup: restaurar mil canciones eran mil consultas para preguntar mil veces lo
+            // mismo a una tabla que no cambia durante el import.
+            val libraryIds = songDao.getAllSongIds().toHashSet()
+
             for (backupPlaylist in backup.playlists) {
                 val existingId = playlistDao.getPlaylistIdByUuid(backupPlaylist.uuid)
                 val playlistId = if (existingId != null) {
@@ -102,28 +107,51 @@ class PlaylistBackupRepository @Inject constructor(
                     )
                 }
 
+                // Lo que la lista ya tiene, de una vez por LISTA en lugar de una consulta por
+                // canción. Es un `Set` mutable porque el propio backup puede repetir una canción
+                // dentro de la misma lista, y ahí el cross-ref (clave compuesta) la rechazaría en
+                // silencio y el conteo mentiría.
+                val alreadyIn = playlistDao.getSongIdsInPlaylist(playlistId).toHashSet()
                 var orderIndex = (playlistDao.getMaxOrderIndex(playlistId) ?: -1) + 1
+                val crossRefs = ArrayList<PlaylistSongCrossRef>(backupPlaylist.songs.size)
+
                 for (song in backupPlaylist.songs) {
-                    val resolvedId = resolveSongId(song)
+                    val resolvedId = resolveSongId(song, libraryIds)
                     if (resolvedId == null) {
                         missing++
                         continue
                     }
-                    if (playlistDao.isSongInPlaylist(playlistId, resolvedId)) continue
-                    playlistDao.addSongToPlaylist(
-                        PlaylistSongCrossRef(playlistId, resolvedId, orderIndex++)
-                    )
-                    added++
+                    if (!alreadyIn.add(resolvedId)) continue
+                    crossRefs.add(PlaylistSongCrossRef(playlistId, resolvedId, orderIndex++))
                 }
+
+                // UNA escritura por lista. Cada `addSongToPlaylist` suelto era su propia
+                // transacción y su propia invalidación de `playlist_song_cross_ref`, que la UI
+                // observa: la pantalla de listas se repintaba una vez por canción restaurada,
+                // sobre una lista a medio construir.
+                playlistDao.addSongsToPlaylist(crossRefs)
+                added += crossRefs.size
             }
 
             ImportSummary(created, merged, added, missing)
         }
     }
 
-    /** Id de la canción en ESTA biblioteca: por clave portable y, si no, por tags. */
-    private suspend fun resolveSongId(song: BackupSong): String? {
-        if (songDao.existsById(song.id)) return song.id
+    /**
+     * Id de la canción en ESTA biblioteca: por clave portable y, si no, por tags.
+     *
+     * @param libraryIds todos los ids de la biblioteca, leídos UNA vez por el llamante. El camino
+     *   normal —la clave portable existe— se resuelve así en memoria, sin tocar la BD.
+     *
+     * **El rescate por tags sigue siendo una consulta por canción, y es deliberado.** Se podría
+     * indexar en memoria con `getSearchableText()`, pero la búsqueda es `COLLATE NOCASE` de SQLite
+     * y replicarla en Kotlin sería escribir la misma regla de comparación por segunda vez, con un
+     * plegado de mayúsculas que no es el mismo (SQLite solo pliega ASCII; `lowercase()` es
+     * Unicode). Dos verdades para "¿es la misma canción?" a cambio de acelerar la RAMA DE
+     * EXCEPCIÓN: solo entra aquí lo que el id portable no encontró.
+     */
+    private suspend fun resolveSongId(song: BackupSong, libraryIds: Set<String>): String? {
+        if (song.id in libraryIds) return song.id
         val title = song.title ?: return null
         val artist = song.artist ?: return null
         return songDao.findIdByTitleAndArtist(title, artist)

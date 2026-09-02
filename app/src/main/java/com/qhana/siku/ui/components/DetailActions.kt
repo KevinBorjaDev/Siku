@@ -68,14 +68,15 @@ private val DetailActionGap = 12.dp
 private const val ChevronOpenRotation = 180f
 
 /**
- * Variantes de ORDEN que el menú del split button ofrece además de "reproducir" y "aleatorio", y
- * que solo tienen sentido donde la lista tiene un orden PROPIO que el usuario construyó: las
- * playlists. En un artista o un álbum el orden lo dicta el catálogo, no el usuario, y por eso esas
- * pantallas dejan [DetailPlayButtons.onPlayInOrder] en `null` y su menú se queda en dos entradas.
- *
- * [REVERSED] es el inverso del orden de AGREGADO —o sea, de la lista tal y como está— y no un
- * criterio alfabético: en una lista construida a mano, "lo último que metí primero" es una forma
- * de escucharla que ningún orden por título da.
+ * Variantes de ORDEN que el menú del split button ofrece además de "reproducir" y "aleatorio".
+ * Nacieron para las playlists, la única pantalla con un orden PROPIO que el usuario construyó
+ * (ahí [REVERSED] es el inverso del orden de AGREGADO —la lista tal y como está—, no un criterio
+ * alfabético: "lo último que metí primero" es una forma de escucharla que ningún orden por título
+ * da). El detalle de Género las suma después: su orden de partida ES alfabético (viene del
+ * catálogo), así que ahí [REVERSED] equivale a Z-A, pero invertir o rehacer el orden sigue siendo
+ * útil igual. En un artista o un álbum el orden lo dicta el catálogo por OTRO campo (pista, disco)
+ * y esas pantallas siguen dejando [DetailPlayButtons.onPlayInOrder] en `null` — su menú se queda
+ * en dos entradas.
  */
 enum class DetailPlayOrder { REVERSED, TITLE_ASC, TITLE_DESC }
 

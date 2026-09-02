@@ -1511,9 +1511,9 @@ class LibraryViewModel @Inject constructor(
                         PlaybackContext.Playlist(playlistId, name, songs.firstOrNull()?.albumArtUri?.toString())
                     )
                 }
-                withContext(Dispatchers.Main) {
-                    musicController.setPlaylistAndPlay(songs, 0)
-                }
+                // Sin `withContext(Main)`: `setPlaylistAndPlay` reparte sus propios hilos —lo pesado
+                // fuera de Main, la orden al player dentro— y forzarlo aquí solo añadía un salto.
+                musicController.setPlaylistAndPlay(songs, 0)
             }
         }
     }

@@ -12,8 +12,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -24,7 +23,6 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.hct.Hct
 import com.materialkolor.rememberDynamicColorScheme
 import com.qhana.siku.data.repository.ArtworkRepository
-import com.qhana.siku.data.util.JankProbe
 import com.qhana.siku.ui.components.ensureContrast
 
 // ============== FALLBACK COLORS (NEUTRAL / BLUE ACCENT) ==============
@@ -159,15 +157,8 @@ fun MusicPlayerTheme(
             // puede ser tan vivo como el de la notificación. Con TonalSpot el tono sigue clavado
             // en 80 en oscuro: el spec habilita el color vivo, pero quien lo pide es el estilo.
             specVersion = ColorSpec.SpecVersion.SPEC_2025
-        ).animatedScheme(
-        // SIEMPRE animado, también con el reproductor abierto. Hasta el 20 ago 2026 había un
-        // `animateColors` que lo snapeaba ahí, y no era una decisión de diseño sino el precio de
-        // que el fundido pasara por `MaterialTheme`: cada frame recomponía la app ENTERA. Ahora el
-        // color viaja por [AppColors] y un frame de fundido sólo invalida a quien lee el rol que
-        // se movió, así que el cruce de color puede estar encendido en todas partes — que es la
-        // gracia de que el acento salga de la carátula.
-        spec = AppMotionScheme.slowEffectsSpec()
-    ) else baseScheme
+        )
+    else baseScheme
 
     val generation = remember(paletteStyle, darkTheme, vividAccent) {
         ThemeGeneration(paletteStyle, darkTheme, vividAccent)
@@ -178,7 +169,9 @@ fun MusicPlayerTheme(
     // porqué completo, con las líneas de las fuentes que lo obligan, en el KDoc de
     // [AppColorScheme].
     CompositionLocalProvider(LocalThemeGeneration provides generation) {
-        ProvideAppColors(tintedScheme) {
+        // El fundido lo hace ProvideAppColors en una corrutina: aquí solo se le da el DESTINO.
+        // SIEMPRE animado, también con el reproductor abierto — ver su KDoc.
+        ProvideAppColors(tintedScheme, animationSpec = AppMotionScheme.slowEffectsSpec()) {
         MaterialTheme(
             colorScheme = baseScheme,
             // Shapes DEFAULT de M3 (extraSmall 4 / small 8 / medium 12 / large 16 / extraLarge 28 dp).
@@ -343,7 +336,7 @@ fun DetailContentTheme(seedArgb: Int?, content: @Composable () -> Unit) {
     // esquema base —el que no depende de ninguna carátula— y no hay nada que reponer; lo que teñía
     // la pantalla era este esquema, y ahora viaja por [AppColors] sin desactivar el skipping del
     // subárbol. De paso desaparece el motivo del párrafo de arriba: no queda ninguna rama.
-    ProvideAppColors(scheme.animatedScheme(AppScreenColorSpec), content = content)
+    ProvideAppColors(scheme, animationSpec = AppScreenColorSpec, content = content)
 }
 
 // --- Acento vivo (reencuadre tonal de `primary`) ---
@@ -491,115 +484,64 @@ private fun ColorScheme.withVividSecondary(seed: Color): ColorScheme {
 }
 
 /**
- * Anima la transición entre ColorSchemes (al cambiar de canción cambia el seed) para que el cambio
- * de acento sea suave en toda la app en lugar de un salto brusco.
+ * Los dos esquemas mezclados al [fraction], para el fundido de [ProvideAppColors].
  *
- * Su resultado ya NO va a `MaterialTheme` sino a [ProvideAppColors], y eso cambia lo que cuesta:
- * antes cada frame de este fundido recomponía el árbol ENTERO sin skipping —de ahí el parámetro
- * `animateColors`, que lo apagaba con el reproductor abierto—, y ahora invalida sólo a quien lee el
- * rol que se movió. Por eso el fundido está encendido siempre y `animateColors` se eliminó
- * (20 ago 2026). Ver el KDoc de [AppColorScheme].
+ * **Sustituye a `ColorScheme.animatedScheme()`** (31 ago 2026), que hacía lo mismo con 31
+ * `animateColorAsState` EN COMPOSICIÓN: como ese valor se lee al componer, cada frame del fundido
+ * recomponía `MusicPlayerTheme` —la raíz— y con ella `MusicPlayerScreen` y `NowPlayingScreen`.
+ * Medido en un 15T Pro: frames de 33, 41 y 50 ms durante toda la apertura del reproductor. Aquí no
+ * hay estado ni composición: es aritmética sobre dos esquemas, y quien la conduce es una corrutina.
  *
- * ## La propiedad que NO se puede romper
- *
- * **Devuelve la MISMA instancia mientras ningún color cambie.** Sigue siendo load-bearing aunque el
- * consumidor sea otro: [AppColorScheme.updateFrom] compara campo a campo, así que una instancia
- * nueva con los mismos 48 colores no invalidaría a nadie —pero recorrer los 48 y construir el
- * `copy` sí se paga, y se pagaría en CADA recomposición de `MusicPlayerTheme`. Comparar contra la
- * última instancia emitida y devolverla si nada cambió es lo que convierte "cada vez que recompone
- * el tema" en "sólo cuando el tema cambia de verdad".
- *
- * (Aquí hubo una segunda propiedad, sobre que `snap()` no es instantáneo y el color final llegaba un
- * frame tarde. Se fue con `animate`: ya no hay camino sin animar.)
+ * Se interpolan los MISMOS 31 roles que animaba aquella (los demás llegan de [to] tal cual), así
+ * que el resultado visual no cambia. Lo que sí cambia —a mejor— es que ahora todos cruzan con la
+ * misma fracción en vez de con 31 springs independientes.
  */
-// OptIn: `slowEffectsSpec()` es API experimental del MotionScheme.
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ColorScheme.animatedScheme(
-    // Token *slow effects* del MotionScheme: el más lento de los que NO rebotan.
-    //
-    // "Effects" y no "spatial" porque esto son colores, y el rebote de los springs spatial sobre un
-    // color se lee como parpadeo. "Slow" porque el acento del álbum es ambiente: es el cambio más
-    // pesado de la app y el que menos conviene precipitar.
-    //
-    // Sustituye a un `spring(NoBouncy, StiffnessMediumLow)` escrito a mano. El motivo que había
-    // documentado para ese 400f era que coincidiera con el morph del botón play; eso se abandona a
-    // propósito: el morph es SPATIAL y tiene otra física por definición (rebota), así que la
-    // coincidencia exacta no era sostenible sin clavar los dos números a mano. Con el token, el
-    // color cierra algo antes que el morph.
-    spec: AnimationSpec<Color> = AppMotionScheme.slowEffectsSpec()
-): ColorScheme {
-    // Última instancia emitida (ver la propiedad 1). Contenedor plano y no `mutableStateOf`: es una
-    // memoria de la propia función, no estado del que dependa nadie más.
-    val last = remember { LastScheme() }
-    @Composable
-    fun anim(target: Color, label: String): Color =
-        animateColorAsState(targetValue = target, animationSpec = spec, label = label).value
-    val next = copy(
-        primary = anim(primary, "primary"),
-        onPrimary = anim(onPrimary, "onPrimary"),
-        primaryContainer = anim(primaryContainer, "primaryContainer"),
-        onPrimaryContainer = anim(onPrimaryContainer, "onPrimaryContainer"),
-        inversePrimary = anim(inversePrimary, "inversePrimary"),
-        secondary = anim(secondary, "secondary"),
-        onSecondary = anim(onSecondary, "onSecondary"),
-        secondaryContainer = anim(secondaryContainer, "secondaryContainer"),
-        onSecondaryContainer = anim(onSecondaryContainer, "onSecondaryContainer"),
-        tertiary = anim(tertiary, "tertiary"),
-        onTertiary = anim(onTertiary, "onTertiary"),
-        tertiaryContainer = anim(tertiaryContainer, "tertiaryContainer"),
-        onTertiaryContainer = anim(onTertiaryContainer, "onTertiaryContainer"),
-        background = anim(background, "background"),
-        onBackground = anim(onBackground, "onBackground"),
-        surface = anim(surface, "surface"),
-        onSurface = anim(onSurface, "onSurface"),
-        surfaceVariant = anim(surfaceVariant, "surfaceVariant"),
-        onSurfaceVariant = anim(onSurfaceVariant, "onSurfaceVariant"),
-        surfaceTint = anim(surfaceTint, "surfaceTint"),
-        inverseSurface = anim(inverseSurface, "inverseSurface"),
-        inverseOnSurface = anim(inverseOnSurface, "inverseOnSurface"),
-        outline = anim(outline, "outline"),
-        outlineVariant = anim(outlineVariant, "outlineVariant"),
-        surfaceBright = anim(surfaceBright, "surfaceBright"),
-        surfaceDim = anim(surfaceDim, "surfaceDim"),
-        surfaceContainer = anim(surfaceContainer, "surfaceContainer"),
-        surfaceContainerHigh = anim(surfaceContainerHigh, "surfaceContainerHigh"),
-        surfaceContainerHighest = anim(surfaceContainerHighest, "surfaceContainerHighest"),
-        surfaceContainerLow = anim(surfaceContainerLow, "surfaceContainerLow"),
-        surfaceContainerLowest = anim(surfaceContainerLowest, "surfaceContainerLowest")
-    )
-    val previous = last.scheme
-    if (previous != null && previous.hasSameColorsAs(next)) return previous
-    last.scheme = next
-    JankProbe.mark {
-        val p = previous
-        val changed = if (p == null) "primera" else listOf(
-            "primary" to (p.primary != next.primary), "surface" to (p.surface != next.surface),
-            "secondary" to (p.secondary != next.secondary), "primaryContainer" to (p.primaryContainer != next.primaryContainer),
-            "onSurface" to (p.onSurface != next.onSurface)
-        ).filter { it.second }.joinToString(",") { it.first }.ifEmpty { "otro rol" }
-        "tema: ColorScheme nuevo (cambió: $changed) → repinta lo que lea esos roles"
-    }
-    return next
-}
-
-/** Ver [animatedScheme]: la última instancia emitida, para devolverla mientras nada cambie. */
-private class LastScheme {
-    var scheme: ColorScheme? = null
-}
+internal fun lerpScheme(from: ColorScheme, to: ColorScheme, fraction: Float): ColorScheme = to.copy(
+    primary = lerp(from.primary, to.primary, fraction),
+    onPrimary = lerp(from.onPrimary, to.onPrimary, fraction),
+    primaryContainer = lerp(from.primaryContainer, to.primaryContainer, fraction),
+    onPrimaryContainer = lerp(from.onPrimaryContainer, to.onPrimaryContainer, fraction),
+    inversePrimary = lerp(from.inversePrimary, to.inversePrimary, fraction),
+    secondary = lerp(from.secondary, to.secondary, fraction),
+    onSecondary = lerp(from.onSecondary, to.onSecondary, fraction),
+    secondaryContainer = lerp(from.secondaryContainer, to.secondaryContainer, fraction),
+    onSecondaryContainer = lerp(from.onSecondaryContainer, to.onSecondaryContainer, fraction),
+    tertiary = lerp(from.tertiary, to.tertiary, fraction),
+    onTertiary = lerp(from.onTertiary, to.onTertiary, fraction),
+    tertiaryContainer = lerp(from.tertiaryContainer, to.tertiaryContainer, fraction),
+    onTertiaryContainer = lerp(from.onTertiaryContainer, to.onTertiaryContainer, fraction),
+    background = lerp(from.background, to.background, fraction),
+    onBackground = lerp(from.onBackground, to.onBackground, fraction),
+    surface = lerp(from.surface, to.surface, fraction),
+    onSurface = lerp(from.onSurface, to.onSurface, fraction),
+    surfaceVariant = lerp(from.surfaceVariant, to.surfaceVariant, fraction),
+    onSurfaceVariant = lerp(from.onSurfaceVariant, to.onSurfaceVariant, fraction),
+    surfaceTint = lerp(from.surfaceTint, to.surfaceTint, fraction),
+    inverseSurface = lerp(from.inverseSurface, to.inverseSurface, fraction),
+    inverseOnSurface = lerp(from.inverseOnSurface, to.inverseOnSurface, fraction),
+    outline = lerp(from.outline, to.outline, fraction),
+    outlineVariant = lerp(from.outlineVariant, to.outlineVariant, fraction),
+    surfaceBright = lerp(from.surfaceBright, to.surfaceBright, fraction),
+    surfaceDim = lerp(from.surfaceDim, to.surfaceDim, fraction),
+    surfaceContainer = lerp(from.surfaceContainer, to.surfaceContainer, fraction),
+    surfaceContainerHigh = lerp(from.surfaceContainerHigh, to.surfaceContainerHigh, fraction),
+    surfaceContainerHighest = lerp(from.surfaceContainerHighest, to.surfaceContainerHighest, fraction),
+    surfaceContainerLow = lerp(from.surfaceContainerLow, to.surfaceContainerLow, fraction),
+    surfaceContainerLowest = lerp(from.surfaceContainerLowest, to.surfaceContainerLowest, fraction)
+)
 
 /**
  * Igualdad POR VALOR de dos esquemas, campo a campo — los 48 roles de la versión pineada de
  * material3 (1.5.0-alpha24). `ColorScheme` no la trae (compara por identidad), y aquí es
  * exactamente lo que se necesita: decidir si el tema cambió de VERDAD antes de dárselo al
- * `MaterialTheme`. Se comparan TODOS los campos y no solo los que [animatedScheme] anima, porque
+ * `MaterialTheme`. Se comparan TODOS los campos y no solo los que [lerpScheme] interpola, porque
  * los que no anima llegan del esquema objetivo y también pueden cambiar con él.
  *
  * Si material3 añade roles, esta función se queda corta EN SILENCIO (dos esquemas que difieren solo
  * en el rol nuevo se declararían iguales): al subir de versión, contrastar contra la lista de
  * campos de `ColorScheme`.
  */
-private fun ColorScheme.hasSameColorsAs(o: ColorScheme): Boolean =
+internal fun ColorScheme.hasSameColorsAs(o: ColorScheme): Boolean =
     primary == o.primary && onPrimary == o.onPrimary &&
         primaryContainer == o.primaryContainer && onPrimaryContainer == o.onPrimaryContainer &&
         inversePrimary == o.inversePrimary &&

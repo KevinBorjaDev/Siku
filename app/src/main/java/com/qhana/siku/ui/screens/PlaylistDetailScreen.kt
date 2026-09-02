@@ -236,8 +236,8 @@ fun PlaylistDetailScreen(
                         DetailPlayButtons(
                             onPlayAll = { onPlayAll(localSongs, 0) },
                             onShuffle = { onShufflePlay(localSongs) },
-                            // Solo esta pantalla lo pasa: es la única cuyo orden lo puso el
-                            // usuario, así que es la única donde "al revés" quiere decir algo.
+                            // Esta pantalla y el detalle de Género lo pasan (ver DetailActions.kt);
+                            // aquí es donde más sentido tiene: es el único orden que puso el usuario.
                             onPlayInOrder = { order -> onPlayAll(order.sort(localSongs), 0) },
                             onAddToQueue = { onAddAllToQueue(localSongs) },
                             onAddSongs = onAddSongs,

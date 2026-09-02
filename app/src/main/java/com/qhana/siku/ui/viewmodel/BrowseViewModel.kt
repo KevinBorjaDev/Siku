@@ -253,6 +253,10 @@ class BrowseViewModel @Inject constructor(
     fun getGenreSongs(genre: String): Flow<List<Song>> =
         genrePartialMatch.flatMapLatest { partial -> browseRepository.getSongsByGenre(genre, partial) }
 
+    /** Álbumes de un género para la vista "Álbumes" de su detalle; mismo ajuste en vivo que [getGenreSongs]. */
+    fun getGenreAlbums(genre: String): Flow<List<AlbumSummary>> =
+        genrePartialMatch.flatMapLatest { partial -> browseRepository.getAlbumsByGenre(genre, partial) }
+
     // --- Detalle (coleccionar con collectAsStateWithLifecycle en la pantalla) ---
 
     fun getArtistSongs(artist: String): Flow<List<Song>> = browseRepository.getSongsByArtist(artist)

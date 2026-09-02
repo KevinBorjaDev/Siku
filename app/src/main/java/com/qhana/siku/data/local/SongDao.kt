@@ -899,6 +899,26 @@ interface SongDao {
     """)
     suspend fun markSongAsModifiedForRedownload(songId: String, newSize: Long)
 
+    /**
+     * Las dos escrituras por fila del upsert, agrupadas en UNA transacción.
+     *
+     * Room difiere la invalidación al commit, así que un lote de 50 canciones pasa de hasta 100
+     * invalidaciones de `songs` a una. Y esta tabla se invalida por TABLA: cada una re-ejecuta las
+     * agregaciones de la biblioteca (`getArtists`, `getAlbums`, `getTopGenresFlow`…). Mismo patrón
+     * que [updateColorsBatch].
+     *
+     * @param backfills `id to relativePath` de las filas de nube pre-v23 a las que les falta.
+     * @param modified `id to nuevo tamaño` de las que cambiaron de contenido y hay que re-bajar.
+     */
+    @Transaction
+    suspend fun applyUpsertSideEffects(
+        backfills: List<Pair<String, String>>,
+        modified: List<Pair<String, Long>>
+    ) {
+        backfills.forEach { (songId, relativePath) -> backfillRelativePath(songId, relativePath) }
+        modified.forEach { (songId, newSize) -> markSongAsModifiedForRedownload(songId, newSize) }
+    }
+
     // ==================== TOPE DE ALMACENAMIENTO (caché LRU) ====================
 
     /**
@@ -967,6 +987,31 @@ interface SongDao {
 
     @Query("SELECT * FROM songs WHERE artist = :artist ORDER BY album COLLATE NOCASE ASC, trackNumber ASC, title COLLATE NOCASE ASC")
     fun getSongsByArtistFlow(artist: String): Flow<List<SongEntity>>
+
+    /**
+     * Álbumes de un género, por tag EXACTO. Mismo criterio de agrupación que [getAlbumsFlow]: solo
+     * por nombre de álbum, así que un álbum con canciones de dos géneros (poco común, pero pasa con
+     * splits/recopilatorios) aparece en las dos listas — tocarlo lleva al detalle COMPLETO del
+     * álbum, no a una vista filtrada por género.
+     */
+    @Query(
+        """
+        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
+               MAX(albumArtUriString) AS albumArtUri
+        FROM songs WHERE genre = :genre COLLATE NOCASE GROUP BY album ORDER BY album COLLATE NOCASE ASC
+        """
+    )
+    fun getAlbumsByGenreFlow(genre: String): Flow<List<AlbumSummary>>
+
+    /** Variante de coincidencia PARCIAL de [getAlbumsByGenreFlow], mismo patrón que [getSongsByGenreLikeFlow]. */
+    @Query(
+        """
+        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
+               MAX(albumArtUriString) AS albumArtUri
+        FROM songs WHERE genre LIKE :pattern ESCAPE '\' GROUP BY album ORDER BY album COLLATE NOCASE ASC
+        """
+    )
+    fun getAlbumsByGenreLikeFlow(pattern: String): Flow<List<AlbumSummary>>
 
     @Query("SELECT * FROM songs WHERE album = :album ORDER BY trackNumber ASC, title COLLATE NOCASE ASC")
     fun getSongsByAlbumFlow(album: String): Flow<List<SongEntity>>

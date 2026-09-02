@@ -38,13 +38,19 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.ui.components.detailHeaderScrim
 import com.qhana.siku.ui.components.AddToPlaylistBottomSheet
 import com.qhana.siku.ui.components.AdaptiveCollage
+import com.qhana.siku.ui.components.AdaptiveGridCells
+import com.qhana.siku.ui.components.AlbumTileCard
+import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ComponentConfig
+import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.safeSideInsets
 import com.qhana.siku.ui.components.safeSidePadding
 import com.qhana.siku.ui.components.bleedHorizontally
 import com.qhana.siku.ui.components.rememberDetailHeaderMetrics
 import com.qhana.siku.ui.components.CreatePlaylistDialog
 import com.qhana.siku.ui.components.DetailPlayButtons
+import com.qhana.siku.ui.components.DetailPlayOrder
+import com.qhana.siku.ui.components.sort
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.SongItem
@@ -57,17 +63,32 @@ import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.BrowseViewModel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 import com.qhana.siku.ui.theme.appEffectsSpec
 
 /**
  * Detalle de un género: mismo diseño inmersivo que el detalle de álbum/artista (header
- * edge-to-edge con scrim, botonera compacta, canciones en tarjetas segmentadas y título que
- * viaja a la topbar con el scroll). La imagen del header es el COLLAGE de portadas del género,
- * que llega volando desde su tarjeta en la pestaña.
+ * edge-to-edge con scrim, botonera compacta, título que viaja a la topbar con el scroll), con un
+ * toggle Canciones/Álbumes ([GenreDetailView]) debajo de la botonera.
  *
- * Las canciones salen de [BrowseViewModel.getGenreSongs], que sigue en vivo el ajuste "incluir
- * géneros compuestos": activarlo desde la pestaña reordena esta lista sin salir de la pantalla.
+ * **Un solo `LazyColumn`, siempre** —nunca dos contenedores que se intercambian—: cabecera,
+ * botonera y toggle son items FIJOS que no dependen de [GenreDetailView] y por tanto nunca se
+ * recomponen al alternar, así que el colapso y el título viajero (que dependen de leer el scroll
+ * de ESTA misma lista) siguen intactos. Los álbumes NO van en un `LazyVerticalGrid` propio —eso
+ * exigiría un contenedor distinto y, para animar el cambio, sacar la cabecera de la lista (se
+ * probó dos veces, con `AnimatedContent`, y las dos se descartó por eso)— sino en filas armadas
+ * a mano (`AlbumTileCard` × [albumColumns] dentro de un `Row`), items más de la MISMA lista.
+ *
+ * Alternar la vista es entonces un cambio de qué items siguen a la botonera, y Compose lo anima
+ * SOLO con `Modifier.animateItem()` (el mismo que ya usan las filas de canción): lo que sale hace
+ * fade-out, lo que entra fade-in, y el resto se reacomoda — nativo, sin `AnimatedContent`, sin
+ * tocar la cabecera.
+ *
+ * Las canciones salen de [BrowseViewModel.getGenreSongs] y los álbumes de
+ * [BrowseViewModel.getGenreAlbums], las dos en vivo con el ajuste "incluir géneros compuestos":
+ * activarlo desde la pestaña reordena la vista activa sin salir de la pantalla.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -77,6 +98,7 @@ fun GenreDetailScreen(
     favorites: Set<String>,
     playlists: List<Playlist>,
     onBackClick: () -> Unit,
+    onAlbumClick: (String) -> Unit,
     onPlayAll: (List<Song>, Int) -> Unit,
     onShufflePlay: (List<Song>) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -93,6 +115,8 @@ fun GenreDetailScreen(
 ) {
     val songs by remember(genreName) { viewModel.getGenreSongs(genreName) }
         .collectAsStateWithLifecycle(emptyList())
+    val albums by remember(genreName) { viewModel.getGenreAlbums(genreName) }
+        .collectAsStateWithLifecycle(emptyList())
 
     // Hasta ARTS_PER_GENRE portadas distintas para el collage del header, derivadas de las
     // canciones que ya están en pantalla (no hace falta volver a la BD).
@@ -105,7 +129,25 @@ fun GenreDetailScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var pendingSongForNewPlaylist by remember { mutableStateOf<String?>(null) }
 
-    // Título viajero: mismas anclas y mismo criterio de snap que el detalle de álbum.
+    // Alternar Canciones/Álbumes: estado local, no persistido — cada entrada al género arranca
+    // en Canciones, como siempre. Ver [GenreDetailView].
+    var viewMode by remember { mutableStateOf(GenreDetailView.SONGS) }
+
+    // Quick-play de un álbum de una fila: pide sus canciones y reproduce (misma resolución
+    // perezosa que ArtistDetailScreen — la tarjeta solo conoce el NOMBRE del álbum).
+    val scope = rememberCoroutineScope()
+    val playAlbum: (String) -> Unit = { albumName ->
+        scope.launch {
+            val albumSongs = viewModel.getAlbumSongs(albumName).first()
+            if (albumSongs.isNotEmpty()) onPlayAll(albumSongs, 0)
+        }
+    }
+    val queueAlbum: (String) -> Unit = { albumName ->
+        scope.launch { onAddAllToQueue(viewModel.getAlbumSongs(albumName).first()) }
+    }
+
+    // Título viajero: mismas anclas y mismo criterio de snap que el detalle de álbum. UN solo
+    // `LazyListState` para las dos vistas (ver el kdoc de la función).
     val listState = rememberLazyListState()
     // El recorrido del fade sale del alto REAL del header en esta ventana, y no de la constante:
     // girado el header se acota, y con el recorrido de vertical el titulo no llegaria nunca a la
@@ -185,11 +227,38 @@ fun GenreDetailScreen(
             val sideInsets = safeSideInsets()
             val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
                 ComponentConfig.FloatingBarListInset
-            Box(
+            // `BoxWithConstraints` en vez de `Box`: los álbumes se arman en filas A MANO (no un
+            // `LazyVerticalGrid`, ver el kdoc de la función) y para eso hace falta saber cuántas
+            // entran — el ancho disponible real, no `screenWidthDp`, que en multi-ventana no es
+            // la ventana de la app.
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .onGloballyPositioned { overlayOrigin = it.positionInRoot() }
             ) {
+                // MISMA cuenta que `AlbumsScreen`/`AdaptiveGridCells` (adaptativa, con el SUELO de
+                // dos columnas) — se reusa la clase para no duplicar la fórmula ni su umbral.
+                val density = LocalDensity.current
+                val albumRowMargin = 16.dp
+                val albumSpacing = 12.dp
+                val albumColumns = remember(maxWidth, sideInsets, layoutDirection, density) {
+                    val available = maxWidth -
+                        sideInsets.calculateStartPadding(layoutDirection) -
+                        sideInsets.calculateEndPadding(layoutDirection) -
+                        albumRowMargin * 2
+                    // `calculateCrossAxisCellSizes` es un miembro de `AdaptiveGridCells` CON
+                    // receptor de extensión `Density`: llamarlo por punto sobre la instancia
+                    // (`cells.calculateCrossAxisCellSizes(...)`) no resuelve ese receptor
+                    // implícito. Hay que anidar los `with` y llamarla SIN punto — el mismo patrón
+                    // que usa Compose puertas adentro para `GridCells.Fixed`/`Adaptive`.
+                    with(density) {
+                        with(AdaptiveGridCells(ComponentConfig.GridTileMinWidth)) {
+                            calculateCrossAxisCellSizes(available.roundToPx(), albumSpacing.roundToPx())
+                        }
+                    }.size
+                }
+                val albumRows = remember(albums, albumColumns) { albums.chunked(albumColumns) }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -226,50 +295,99 @@ fun GenreDetailScreen(
                         DetailPlayButtons(
                             onPlayAll = { onPlayAll(songs, 0) },
                             onShuffle = { onShufflePlay(songs) },
+                            // Mismas opciones que el detalle de lista: invertir/A-Z/Z-A. Ver el
+                            // kdoc de DetailPlayOrder para el porqué (aquí el orden de partida
+                            // ya es alfabético, pero invertirlo o rehacerlo sigue siendo útil).
+                            onPlayInOrder = { order -> onPlayAll(order.sort(songs), 0) },
                             onAddToQueue = { onAddAllToQueue(songs) },
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                         )
                     }
 
-                    itemsIndexed(
-                        items = songs,
-                        key = { _, song -> song.id }
-                    ) { index, song ->
-                        // La canción actual, esté sonando o en PAUSA: mismo criterio que la cola y
-                        // la lista de canciones (el resaltado marca "cargada", no "sonando ahora").
-                        val isPlaying = currentSong?.id == song.id
-                        val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
-                        // Punta ORIGEN del container transform hacia el reproductor: la fila crece
-                        // hasta ser el player. Fuera del envoltorio va lo que la coloca en la lista;
-                        // dentro, la superficie que morfa (ver [SongRowContainer]).
-                        SongRowContainer(
-                            songId = song.id,
-                            modifier = Modifier
-                                .animateItem()
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 1.dp)
-                        ) {
-                            AppSurface(
-                                color = AppColors.contentSurface,
-                                // isActive: el ítem en reproducción usa la forma redondeada (16 dp),
-                                // igual que en la cola y la lista de canciones.
-                                shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
-                                modifier = Modifier.fillMaxWidth()
+                    // A partir de acá es lo ÚNICO que cambia con [viewMode] — la cabecera y la
+                    // botonera de arriba son items fijos que NUNCA se recomponen al alternar
+                    // (el toggle vive en la topbar, ver más abajo — no hay uno grande acá).
+                    // `animateItem()` (ya en cada fila/tarjeta) anima la transición: lo que sale
+                    // hace fade-out, lo que entra fade-in.
+                    when (viewMode) {
+                        GenreDetailView.SONGS -> itemsIndexed(
+                            items = songs,
+                            key = { _, song -> song.id }
+                        ) { index, song ->
+                            // La canción actual, esté sonando o en PAUSA: mismo criterio que la cola y
+                            // la lista de canciones (el resaltado marca "cargada", no "sonando ahora").
+                            val isPlaying = currentSong?.id == song.id
+                            val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
+                            // Punta ORIGEN del container transform hacia el reproductor: la fila crece
+                            // hasta ser el player. Fuera del envoltorio va lo que la coloca en la lista;
+                            // dentro, la superficie que morfa (ver [SongRowContainer]).
+                            SongRowContainer(
+                                songId = song.id,
+                                modifier = Modifier
+                                    .animateItem()
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 1.dp)
                             ) {
-                                SongItem(
-                                    song = song,
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.clickable { onPlayAll(songs, index) },
-                                    trailingContent = {
-                                        SongOverflowButton(
-                                            isFavorite = song.id in favorites,
-                                            onToggleFavorite = { onToggleFavorite(song.id) },
-                                            onAddToPlaylist = { songIdForPlaylist = song.id },
-                                            onAddToQueue = { onAddToQueue(song) },
-                                            rowBackground = rowBackground
-                                        )
-                                    }
-                                )
+                                AppSurface(
+                                    color = AppColors.contentSurface,
+                                    // isActive: el ítem en reproducción usa la forma redondeada (16 dp),
+                                    // igual que en la cola y la lista de canciones.
+                                    shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    SongItem(
+                                        song = song,
+                                        isPlaying = isPlaying,
+                                        modifier = Modifier.clickable { onPlayAll(songs, index) },
+                                        trailingContent = {
+                                            SongOverflowButton(
+                                                isFavorite = song.id in favorites,
+                                                onToggleFavorite = { onToggleFavorite(song.id) },
+                                                onAddToPlaylist = { songIdForPlaylist = song.id },
+                                                onAddToQueue = { onAddToQueue(song) },
+                                                rowBackground = rowBackground
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        GenreDetailView.ALBUMS -> itemsIndexed(
+                            items = albumRows,
+                            key = { index, _ -> "album_row_$index" }
+                        ) { _, rowAlbums ->
+                            // MISMAS tarjetas que la pestaña Álbumes y el carrusel de Artista: carátula
+                            // con badge de nº de canciones, nombre/artista y su propio play. Tocarla
+                            // lleva al álbum COMPLETO (sin filtrar por género — un álbum con pistas de
+                            // dos géneros no se parte). El último renglón, si queda incompleto, deja
+                            // los huecos vacíos (Spacer) en vez de estirar las tarjetas que sí hay —
+                            // igual que una rejilla de verdad.
+                            //
+                            // SIN scopes de shared element (igual que el carrusel de Artista, y a
+                            // diferencia de la pestaña Álbumes): el mismo álbum puede estar compuesto
+                            // a la vez en la pestaña Álbumes o en el carrusel de su artista con la
+                            // MISMA key ("album_image_<nombre>"), y dos puntas con la misma key no
+                            // emparejan con ninguna (ver Motion.kt, regla 2).
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(albumSpacing),
+                                modifier = Modifier
+                                    .animateItem()
+                                    .fillMaxWidth()
+                                    .padding(horizontal = albumRowMargin, vertical = albumSpacing / 2)
+                            ) {
+                                rowAlbums.forEach { album ->
+                                    AlbumTileCard(
+                                        album = album,
+                                        onClick = { onAlbumClick(album.name) },
+                                        onPlayClick = { playAlbum(album.name) },
+                                        onAddToQueue = { queueAlbum(album.name) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                repeat(albumColumns - rowAlbums.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -307,6 +425,15 @@ fun GenreDetailScreen(
                                 .weight(1f)
                                 .padding(horizontal = 8.dp)
                                 .onGloballyPositioned { barTitleAnchor = it.positionInRoot() }
+                        )
+                        // Toggle compacto: SOLO iconos, sin etiqueta — como el selector
+                        // lista/rejilla de Drive. Es el ÚNICO selector de la pantalla (el grande
+                        // con texto se sacó del cuerpo): vive acá, siempre visible junto al back,
+                        // así que alternar Canciones/Álbumes nunca exige volver a subir.
+                        GenreViewModeToggle(
+                            viewMode = viewMode,
+                            onViewModeChange = { viewMode = it },
+                            iconOnly = true
                         )
                     }
                 }
@@ -370,6 +497,47 @@ fun GenreDetailScreen(
             }
         )
     }
+}
+
+/** Las dos vistas del detalle de género — ver el toggle en [GenreViewModeToggle]. */
+private enum class GenreDetailView { SONGS, ALBUMS }
+
+/**
+ * Selector Canciones/Álbumes del detalle de género (`ConnectedChoiceGroup`, el reemplazo de
+ * `SegmentedButton` en toda la app). Único selector de la pantalla: vive en la topbar
+ * ([GenreDetailScreen]), `iconOnly` —como el switch lista/rejilla de Drive—, siempre visible
+ * junto al back sin importar el scroll.
+ */
+@Composable
+private fun GenreViewModeToggle(
+    viewMode: GenreDetailView,
+    onViewModeChange: (GenreDetailView) -> Unit,
+    modifier: Modifier = Modifier,
+    iconOnly: Boolean = false
+) {
+    ConnectedChoiceGroup(
+        options = listOf(GenreDetailView.SONGS, GenreDetailView.ALBUMS),
+        selected = viewMode,
+        onSelect = onViewModeChange,
+        labelFor = { mode ->
+            when (mode) {
+                GenreDetailView.SONGS -> stringResource(R.string.songs_header)
+                GenreDetailView.ALBUMS -> stringResource(R.string.common_albums)
+            }
+        },
+        iconFor = { mode ->
+            when (mode) {
+                GenreDetailView.SONGS -> "music_note"
+                GenreDetailView.ALBUMS -> "album"
+            }
+        },
+        // Content, no ancho completo: ceñido a su contenido, como el resto de botones de la
+        // topbar (mismo criterio que el doc de ConnectedChoiceGroup para no leerse como una
+        // barra que "debería" llegar a los bordes).
+        width = ChoiceGroupWidth.Content,
+        iconOnly = iconOnly,
+        modifier = modifier
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -466,5 +634,3 @@ private fun GenreImmersiveHeader(
 
 /** Portadas del collage del header (las mismas que la tarjeta de la pestaña). */
 private const val HEADER_ARTS = 4
-
-

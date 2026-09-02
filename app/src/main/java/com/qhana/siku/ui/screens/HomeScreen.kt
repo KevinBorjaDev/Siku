@@ -105,13 +105,17 @@ private val StatsBadgeSize = 48.dp
  *
  * Los 8 puntos de `TONAL_LAYER_DELTA` están calibrados sobre las superficies NEUTRAS de la app —la
  * escala de `surfaceContainer`, donde 8 puntos son todo el recorrido de la escala de contenedores—.
- * Esta tarjeta va en `primaryContainer` y es vívida: sobre un color saturado, 8 puntos de tono se
- * leen mucho menos que sobre un gris, porque el croma domina la percepción y no cambia entre las dos
- * capas. Medido a ojo en device dos veces, y las dos el círculo se desvanecía.
+ * Medido a ojo en device dos veces sobre `primaryContainer` crudo (vívido, con el croma dominando la
+ * percepción) y las dos el círculo se desvanecía con un solo salto.
  *
- * El doble es el mismo recurso —y el mismo número— que ya usa el indicador activo del toolbar de la
- * biblioteca (`LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA`) por una razón parecida: cuando una capa tiene que
- * leerse sobre otra que ya es una capa, un solo salto no basta.
+ * **Se queda así (1 sep 2026) aunque la tarjeta ya no sea `primaryContainer` crudo** —ahora es una
+ * capa derivada (`cardColors` en [StatsEntry]), MENOS saturada, que hereda su croma del fondo
+ * neutro de la página— porque el chevron sigue siendo una capa SOBRE otra capa, no sobre el fondo
+ * llano: es el
+ * mismo caso por el que el indicador activo del toolbar de la biblioteca
+ * (`LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA`) también usa el doble. Si en device se ve exagerado ahora que
+ * la tarjeta bajó de intensidad, esta es la primera constante a bajar — no se tocó a ciegas porque
+ * "menos saturado" no es lo mismo que "vale el mismo delta que una superficie neutra".
  */
 private const val StatsChevronToneDelta = TONAL_LAYER_DELTA * 2
 
@@ -377,21 +381,34 @@ private fun GreetingHeader(stats: HomeStats) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
+    // La tarjeta entera se DERIVA del fondo de página (1 sep 2026), no toma `primaryContainer`
+    // tal cual: ese rol es, por definición, el contenedor MÁS saturado que tiene la app, y con un
+    // estilo de paleta vívido se comía la pantalla — se veía igual de fuerte con Fiel a la carátula
+    // y con Vívido, o sea que no era un problema de ESE estilo sino del rol en sí (visto en device,
+    // dos capturas comparadas). `role`/`onRole` = `primaryContainer`/`onPrimaryContainer` para que
+    // siga siendo la familia PRIMARY —y por tanto distinta de los `QuickActionButton` de abajo, que
+    // son `secondaryContainer`, ver más abajo—, pero el TONO sale a una distancia medida del fondo
+    // real de la página en vez de heredar el tono que M3 le fija al rol completo.
+    val cardColors = rememberTonalLayerColors(
+        background = AppColors.surfaceContainer,
+        role = AppColors.primaryContainer,
+        onRole = AppColors.onPrimaryContainer
+    )
     // El fondo sobre el que se apoya el chevron es el contenedor de la FILA, no el de la página.
     //
     // **Y el ROL del que deriva tiene que ser el de esa misma fila** (29 ago 2026): el default de
     // `rememberTonalLayerColors` es `secondaryContainer`, o sea que tomaba su hue y su CROMA —bajos,
     // porque es un contenedor pálido— y solo movía el tono 8 puntos respecto al fondo. Sobre el
-    // `secondaryContainer` de antes eso funcionaba porque los cromas coincidían; sobre el
-    // `primaryContainer` de ahora, que es vívido, un círculo de croma bajo a 8 puntos de tono se
-    // desvanece: la separación tonal estaba, pero la de croma jugaba en contra. Pasando el rol de la
-    // propia fila, hue y croma coinciden y **lo único que los separa es el tono**, que es justo lo
-    // que la regla promete. Regla general: al derivar una capa sobre un contenedor, el rol que se
-    // pasa es el de ESE contenedor, no el default.
+    // `secondaryContainer` de antes eso funcionaba porque los cromas coincidían; sobre el fondo real
+    // de la fila (ahora [cardColors], antes el `primaryContainer` crudo) un círculo de croma bajo a
+    // 8 puntos de tono se desvanece: la separación tonal estaba, pero la de croma jugaba en contra.
+    // Pasando el rol de la propia fila, hue y croma coinciden y **lo único que los separa es el
+    // tono**, que es justo lo que la regla promete. Regla general: al derivar una capa sobre un
+    // contenedor, el rol que se pasa es el de ESE contenedor, no el default.
     val chevronColors = rememberTonalLayerColors(
-        background = AppColors.primaryContainer,
-        role = AppColors.primaryContainer,
-        onRole = AppColors.onPrimaryContainer,
+        background = cardColors.container,
+        role = cardColors.container,
+        onRole = cardColors.content,
         delta = StatsChevronToneDelta
     )
     AppSurface(
@@ -404,13 +421,14 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         // demasiado los extremos. `extraLarge` son 28 y es TOKEN, no un número a ojo — el MiniPlayer
         // usa este mismo par para conmutar entre píldora y rectángulo redondeado.
         shape = MaterialTheme.shapes.extraLarge,
-        // `primaryContainer` y no `secondaryContainer` (29 ago 2026, visto en device): con el
+        // Familia PRIMARY y no `secondaryContainer` (29 ago 2026, visto en device): con el
         // secundario llevaba EXACTAMENTE el mismo color que los `QuickActionButton` de justo
         // debajo, y no se distinguía de ellos. Y no son lo mismo: esto NAVEGA a otra pantalla,
         // aquéllos arrancan reproducción sin moverte de aquí. El acento principal para lo que es un
         // destino, el secundario para las acciones — la jerarquía completa de la zona está en el
-        // KDoc de `CountChip`, que es el escalón de más abajo.
-        color = AppColors.primaryContainer
+        // KDoc de `CountChip`, que es el escalón de más abajo. Ver [cardColors] arriba para por qué
+        // ya no es el rol `primaryContainer` crudo.
+        color = cardColors.container
     ) {
         Row(
             modifier = Modifier
@@ -423,12 +441,12 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         ) {
             AppSurface(
                 shape = MaterialShapes.Cookie9Sided.toShape(),
-                // `onPrimaryContainer` como CONTENEDOR del distintivo, no `primary`: sobre la
-                // tarjeta en `primaryContainer` esos dos comparten matiz y banda tonal, así que el
-                // distintivo se fundía con su fondo. El par `on-` del contenedor está, por
-                // definición, al otro extremo de la escala — que es justo lo que hace falta para
-                // que un sello se lea. Su glifo va del color del contenedor, cerrando el par.
-                color = AppColors.onPrimaryContainer,
+                // El content color de [cardColors] como CONTENEDOR del distintivo, no el container:
+                // sobre la tarjeta esos dos comparten matiz y croma (son el mismo par), así que el
+                // distintivo se fundiría con su fondo si usara el mismo lado. El par `content` está,
+                // por definición, al otro extremo de tono — que es justo lo que hace falta para que
+                // un sello se lea. Su glifo va del color del contenedor, cerrando el par.
+                color = cardColors.content,
                 modifier = Modifier.size(StatsBadgeSize)
             ) {
                 // fillMaxSize: sin él el Box se ciñe al glifo y `Center` no centra nada dentro del
@@ -438,7 +456,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         "bar_chart",
                         fill = true,
                         size = 24.sp,
-                        color = AppColors.primaryContainer
+                        color = cardColors.container
                     )
                 }
             }
@@ -447,10 +465,9 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                 Text(
                     text = stringResource(R.string.stats_home_entry_title),
                     style = MaterialTheme.typography.bodyLargeEmphasized,
-                    // `onPrimaryContainer`, el par del contenedor: al subir la tarjeta a
-                    // `primaryContainer` esto se quedó en `onSecondaryContainer` y era texto oscuro
-                    // sobre un fondo saturado. Un `on-` sin su contenedor no promete nada.
-                    color = AppColors.onPrimaryContainer,
+                    // El content de [cardColors], el par de su propio container — no un `on-` de
+                    // rol fijo, que dejaría de prometer contraste en cuanto el container se recalcula.
+                    color = cardColors.content,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -462,10 +479,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         stringResource(R.string.stats_home_entry_empty)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = rememberSecondaryContentColor(
-                        AppColors.onPrimaryContainer,
-                        AppColors.primaryContainer
-                    ),
+                    color = rememberSecondaryContentColor(cardColors.content, cardColors.container),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

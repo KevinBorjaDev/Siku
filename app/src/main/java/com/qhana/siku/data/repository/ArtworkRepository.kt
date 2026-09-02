@@ -124,35 +124,64 @@ class ArtworkRepository @Inject constructor(
         // invalidaciones automáticas (fin de descarga, redescarga, healing de artwork)
         // desde el primer instante. Ver invalidateCache.
         musicPreferences.addManualColorIds(targetIds)
-        targetIds.forEach { id -> applyManualColor(id, color, isDarkTheme) }
+        applyManualColor(targetIds, color, isDarkTheme)
     }
 
     /**
-     * Aplica el override a UNA canción, conservando su color del otro tema (granular).
-     * Genera automáticamente las variantes light/dark a partir del color elegido.
+     * Aplica el override a [songIds] —el álbum entero— conservando el color del OTRO tema de cada
+     * canción. Genera automáticamente las variantes light/dark a partir del color elegido.
+     *
+     * **Una sola escritura para todo el álbum.** Era una por canción, cada una su transacción y su
+     * invalidación de `songs`: un toque en el selector sobre un disco de 14 pistas disparaba 14
+     * invalidaciones, y Room invalida por TABLA, así que re-ejecutaba las agregaciones de la
+     * biblioteca 14 veces. `saveColorsBatch` ya existía —lo usa el backfill de colores— y va sobre
+     * un `@Transaction`, así que es UNA invalidación.
+     *
+     * Las LECTURAS siguen siendo una por canción: no invalidan nada, y el valor que buscan es
+     * distinto en cada fila (el color del otro tema, que puede no ser el mismo aunque compartan
+     * carátula).
      */
-    private suspend fun applyManualColor(songId: String, color: Int, isDarkTheme: Boolean) {
+    private suspend fun applyManualColor(songIds: List<String>, color: Int, isDarkTheme: Boolean) {
         // MISMO mutex que la extracción de getAlbumColors: sin él, una extracción EN VUELO
         // (canción recién abierta, colores aún resolviéndose) termina después de este guardado
         // y pisa el override con el color natural — "elijo un color y vuelve el anterior".
         // Serializado: si la extracción va primero, este write gana al esperar el lock; si el
         // manual va primero, la extracción ve el override en RAM (double-check) y ni extrae.
-        val mutex = extractionMutexes.getOrPut(songId) { Mutex() }
-        mutex.withLock {
-            val existing = musicRepository.getColors(songId)
-            val primary: Int
-            val secondary: Int
+        //
+        // Ahora hay que sostener los de TODAS las canciones a la vez, porque el guardado es uno
+        // solo. **Se toman en orden de id**, que es lo que evita el abrazo mortal entre dos
+        // propagaciones simultáneas con álbumes que se solapan; una extracción nunca toma más de
+        // uno, así que no puede cerrar el ciclo por su lado. Y la limpieza de `extractionMutexes`
+        // solo retira los que NO están tomados, así que sostenerlos es seguro.
+        val ordered = songIds.distinct().sorted()
+        if (ordered.isEmpty()) return
+        val mutexes = ordered.map { extractionMutexes.getOrPut(it) { Mutex() } }
 
-            if (isDarkTheme) {
-                secondary = color
-                primary = existing?.primary ?: color
-            } else {
-                primary = color
-                secondary = existing?.secondary ?: color
+        mutexes.forEach { it.lock() }
+        try {
+            val updates = ordered.map { songId ->
+                val existing = musicRepository.getColors(songId)
+                val primary: Int
+                val secondary: Int
+
+                if (isDarkTheme) {
+                    secondary = color
+                    primary = existing?.primary ?: color
+                } else {
+                    primary = color
+                    secondary = existing?.secondary ?: color
+                }
+                Triple(songId, primary, secondary)
             }
 
-            musicRepository.saveColors(songId, primary, secondary)
-            memoryCache.put(songId, AlbumColors(primary, secondary))
+            musicRepository.saveColorsBatch(updates)
+            // La RAM se puebla DESPUÉS del guardado y con los locks aún puestos: es lo que hace que
+            // una extracción que entre justo detrás vea el override en su double-check y ni extraiga.
+            updates.forEach { (songId, primary, secondary) ->
+                memoryCache.put(songId, AlbumColors(primary, secondary))
+            }
+        } finally {
+            mutexes.asReversed().forEach { it.unlock() }
         }
     }
 

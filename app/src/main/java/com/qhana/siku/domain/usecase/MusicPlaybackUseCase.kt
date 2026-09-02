@@ -10,8 +10,6 @@ import com.qhana.siku.data.repository.IMusicRepository
 import com.qhana.siku.player.MusicController
 import com.qhana.siku.player.PlaybackCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class MusicPlaybackUseCase @Inject constructor(
@@ -33,17 +31,13 @@ class MusicPlaybackUseCase @Inject constructor(
             when (val result = playbackCoordinator.prepareSongForPlayback(targetSong)) {
                 is PlaybackCoordinator.PrepareResult.Success -> {
                     val updatedSongs = songs.toMutableList().also { it[safeIndex] = result.song }
-                    // Pre-cachear la canción preparada para evitar que playAt vuelva a fetchear la DB.
-                    musicController.cacheSongs(listOf(result.song))
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylistAndPlay(updatedSongs, safeIndex)
-                    }
+                    // El cacheo de la cola —la preparada incluida— lo hace ya el controller, fuera
+                    // del hilo principal. Aquí había una segunda pasada que solo repetía trabajo.
+                    musicController.setPlaylistAndPlay(updatedSongs, safeIndex)
                     null
                 }
                 is PlaybackCoordinator.PrepareResult.Error -> {
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylistAndPlay(songs, safeIndex)
-                    }
+                    musicController.setPlaylistAndPlay(songs, safeIndex)
                     context.getString(result.messageRes)
                 }
             }
@@ -85,17 +79,12 @@ class MusicPlaybackUseCase @Inject constructor(
 
             when (val result = playbackCoordinator.prepareSongForPlayback(targetSong)) {
                 is PlaybackCoordinator.PrepareResult.Success -> {
-                    // Pre-cachear para evitar que playAt vuelva a fetchear la DB para esta canción.
-                    musicController.cacheSongs(listOf(result.song))
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylist(allSongs, result.song, targetIndex)
-                    }
+                    // `setPlaylist` ya cachea la preparada (y la cola) fuera del hilo principal.
+                    musicController.setPlaylist(allSongs, result.song, targetIndex)
                     PlayResult.Success(result.song, result.willStream)
                 }
                 is PlaybackCoordinator.PrepareResult.Error -> {
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylist(allSongs, targetSong, targetIndex)
-                    }
+                    musicController.setPlaylist(allSongs, targetSong, targetIndex)
                     PlayResult.Error(result.messageRes)
                 }
             }
@@ -130,16 +119,14 @@ class MusicPlaybackUseCase @Inject constructor(
             when (val result = playbackCoordinator.prepareSongForPlayback(chosen)) {
                 is PlaybackCoordinator.PrepareResult.Success -> {
                     val prepared = songs.toMutableList().also { it[startIndex] = result.song }
-                    musicController.cacheSongs(prepared)
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylistAndPlayShuffled(prepared, startIndex)
-                    }
+                    // Aquí estaba la peor de las pasadas duplicadas: cachear la biblioteca ENTERA
+                    // en el hilo principal, y acto seguido `setPlaylistAndPlayShuffled` la volvía a
+                    // cachear. Ahora lo hace una sola vez y fuera de Main.
+                    musicController.setPlaylistAndPlayShuffled(prepared, startIndex)
                     PlayResult.Success(result.song, result.willStream)
                 }
                 is PlaybackCoordinator.PrepareResult.Error -> {
-                    withContext(Dispatchers.Main) {
-                        musicController.setPlaylistAndPlayShuffled(songs, startIndex)
-                    }
+                    musicController.setPlaylistAndPlayShuffled(songs, startIndex)
                     PlayResult.Error(result.messageRes)
                 }
             }

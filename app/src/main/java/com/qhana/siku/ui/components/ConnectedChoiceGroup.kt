@@ -22,6 +22,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,6 +96,11 @@ enum class ChoiceGroupWidth {
  * @param colors override para superficies que NO son del scheme. Lo necesita la pantalla de letras,
  *        que se pinta sobre el color del álbum y calcula el contenido por luminancia; en el resto
  *        de la app el default tonal es el correcto y no hay que tocarlo.
+ * @param iconOnly oculta la etiqueta y deja SOLO el icono — la versión compacta para donde no hay
+ *        lugar para texto (una topbar, junto a otro botón de icono). Exige [iconFor]: sin icono no
+ *        queda nada que mostrar. La etiqueta de [labelFor] se sigue usando, pero como
+ *        `contentDescription` del botón y como texto del ítem si el grupo llega a desbordar al
+ *        menú — ahí SIEMPRE hay lugar para texto.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -108,7 +115,8 @@ fun <T> ConnectedChoiceGroup(
     width: ChoiceGroupWidth = ChoiceGroupWidth.Equal,
     buttonHeight: Dp? = null,
     contentPadding: PaddingValues? = null,
-    colors: ToggleButtonColors? = null
+    colors: ToggleButtonColors? = null,
+    iconOnly: Boolean = false
 ) {
     ButtonGroup(
         // Con los dos modos de ancho completo las opciones reparten por weight y no desbordan
@@ -132,7 +140,9 @@ fun <T> ConnectedChoiceGroup(
                 buttonGroupContent = {
                     val label = labelFor(option)
                     val source = remember { MutableInteractionSource() }
-                    val padding = contentPadding ?: ToggleButtonDefaults.ContentPadding
+                    val padding = contentPadding ?: (
+                        if (iconOnly) IconOnlyContentPadding else ToggleButtonDefaults.ContentPadding
+                    )
                     // Peso del reparto PROPORCIONAL: el ancho que este botón pediría si se ciñera,
                     // o sea etiqueta + padding + (icono y su hueco, si lleva). Se mide con el mismo
                     // estilo que el `ToggleButton` aplica a su `Text`, así que no es una estimación.
@@ -145,15 +155,19 @@ fun <T> ConnectedChoiceGroup(
                     val labelStyle = MaterialTheme.typography.labelLarge
                     val density = LocalDensity.current
                     val direction = LocalLayoutDirection.current
-                    val proportion = remember(width, label, labelStyle, padding, density, direction, icon) {
+                    val proportion = remember(width, label, labelStyle, padding, density, direction, icon, iconOnly) {
                         if (width != ChoiceGroupWidth.Proportional) 1f
                         else {
                             val extras = padding.calculateLeftPadding(direction) +
                                 padding.calculateRightPadding(direction) +
-                                if (icon != null) IconGap else 0.dp
+                                if (icon != null && !iconOnly) IconGap else 0.dp
                             val iconPx = if (icon != null) with(density) { IconSize.toPx() } else 0f
-                            measurer.measure(label, labelStyle).size.width +
-                                with(density) { extras.toPx() } + iconPx
+                            // Sin etiqueta visible, el ancho que este botón pediría es solo icono +
+                            // padding — medir el texto igual lo sobre-ensancharía. `.toFloat()`
+                            // explícito: las dos ramas tienen que dar el MISMO tipo (Int y Float no
+                            // se unifican solos en un `if`, a diferencia de `+`, que sí los mezcla).
+                            val labelPx = if (iconOnly) 0f else measurer.measure(label, labelStyle).size.width.toFloat()
+                            labelPx + with(density) { extras.toPx() } + iconPx
                         }
                     }
                     ToggleButton(
@@ -167,7 +181,7 @@ fun <T> ConnectedChoiceGroup(
                             options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                             else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                         },
-                        contentPadding = contentPadding ?: ToggleButtonDefaults.ContentPadding,
+                        contentPadding = padding,
                         modifier = Modifier
                             .then(
                                 if (width == ChoiceGroupWidth.Content) Modifier
@@ -175,17 +189,22 @@ fun <T> ConnectedChoiceGroup(
                             )
                             .then(if (buttonHeight != null) Modifier.height(buttonHeight) else Modifier)
                             .animateWidth(source)
+                            // Sin texto visible no hay nada que anuncie el botón — la etiqueta de
+                            // [labelFor] pasa a describirlo.
+                            .then(if (iconOnly) Modifier.semantics { contentDescription = label } else Modifier)
                     ) {
                         if (icon != null) {
                             MaterialSymbol(icon = icon, size = IconSize)
-                            Spacer(Modifier.width(IconGap))
+                            if (!iconOnly) Spacer(Modifier.width(IconGap))
                         }
-                        // `Ellipsis` como RED DE SEGURIDAD, no como solución: con `maxLines = 1` a
-                        // secas el texto se cortaba a hachazo —"Desactivado" salía "Desactivad"—,
-                        // que se lee como una errata y no como un truncamiento. Si una etiqueta
-                        // llega aquí recortada es que el grupo está mal dimensionado (ver
-                        // [fillWidth]); esto solo evita que el fallo parezca otra cosa.
-                        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!iconOnly) {
+                            // `Ellipsis` como RED DE SEGURIDAD, no como solución: con `maxLines = 1` a
+                            // secas el texto se cortaba a hachazo —"Desactivado" salía "Desactivad"—,
+                            // que se lee como una errata y no como un truncamiento. Si una etiqueta
+                            // llega aquí recortada es que el grupo está mal dimensionado (ver
+                            // [fillWidth]); esto solo evita que el fallo parezca otra cosa.
+                            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 },
                 menuContent = { state ->
@@ -212,3 +231,11 @@ fun <T> ConnectedChoiceGroup(
 private val IconSize = 18.sp
 private val OverflowIconSize = 18.sp
 private val IconGap = 8.dp
+
+/**
+ * Padding de un botón [ConnectedChoiceGroup] con `iconOnly = true`: CUADRADO (mismo valor en los
+ * cuatro lados), porque sin etiqueta el botón deja de ser una píldora horizontal y pasa a
+ * comportarse como un icon button — igual criterio que `IconButtonDefaults`, que tampoco reparte
+ * distinto el padding horizontal y vertical.
+ */
+private val IconOnlyContentPadding = PaddingValues(12.dp)

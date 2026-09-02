@@ -8,8 +8,61 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * La verdad LÓGICA de la cola: qué canciones hay, en qué orden, dónde estamos y cuál era el orden
+ * real antes de barajar. Quien reproduce es ExoPlayer, que tiene su propia copia posicional y a la
+ * que `MusicController` replica cada cambio de aquí — ver la sección "Queue architecture" de
+ * `CLAUDE.md`.
+ *
+ * **Aquí dentro hay DOS colas y ni una copia más** ([current] y [original]), y eso es el resultado
+ * de una limpieza del 31 ago 2026. Antes eran CUATRO campos —la lista actual, sus ids, la original y
+ * los suyos— más el `StateFlow`, o sea 24 sitios de asignación sosteniendo a mano tres derivados de
+ * los otros dos. Nada obligaba a que coincidieran, y **ya no coincidían**: `clear()` vaciaba
+ * `originalPlaylist` pero se dejaba `originalPlaylistIds` con los ids de la cola anterior. Ese fallo
+ * es del tipo que no se ve —una búsqueda por id devuelve la posición equivocada— y ahora no puede
+ * escribirse, porque los ids se calculan en el constructor de [Queue] y no hay forma de tener una
+ * lista sin ellos o con los de otra.
+ */
 @Singleton
 class PlaylistManager @Inject constructor() {
+
+    /**
+     * Una lista de canciones CON sus ids, atados.
+     *
+     * Los ids no son un adorno: `getCurrentSongId` se llama en cada transición de pista y
+     * `addToQueue` necesita un conjunto para deduplicar, así que recalcular `map { it.id }` en cada
+     * consulta sería O(n) sobre una cola que puede tener miles. Eran una caché mantenida a mano; al
+     * vivir dentro de la clase siguen siendo caché y además no pueden quedar viejos.
+     *
+     * Es inmutable, así que compartir una instancia entre [current] y [original] es seguro: divergen
+     * por reasignación, nunca por mutación.
+     */
+    private class Queue private constructor(
+        val songs: List<Song>,
+        /** Los ids de [songs], en su mismo orden. */
+        val ids: List<String>
+    ) {
+        constructor(songs: List<Song>) : this(songs, songs.map { it.id })
+
+        /**
+         * La misma cola con [song] en la posición [index].
+         *
+         * **Reutiliza los ids** porque una sustitución no los cambia: sustituye la canción por otra
+         * versión de SÍ MISMA (la que acaba de descargarse). Es lo que hacía la versión a mano —
+         * `updateSong` actualizaba las listas y a propósito NO tocaba los ids— y se conserva porque
+         * corre una vez por canción terminada durante un sync masivo.
+         */
+        fun replacingAt(index: Int, song: Song): Queue =
+            Queue(songs.toMutableList().also { it[index] = song }, ids)
+
+        /** La cola con [added] anexadas al final. Reutiliza los ids ya calculados. */
+        fun appending(added: List<Song>): Queue =
+            Queue(songs + added, ids + added.map { it.id })
+
+        companion object {
+            val EMPTY = Queue(emptyList(), emptyList())
+        }
+    }
 
     private val _playlist = MutableStateFlow<List<Song>>(emptyList())
     val playlist: StateFlow<List<Song>> = _playlist.asStateFlow()
@@ -23,26 +76,38 @@ class PlaylistManager @Inject constructor() {
     private val _repeatMode = MutableStateFlow(RepeatMode.OFF)
     val repeatMode: StateFlow<RepeatMode> = _repeatMode.asStateFlow()
 
-    // Internal state - all mutations must be synchronized via lock
+    // Estado interno: toda mutación va dentro de `lock`.
     private val lock = Any()
-    private var playlistIds: List<String> = emptyList()
-    private var originalPlaylistIds: List<String> = emptyList()
-    private var internalPlaylist: List<Song> = emptyList()
-    private var originalPlaylist: List<Song> = emptyList()
+
+    /** La cola que se está reproduciendo, en el orden en que se reproduce. */
+    private var current: Queue = Queue.EMPTY
+
+    /** La misma cola en su orden REAL, para poder volver a él al apagar el aleatorio. */
+    private var original: Queue = Queue.EMPTY
+
+    /**
+     * ÚNICO sitio que publica la cola hacia fuera.
+     *
+     * Que sea uno es lo que mantiene [current] y `_playlist` imposibles de separar: antes eran dos
+     * asignaciones seguidas repetidas en nueve métodos, y bastaba con olvidar una para que la lista
+     * interna y la que ve la UI dejaran de ser la misma. Se llama siempre dentro de [lock].
+     */
+    private fun publish(queue: Queue, index: Int) {
+        current = queue
+        _playlist.value = queue.songs
+        _currentIndex.value = index
+    }
 
     fun setPlaylist(songs: List<Song>, startIndex: Int = 0) {
         synchronized(lock) {
-            val ids = songs.map { it.id }
-            internalPlaylist = songs
-            _playlist.value = songs
-            playlistIds = ids
-
-            // Reset shuffle state for new playlist
+            // `toList()` una sola vez: si el llamante conserva una referencia mutable, ni la cola
+            // actual ni la original deben moverse bajo nuestros pies. La versión anterior protegía
+            // solo la original, que era una asimetría sin motivo.
+            val queue = Queue(songs.toList())
+            // Una cola nueva empieza sin aleatorio, por diseño.
             _isShuffleEnabled.value = false
-            originalPlaylist = songs.toList()
-            originalPlaylistIds = ids
-
-            _currentIndex.value = startIndex
+            original = queue
+            publish(queue, startIndex)
         }
     }
 
@@ -55,90 +120,94 @@ class PlaylistManager @Inject constructor() {
      */
     fun updateSong(newSong: Song): Int {
         synchronized(lock) {
-            val index = internalPlaylist.indexOfFirst { it.id == newSong.id }
+            val index = current.ids.indexOfFirst { it == newSong.id }
             if (index == -1) return -1
 
-            val newList = internalPlaylist.toMutableList().also { it[index] = newSong }
-            internalPlaylist = newList
-            _playlist.value = newList
+            publish(current.replacingAt(index, newSong), _currentIndex.value)
 
             // El orden original guarda los MISMOS objetos: si se actualiza solo la cola visible,
             // apagar el aleatorio restauraría la versión vieja de la canción.
-            val originalIdx = originalPlaylist.indexOfFirst { it.id == newSong.id }
-            if (originalIdx >= 0) {
-                originalPlaylist = originalPlaylist.toMutableList().also { it[originalIdx] = newSong }
-            }
+            val originalIdx = original.ids.indexOfFirst { it == newSong.id }
+            if (originalIdx >= 0) original = original.replacingAt(originalIdx, newSong)
             return index
         }
     }
 
     fun moveItem(fromIndex: Int, toIndex: Int, currentSongId: String?): Int {
         synchronized(lock) {
-            if (internalPlaylist.isEmpty()) return _currentIndex.value
-            val currentList = internalPlaylist.toMutableList()
+            if (current.songs.isEmpty()) return _currentIndex.value
+            val currentList = current.songs.toMutableList()
             if (fromIndex in currentList.indices && toIndex in currentList.indices) {
                 val item = currentList.removeAt(fromIndex)
                 currentList.add(toIndex, item)
 
-                internalPlaylist = currentList
-                _playlist.value = currentList
-                playlistIds = currentList.map { it.id }
+                // Un movimiento conserva el CONJUNTO de ids pero no su orden, así que aquí sí hay
+                // que recalcularlos (al revés que en `replacingAt`).
+                val moved = Queue(currentList)
+                val newIndex = currentSongId?.let { id -> currentList.indexOfFirst { it.id == id } } ?: -1
+                publish(moved, if (newIndex >= 0) newIndex else _currentIndex.value)
 
-                if (!_isShuffleEnabled.value) {
-                    originalPlaylist = currentList.toList()
-                    originalPlaylistIds = playlistIds
-                }
+                if (!_isShuffleEnabled.value) original = moved
 
-                if (currentSongId != null) {
-                    val newIndex = currentList.indexOfFirst { it.id == currentSongId }
-                    if (newIndex >= 0) {
-                        _currentIndex.value = newIndex
-                        return newIndex
-                    }
-                }
+                if (newIndex >= 0) return newIndex
             }
             return _currentIndex.value
         }
     }
 
+    /**
+     * Va dentro de [lock] como todo lo demás. Antes no lo estaba: leía los ids sin sincronizar
+     * desde el hilo del player mientras cualquier otro los podía estar reemplazando.
+     */
     fun setCurrentIndex(index: Int) {
-        if (index in playlistIds.indices) {
-            _currentIndex.value = index
+        synchronized(lock) {
+            if (index in current.songs.indices) {
+                _currentIndex.value = index
+            }
         }
     }
 
     fun getCurrentSongId(): String? = synchronized(lock) {
         val idx = _currentIndex.value
-        if (idx in playlistIds.indices) playlistIds[idx] else null
+        if (idx in current.ids.indices) current.ids[idx] else null
     }
 
     fun getSongAt(index: Int): Song? = synchronized(lock) {
-        internalPlaylist.getOrNull(index)
+        current.songs.getOrNull(index)
     }
 
     fun setShuffle(enabled: Boolean) {
         synchronized(lock) {
             _isShuffleEnabled.value = enabled
             if (enabled) {
-                // Save original order, then shuffle keeping current song at index 0
-                originalPlaylist = internalPlaylist.toList()
-                originalPlaylistIds = playlistIds.toList()
+                // Se guarda el orden actual y se baraja dejando la canción en curso la primera.
+                original = current
                 val currentIdx = _currentIndex.value
-                val currentSong = internalPlaylist.getOrNull(currentIdx) ?: return
-                val others = internalPlaylist.filterIndexed { i, _ -> i != currentIdx }.shuffled()
-                val shuffled = listOf(currentSong) + others
-                internalPlaylist = shuffled
-                _playlist.value = shuffled
-                playlistIds = shuffled.map { it.id }
-                _currentIndex.value = 0
+                // Sin canción en curso no hay nada que barajar alrededor: el flag queda puesto y la
+                // cola intacta, que es el comportamiento de siempre.
+                val currentSong = current.songs.getOrNull(currentIdx) ?: return
+                val others = current.songs.filterIndexed { i, _ -> i != currentIdx }.shuffled()
+                publish(Queue(listOf(currentSong) + others), index = 0)
             } else {
-                // Restore original order, find current song in restored list
+                // Se vuelve al orden real y se busca en él la canción en curso. El id se pide ANTES
+                // de publicar: después, el índice ya apuntaría a la lista restaurada.
                 val currentId = getCurrentSongId()
-                internalPlaylist = originalPlaylist
-                _playlist.value = originalPlaylist
-                playlistIds = originalPlaylistIds
-                val restoredIdx = if (currentId != null) playlistIds.indexOfFirst { it == currentId } else 0
-                _currentIndex.value = if (restoredIdx >= 0) restoredIdx else 0
+                val restoredIdx =
+                    if (currentId != null) original.ids.indexOfFirst { it == currentId } else 0
+                publish(
+                    original,
+                    index = when {
+                        // Cola vacía = SIN posición. Es el mismo -1 que usan `clear`, `removeAt` y
+                        // `removeSongs`, y aquí faltaba: los dos caminos de abajo devuelven 0, así
+                        // que apagar el aleatorio sobre una cola vacía dejaba el índice apuntando a
+                        // una posición que no existe. Es la misma clase de descuadre que esta
+                        // limpieza persigue —cola y posición no pueden contradecirse— solo que entre
+                        // dos campos que sí sobreviven.
+                        original.songs.isEmpty() -> -1
+                        restoredIdx >= 0 -> restoredIdx
+                        else -> 0
+                    }
+                )
             }
         }
     }
@@ -156,14 +225,13 @@ class PlaylistManager @Inject constructor() {
         synchronized(lock) {
             _isShuffleEnabled.value = enabled
             if (enabled && originalSongs.isNotEmpty()) {
-                originalPlaylist = originalSongs.toList()
-                originalPlaylistIds = originalSongs.map { it.id }
+                original = Queue(originalSongs.toList())
             }
         }
     }
 
     /** Cola en su orden REAL (sin barajar). Con shuffle apagado coincide con la cola actual. */
-    fun getOriginalPlaylist(): List<Song> = synchronized(lock) { originalPlaylist }
+    fun getOriginalPlaylist(): List<Song> = synchronized(lock) { original.songs }
 
     /**
      * Elimina de la cola actual Y del orden original las canciones que cumplan [predicate],
@@ -172,28 +240,26 @@ class PlaylistManager @Inject constructor() {
      */
     fun removeSongs(predicate: (Song) -> Boolean) {
         synchronized(lock) {
-            if (internalPlaylist.none(predicate)) return
+            if (current.songs.none(predicate)) return
             val currentId = getCurrentSongId()
             // Si la actual cae, su reemplazo natural es el siguiente superviviente: tras el
             // filtrado ocupa la posición = nº de supervivientes que había antes de la actual.
-            val survivorsBefore = internalPlaylist
+            val survivorsBefore = current.songs
                 .take(_currentIndex.value.coerceAtLeast(0))
                 .count { !predicate(it) }
 
-            val newList = internalPlaylist.filterNot(predicate)
-            internalPlaylist = newList
-            _playlist.value = newList
-            playlistIds = newList.map { it.id }
-
-            originalPlaylist = originalPlaylist.filterNot(predicate)
-            originalPlaylistIds = originalPlaylist.map { it.id }
+            val newList = current.songs.filterNot(predicate)
+            original = Queue(original.songs.filterNot(predicate))
 
             val followedIdx = currentId?.let { id -> newList.indexOfFirst { it.id == id } } ?: -1
-            _currentIndex.value = when {
-                newList.isEmpty() -> -1
-                followedIdx >= 0 -> followedIdx
-                else -> survivorsBefore.coerceAtMost(newList.lastIndex)
-            }
+            publish(
+                Queue(newList),
+                when {
+                    newList.isEmpty() -> -1
+                    followedIdx >= 0 -> followedIdx
+                    else -> survivorsBefore.coerceAtMost(newList.lastIndex)
+                }
+            )
         }
     }
 
@@ -204,31 +270,31 @@ class PlaylistManager @Inject constructor() {
      */
     fun removeAt(index: Int) {
         synchronized(lock) {
-            if (index !in internalPlaylist.indices) return
+            if (index !in current.songs.indices) return
             val currentId = getCurrentSongId()
-            val removedId = internalPlaylist[index].id
+            val removedId = current.ids[index]
 
-            val newList = internalPlaylist.toMutableList().apply { removeAt(index) }
-            internalPlaylist = newList
-            _playlist.value = newList
-            playlistIds = newList.map { it.id }
+            val newList = current.songs.toMutableList().apply { removeAt(index) }
 
             // Del orden original quitamos UNA ocurrencia del mismo id (no por índice: el orden
             // barajado no coincide posicionalmente con el original).
-            val origIdx = originalPlaylist.indexOfFirst { it.id == removedId }
+            val origIdx = original.ids.indexOfFirst { it == removedId }
             if (origIdx >= 0) {
-                originalPlaylist = originalPlaylist.toMutableList().apply { removeAt(origIdx) }
-                originalPlaylistIds = originalPlaylist.map { it.id }
+                original = Queue(original.songs.toMutableList().apply { removeAt(origIdx) })
             }
 
-            _currentIndex.value = when {
-                newList.isEmpty() -> -1
-                // La actual sigue viva (no era la eliminada, o hay duplicado): seguirla por id.
-                currentId != null && currentId != removedId ->
-                    newList.indexOfFirst { it.id == currentId }.let { if (it >= 0) it else index.coerceAtMost(newList.lastIndex) }
-                // Se eliminó la actual: el siguiente superviviente ocupa la misma posición.
-                else -> index.coerceAtMost(newList.lastIndex)
-            }
+            publish(
+                Queue(newList),
+                when {
+                    newList.isEmpty() -> -1
+                    // La actual sigue viva (no era la eliminada, o hay duplicado): seguirla por id.
+                    currentId != null && currentId != removedId ->
+                        newList.indexOfFirst { it.id == currentId }
+                            .let { if (it >= 0) it else index.coerceAtMost(newList.lastIndex) }
+                    // Se eliminó la actual: el siguiente superviviente ocupa la misma posición.
+                    else -> index.coerceAtMost(newList.lastIndex)
+                }
+            )
         }
     }
 
@@ -246,19 +312,15 @@ class PlaylistManager @Inject constructor() {
      */
     fun addToQueue(songs: List<Song>): List<Song> {
         synchronized(lock) {
-            val seen = playlistIds.toHashSet()
+            val seen = current.ids.toHashSet()
             val toAdd = ArrayList<Song>(songs.size)
             for (song in songs) {
                 if (seen.add(song.id)) toAdd.add(song)
             }
             if (toAdd.isEmpty()) return emptyList()
 
-            internalPlaylist = internalPlaylist + toAdd
-            _playlist.value = internalPlaylist
-            playlistIds = internalPlaylist.map { it.id }
-
-            originalPlaylist = originalPlaylist + toAdd
-            originalPlaylistIds = originalPlaylist.map { it.id }
+            publish(current.appending(toAdd), _currentIndex.value)
+            original = original.appending(toAdd)
 
             return toAdd
         }
@@ -267,16 +329,16 @@ class PlaylistManager @Inject constructor() {
     fun setRepeatMode(mode: RepeatMode) {
         _repeatMode.value = mode
     }
-    
+
     fun clear() {
         synchronized(lock) {
-            _currentIndex.value = -1
-            _playlist.value = emptyList()
-            internalPlaylist = emptyList()
-            originalPlaylist = emptyList()
-            playlistIds = emptyList()
+            // Las DOS colas, y sus ids con ellas. La versión a mano vaciaba cuatro campos de cinco
+            // y se dejaba `originalPlaylistIds` con los ids de la cola anterior; ese descuadre ya no
+            // se puede escribir.
+            original = Queue.EMPTY
+            publish(Queue.EMPTY, index = -1)
         }
     }
 
-    fun getCurrentPlaylist(): List<Song> = synchronized(lock) { internalPlaylist }
+    fun getCurrentPlaylist(): List<Song> = synchronized(lock) { current.songs }
 }

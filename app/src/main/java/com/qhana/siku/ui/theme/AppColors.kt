@@ -1,18 +1,25 @@
 package com.qhana.siku.ui.theme
 
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animate
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import com.qhana.siku.data.util.JankProbe
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Los colores de la app, respaldados por **snapshot state** y con una **instancia estable**.
@@ -338,9 +345,63 @@ val LocalAppColors = staticCompositionLocalOf<AppColorScheme> {
  * La instancia se `remember`a sin claves, igual que en la raíz: lo que cambia son sus campos.
  */
 @Composable
-fun ProvideAppColors(colorScheme: ColorScheme, content: @Composable () -> Unit) {
+fun ProvideAppColors(
+    colorScheme: ColorScheme,
+    /**
+     * Con qué se FUNDE hacia [colorScheme]. `null` = sin fundido, el color entra de golpe.
+     *
+     * El fundido vive AQUÍ y no en quien construye el esquema, y esa es la corrección del 31 ago
+     * 2026. Antes lo hacía `ColorScheme.animatedScheme()`: **31 `animateColorAsState` más un
+     * `copy()` de 48 campos, en la COMPOSICIÓN de `MusicPlayerTheme`**. `animateColorAsState` lee su
+     * valor en composición, así que cada frame del fundido recomponía la raíz de la app entera —
+     * medido en un 15T Pro con la sonda: frames de 33, 41 y **50 ms** durante toda la apertura del
+     * reproductor, cada uno con `tema: ColorScheme nuevo` y `MusicPlayerScreen recompuesta` dentro.
+     *
+     * El KDoc de aquella función afirmaba que el fundido ya no costaba porque "un frame sólo
+     * invalida a quien lee el rol que se movió". Eso es cierto del CONSUMO —[AppColors] invalida
+     * fino— y ciego a la PRODUCCIÓN: daba igual lo barato que fuera repartir el color si generarlo
+     * recomponía la raíz.
+     *
+     * Ahora la animación corre en una corrutina y escribe directamente en los `mutableStateOf` de
+     * [AppColorScheme]. Ni un frame del fundido recompone nada que no lea un rol que se movió, que
+     * es lo que la arquitectura prometía desde el principio.
+     */
+    animationSpec: AnimationSpec<Float>? = null,
+    content: @Composable () -> Unit
+) {
     val appColors = remember { AppColorScheme(colorScheme) }
-    SideEffect { appColors.updateFrom(colorScheme) }
+    val target by rememberUpdatedState(colorScheme)
+    LaunchedEffect(appColors, animationSpec) {
+        snapshotFlow { target }
+            // `ColorScheme` compara por IDENTIDAD, así que sin esto una instancia nueva con los
+            // mismos 48 colores relanzaría el fundido. Es la misma comparación por VALOR que ya
+            // usaba `animatedScheme` para no emitir de más.
+            .distinctUntilChanged { a, b -> a.hasSameColorsAs(b) }
+            .collectLatest { goal ->
+                val spec = animationSpec
+                if (spec == null) {
+                    appColors.updateFrom(goal)
+                    return@collectLatest
+                }
+                // El punto de partida es lo que se está PINTANDO, no el objetivo anterior: si
+                // llega un color nuevo a mitad del fundido, `collectLatest` cancela éste y el
+                // siguiente arranca de donde se quedó, sin salto.
+                val from = appColors.toColorScheme(goal)
+                if (from.hasSameColorsAs(goal)) return@collectLatest
+                // Una marca por FUNDIDO, no por frame. La que había en `animatedScheme` saltaba en
+                // cada paso, y eso era justo el síntoma: si el tema aparece muchas veces dentro de
+                // una animación, es que se está reconstruyendo en composición.
+                JankProbe.mark { "tema: fundido de color arrancado (fuera de composición)" }
+                // UNA animación de fracción en vez de 31 de color: los roles cruzan a la vez, que
+                // además es lo que se quiere de un cambio de acento (antes cada uno iba por su
+                // cuenta con su propio spring).
+                animate(0f, 1f, animationSpec = spec) { t, _ ->
+                    appColors.updateFrom(lerpScheme(from, goal, t))
+                }
+                // El objetivo EXACTO al cerrar: un spring puede quedarse a una milésima.
+                appColors.updateFrom(goal)
+            }
+    }
     CompositionLocalProvider(LocalAppColors provides appColors, content = content)
 }
 

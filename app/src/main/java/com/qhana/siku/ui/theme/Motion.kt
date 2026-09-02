@@ -441,8 +441,12 @@ private val ContainerBoundsSpec: FiniteAnimationSpec<Rect> =
  * **La curva sí es distinta, y tiene que serlo**: los tokens *spatial* sobrepasan (y1 > 1) y eso
  * sobre un color EXTRAPOLA fuera del segmento entre los dos valores — la regla de la sección de
  * arriba. Se usa la curva de *effects* de la misma familia: misma duración, sin rebote.
+ *
+ * **Es de `Float` y no de `Color` desde el 31 ago 2026**: el fundido de tema ya no anima 31 colores
+ * en paralelo sino UNA fracción de la que se interpolan todos (ver `ProvideAppColors`), así que lo
+ * que recibe el spec es ese 0→1. La curva y la duración son las mismas.
  */
-val AppScreenColorSpec: FiniteAnimationSpec<Color> =
+val AppScreenColorSpec: FiniteAnimationSpec<Float> =
     tween(SCREEN_TRANSFORM_MS, easing = ExpressiveDefaultEffectsEasing)
 
 // ============================== APARICIÓN VERTICAL ==============================
