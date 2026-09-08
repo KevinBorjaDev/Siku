@@ -19,9 +19,13 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import kotlin.math.abs
+
 import com.materialkolor.contrast.Contrast
 import com.materialkolor.hct.Hct
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.LocalAppColors
+import com.qhana.siku.ui.theme.AppColorScheme
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appSpatialSpec
 
@@ -45,23 +49,39 @@ private val ChipHorizontalPadding = 16.dp
  * Lo que SÍ sobrevive de aquel intento es su ASPECTO: píldora y contenedor de acento, o sea que a
  * escala de chip sigue leyéndose como un distintivo y no como un control.
  *
- * **El color es `tertiaryContainer`, el tercer acento**, y su elección es una posición en una escala
- * de tres, no un gusto:
+ * **El color es el TECHO de la escala neutra (`surfaceContainerHighest`), y lo que lo separa de sus
+ * vecinos es el RELLENO, no el matiz** (7 sep 2026). ⚠️ **PENDIENTE de A/B en device.**
  *
- *  - **destaca sobre los chips de FILTRO y de ORDEN**, que van en neutro porque su color ya
- *    significa otra cosa —en un `FilterChip` el relleno de acento ES su estado seleccionado, así que
- *    teñirlo en reposo sería mentir sobre si está activo—;
- *  - **pesa menos que los BOTONES**, que se quedan con `secondaryContainer`. Con el mismo relleno
- *    que ellos era indistinguible de un `QuickActionButton` a centímetros de distancia (visto en
- *    device), y esa confusión es la que abrió todo este hilo.
+ * El problema real es que esta fila tiene todos sus slots ocupados **y ocupados con significado**:
  *
- * `tertiary` es además el único acento que quedaba libre: en esta app `primary` es lo que NAVEGA (la
- * tarjeta de estadísticas del inicio) y `secondary` lo que EJECUTA. Su otro uso es el contenedor de
- * una fila mientras se arrastra, un estado transitorio con el que no se puede confundir.
+ *  - sin relleno + `onSurfaceVariant` + borde `outline` = filter chips en reposo y el `SortChip`,
+ *    o sea "control apagado";
+ *  - `secondaryContainer` + `onSecondaryContainer` = filter chip **seleccionado**, o sea "este
+ *    filtro está activo" — y también el relleno de los `QuickActionButton`.
  *
- * De la regla general —*el acento marca lo accionable, lo que solo describe va en neutro*— esto es
- * la excepción medida: el neutro puro se probó y desaparecía entre los chips de filtro, que son
- * justo las piezas de las que tiene que distinguirse.
+ * Un contador pintado de cualquiera de los dos MIENTE: parece un control apagado o parece un filtro
+ * encendido. Eso es lo que llevó al terciario el 29 ago… **por disponibilidad, no por ajuste** —"el
+ * único acento que quedaba libre"—, y el precio se vio en device el 7 sep: en TonalSpot la paleta
+ * terciaria es el matiz primario **+60°**, así que con una carátula teal este chip era lo ÚNICO
+ * morado de toda la biblioteca. El matiz es la señal perceptual más fuerte que hay y se estaba
+ * gastando en la pieza más pasiva de la fila, mientras los botones —lo único que hace algo— iban en
+ * la familia de todo lo demás. Es el mismo reparto invertido que sacó los pares terciarios de
+ * [playerRolePairs] el mismo día.
+ *
+ * La salida fue **liberar un slot en vez de inventar un color**: el `SortChip` estaba relleno en
+ * `surfaceContainerHighest` apartándose del default de `AssistChip` —que en M3 es *outlined* y sin
+ * superficie— y volvió a él. Con eso los tres controles de la fila (orden y los dos filtros de
+ * origen) comparten contorno, y este contador queda como **la única pieza rellena de la fila**, o
+ * sea la única que no se lee como algo que se toca. Que es la verdad: es la única que no se toca.
+ *
+ * Con esto vuelve a cumplirse la regla general —*el acento marca lo accionable, lo que solo describe
+ * va en neutro*— de la que esto era la excepción, y de paso se resuelve el aviso que quedaba escrito
+ * de agosto ("el neutro puro desaparecía entre los chips de filtro"): desaparecía porque el chip de
+ * orden ocupaba el mismo slot, no porque el neutro no sirviera.
+ *
+ * ⚠️ **Las dos mitades no se pueden revertir por separado.** Si el `SortChip` vuelve a rellenarse,
+ * este contador tiene que salir del neutro — y ahí no queda más que gastar un matiz, que es el
+ * `tertiaryContainer` que esto sustituye.
  *
  * Sigue siendo SÓLIDO y no un chip *flat* con borde, aunque eso sea lo que M3 da por defecto: dos de
  * estos viven sobre la foto del header de artista, y encima de una imagen un contenedor transparente
@@ -70,7 +90,7 @@ private val ChipHorizontalPadding = 16.dp
 @Composable
 fun CountChip(
     modifier: Modifier = Modifier,
-    containerColor: Color = AppColors.tertiaryContainer,
+    containerColor: Color = AppColors.surfaceContainerHighest,
     content: @Composable RowScope.() -> Unit
 ) {
     AppSurface(
@@ -306,11 +326,11 @@ data class TonalLayerColors(val container: Color, val content: Color)
  * idéntica en cualquier paleta y en cualquiera de los dos temas: la dirección la decide el tono
  * MEDIDO del fondo, no una rama `isSystemInDarkTheme()`.
  *
- * **Sirve para UNA capa sobre otra, no para apilar tres.** Vale para una píldora sobre un fondo,
- * pero no para el MiniPlayer, donde el botón tiene que verse a la vez sobre el contenedor y sobre el
- * relleno de progreso: al derivar dos veces seguidas con "aléjate del extremo", un fondo de tono
- * medio hace que la segunda invierta el sentido y vuelva al color del primero (probado el 31 jul,
- * ver `MiniPlayerSurfaces`, que apila en una sola dirección).
+ * **Sirve para UNA capa sobre otra, no para apilar tres.** Al derivar dos veces seguidas con
+ * "aléjate del extremo", un fondo de tono medio hace que la segunda invierta el sentido y vuelva al
+ * color de la primera (probado el 31 jul en el MiniPlayer, cuyo botón tenía que verse a la vez sobre
+ * el contenedor y sobre el relleno de progreso). Quien apila mide las DOS capas contra el MISMO
+ * fondo, para que la dirección se decida una sola vez — ver `appLibraryToolbarColors`.
  */
 @Composable
 fun rememberTonalLayerColors(
@@ -360,6 +380,302 @@ fun tonalLayerContainer(
     ).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
     return Color(Hct.from(roleHct.hue, roleHct.chroma, tone).toInt())
 }
+
+/**
+ * El PAR de roles de M3 —contenedor y su `on…`— que mejor se apoya sobre [background]: de los pares
+ * cuyo contenedor esté a [minToneDelta] puntos de TONO o más del fondo, **el MÁS CERCANO**; si
+ * ninguno llega, el más lejano de todos.
+ *
+ * **Que sea el más cercano y no el primero es lo que impide que grite** (corregido el 6 sep, tras
+ * tres builds). Buscando "el primero que pase" el resultado depende de un orden de preferencia que
+ * yo escribo a mano, y quedándose con el más lejano cuando ninguno pasa se elige a propósito el
+ * salto MÁS GRANDE que existe: en un fondo donde los candidatos están a 0 o a 50 puntos, eso es
+ * siempre 50. Una píldora informativa quiere el escalón mínimo que todavía se distingue, no el
+ * máximo — de ahí que [pairs] sea un catálogo y no una lista de preferencia.
+ *
+ * **SELECCIONA, no deriva.** Lo que devuelve es siempre un par que M3 tabula, así que el contraste
+ * de la etiqueta sobre la píldora lo garantiza el spec y aquí no se calcula: la única decisión es
+ * CUÁL de los pares se apoya mejor en el fondo que hay debajo.
+ *
+ * **El criterio es el TONO y no el ratio WCAG**, y esa es la diferencia con [contentRoleOn]. Un ratio
+ * mide CONTENIDO sobre un contenedor; lo de aquí son dos SUPERFICIES, y la luminancia se comprime
+ * cerca del blanco, así que el mismo salto tonal da ratios muy distintos según dónde caiga en la
+ * escala — medido: `secondaryContainer` contra el fondo del reproductor da 1,23:1 en tema claro y
+ * 1,98:1 en oscuro, o sea que un umbral único no llega nunca de un lado y llega siempre del otro. En
+ * HCT el tono ES el `L*` de CIELAB, así que un salto de N puntos vale lo mismo en cualquier matiz y
+ * en los dos temas; es la misma razón por la que `BannerPalette` fija tonos y no ratios.
+ *
+ * Consecuencia buscada: el par elegido CAMBIA con el tema, porque el fondo cambia con el tema. Sobre
+ * un fondo oscuro gana un contenedor de tono medio; sobre uno claro, uno que se hunda. Eso es lo que
+ * un rol fijo no puede hacer — y es lo que dejaba a `secondaryFixedDim` discreto en claro y gritando
+ * en oscuro, porque los `*Fixed` son invariantes al tema y su PESO no lo es.
+ *
+ * No promete separación, la busca: sin derivar no hay garantía posible, y el respaldo honesto es
+ * quedarse con el par que más se aleja en vez de inventar un color.
+ */
+/**
+ * Los pares candidatos de una superficie del REPRODUCTOR que se apoya en otra: el chip de origen, los
+ * chips de la barra de progreso y los dos botones del transporte del MiniPlayer, vía [roleLayerOn] y
+ * [transportLayersOn]. Se llamó `chipRolePairs` hasta el 8 sep 2026, cuando dejó de ser solo de chips.
+ *
+ * **No es una lista de preferencia: es el CATÁLOGO de escalones disponibles**, y [roleLayerOn] elige
+ * el más pequeño que aún se vea. Por eso incluye cada par en las DOS orientaciones — la banda tonal
+ * que hay libre depende del fondo, y el contraste que M3 garantiza entre un contenedor y su `on…`
+ * vale en los dos sentidos, así que usar el `on…` como superficie sigue siendo un par tabulado.
+ *
+ * Sin las dos orientaciones esto NO cubre el caso en que el fondo **es** un rol de contenedor, que es
+ * justo el del chip de origen: se apoya en `topBackgroundColor`, que en modo degradado es
+ * `secondaryContainer` mismo. Ahí los pares normales miden distancia CERO —un rol no se separa de sí
+ * mismo— y toda su banda queda descartada de una vez. Medido en device el 6 sep: en esa paleta
+ * tampoco llegaba `onSecondary`, así que lo único que quedaba en pie eran los `*FixedDim` (T80) y la
+ * píldora salía clara y gritona tres builds seguidas.
+ *
+ * **SOLO familias `primary` y `secondary`: los pares TERCIARIOS se sacaron el 7 sep 2026** (visto en
+ * device, carátula teal). En TonalSpot la paleta terciaria es el matiz primario **+60°**, así que con
+ * un `primary` mint es lo ÚNICO morado que ese esquema puede producir — y salía: los cuatro chips del
+ * reproductor (origen, los dos tiempos y el formato) eran las únicas piezas con matiz propio de una
+ * pantalla entera teal, o sea el mayor peso visual para la información más periférica.
+ *
+ * **La causa no era el rol, era que [roleLayerOn] mide SOLO tono y trata el salto de FAMILIA como
+ * gratis.** No lo es: el matiz es la diferencia perceptual más fuerte que existe, así que un
+ * candidato terciario a 8 puntos le ganaba a uno secundario a 10. Y como en el spec 2025 los tonos de
+ * `secondary` y `tertiary` para el mismo rol difieren por décimas, la FAMILIA del chip la decidía un
+ * desempate de fracciones de tono — el mismo "margen cero" que dejó las rejillas en una columna.
+ *
+ * Se arregla en el CATÁLOGO y no en el criterio a propósito: quien se apoya en esto son piezas del
+ * reproductor, y el reproductor ya tiene sus dos familias —`primary` el play, `secondary` el fondo—.
+ * Una pieza del reproductor no estrena una tercera. Si algún día hiciera falta un catálogo con
+ * terciarios para otra superficie, es otro catálogo, no un tercer parámetro aquí.
+ */
+fun playerRolePairs(scheme: AppColorScheme): List<Pair<Color, Color>> = listOf(
+    scheme.secondaryContainer to scheme.onSecondaryContainer,
+    scheme.primaryContainer to scheme.onPrimaryContainer,
+    scheme.onSecondary to scheme.secondary,
+    scheme.secondaryFixedDim to scheme.onSecondaryFixed,
+    scheme.primaryFixedDim to scheme.onPrimaryFixed,
+    // Los `*Fixed` invertidos: el escalón hacia ABAJO desde un fondo de contenedor.
+    scheme.onSecondaryFixed to scheme.secondaryFixedDim,
+    scheme.onPrimaryFixed to scheme.primaryFixedDim,
+)
+
+fun roleLayerOn(
+    background: Color,
+    pairs: List<Pair<Color, Color>>,
+    minToneDelta: Double = TONAL_LAYER_DELTA
+): Pair<Color, Color> {
+    val backgroundTone = Hct.fromInt(background.toArgb()).tone
+    fun toneDistance(color: Color) = abs(Hct.fromInt(color.toArgb()).tone - backgroundTone)
+    // El escalón MÁS PEQUEÑO que todavía se ve, no el primero que pasa ni el más grande.
+    return pairs.filter { toneDistance(it.first) >= minToneDelta }.minByOrNull { toneDistance(it.first) }
+        ?: pairs.maxBy { toneDistance(it.first) }
+}
+
+/**
+ * Separación en puntos de tono ENTRE los dos rangos del MiniPlayer, y suelo del rango de apoyo
+ * contra la barra.
+ *
+ * **El DOBLE del escalón de una capa pasiva, y su propia constante.** El doble por el mismo motivo
+ * que el relleno del aleatorio en la hoja de la cola: [TONAL_LAYER_DELTA] es lo que hace falta para
+ * que una capa no se FUNDA con su fondo, y aquí no basta con no fundirse — hay que leer un RANGO
+ * entre dos piezas del mismo tamaño puestas una al lado de la otra. Propia y no [TONAL_LAYER_DELTA]
+ * porque calibrar la jerarquía del transporte no puede mover la píldora del ⋮ ni el chip de origen,
+ * igual que el resaltado de la fila que suena tiene su `ROW_ACTIVE_TONE_DELTA`.
+ */
+const val TRANSPORT_TONE_STEP = TONAL_LAYER_DELTA * 2
+
+/**
+ * Los DOS rangos del MiniPlayer, con la separación entre ellos GARANTIZADA.
+ *
+ * - **[accent] / [onAccent]** — lo principal: el botón de play y el ARCO del anillo de progreso.
+ * - **[support] / [onSupport]** — lo de apoyo: el botón "siguiente" y el RIEL del anillo.
+ *
+ * Que las cuatro piezas salgan de aquí es el punto: cada una elegía su color por separado, con un
+ * umbral absoluto contra la barra y listas de candidatos que se solapaban, y **nada decía que dos de
+ * ellas tuvieran que distinguirse ENTRE SÍ**. Medido en device el 8 sep 2026 sobre una paleta roja
+ * (barra `primaryContainer` en T35,8): las cuatro convergieron a DOS colores separados por **1,9
+ * puntos de tono** —arco y play en `#F4BEB2` (T81,5), riel y siguiente en `#F3B7AC` (T79,6)—, o sea
+ * el mini entero pintado en una sola capa plana. El play encima llevaba glifo NEGRO PURO, la única
+ * pieza acromática de una barra teñida por la carátula.
+ */
+data class TransportLayers(
+    val accent: Color,
+    val onAccent: Color,
+    val support: Color,
+    val onSupport: Color
+)
+
+/**
+ * Reparte las piezas del MiniPlayer en los dos rangos de [TransportLayers] sobre [background].
+ *
+ * **El principal sale del catálogo TABULADO; el de apoyo se DERIVA de él.** No al revés y no los dos
+ * del catálogo, y el motivo está medido: sobre la barra de la captura del 8 sep, los contenedores
+ * candidatos del lado claro caen en un racimo de **40,7 / 43,8 / 44,1** puntos —3,4 de ancho, o sea
+ * el mismo color tres veces— y el siguiente salta a `onSecondary`, a ~64, que en tema claro es
+ * prácticamente BLANCO. Buscar los dos rangos en esa lista solo puede devolver dos vecinos del
+ * racimo (el defecto que esto viene a arreglar) o mandar el play al extremo acromático, que es el
+ * "si no, el más lejano" que [roleLayerOn] documenta como la opción a propósito más gritona.
+ *
+ * Derivar es aquí el ÚLTIMO recurso, no el atajo: el catálogo se agotó de verdad. Y se deriva el
+ * APOYO y no el principal porque hacia el fondo es donde queda sitio — el principal ya está a ~44
+ * puntos de la barra y subirlo más solo lo acerca al blanco. El apoyo conserva matiz y croma del par
+ * tabulado, así que sigue siendo el mismo color un escalón más cerca de la barra, nunca un gris.
+ *
+ * Reglas que no son libres:
+ * - **Un solo lado**, el que se aleja del extremo de la escala que la barra tenga más cerca (mismo
+ *   criterio y misma constante que [tonalLayerContainer]). Mezclar direcciones dejaría una pieza más
+ *   clara y otra más oscura que la barra, que no es jerarquía sino un error. **Por eso NO se delega
+ *   en [roleLayerOn]**, que busca en los dos lados: sobre esta barra su escalón mínimo global cae en
+ *   el lado OSCURO (`onSecondaryFixed`, T9,7) y devolvería piezas marrón oscuro sobre rojo oscuro.
+ *   Su criterio está calibrado para un chip que debe RECEDER; el transporte es la acción de la barra.
+ * - **El principal es el escalón más pequeño que aún se ve** de ese lado — dentro del racimo, el más
+ *   cercano es además el más CROMÁTICO, que es el que mejor lleva el color de la carátula.
+ * - **El apoyo nunca baja de [TONAL_LAYER_DELTA] respecto de la barra.** Si al bajarlo [rankStep] no
+ *   cabe, el que SUBE es el principal: lo que se conserva pase lo que pase es la distancia ENTRE los
+ *   dos rangos, que es lo único que hace que el play resalte.
+ */
+/**
+ * El catálogo del TRANSPORTE: [playerRolePairs] **más los dos pares de ACCIÓN LLENA**
+ * (`primary`/`onPrimary` y `secondary`/`onSecondary`).
+ *
+ * **Existe porque [playerRolePairs] es ASIMÉTRICO** (visto en device el 8 sep 2026 con la paleta
+ * Equilibrada: *"parece que está agarrando neutros"*). Hacia ARRIBA ofrece roles de CONTENEDOR
+ * —`secondaryContainer`, `primaryContainer`, los `*FixedDim`—, que llevan el croma de la paleta;
+ * hacia ABAJO ofrece solo los pares invertidos `on*Fixed`, que son roles de CONTENIDO: están
+ * construidos para ser LEGIBLES, no para llevar color. Con una barra CLARA —lo que da TonalSpot en
+ * tema claro— el transporte quedaba encerrado en la mitad neutra. MEDIDO: barra `#AFC7F3` (T79,9)
+ * con 68 puntos de separación R↔B, y el play cayendo en `#37404F` (T26,9) con **24**. La mecánica
+ * era correcta —16,0 puntos exactos entre rangos, dirección correcta— pero el color de partida ya
+ * venía lavado. En esa misma paleta `primary` es `#486086` (T40,4, R↔B 62) y está a 39,5 puntos de
+ * la barra, o sea que gana como escalón MÁS PEQUEÑO hacia abajo frente a los `on*Fixed` a 53.
+ *
+ * **Se arregla en el CATÁLOGO y no en el criterio**, que es lo que [playerRolePairs] ya documenta
+ * para el caso de los terciarios. Y es OTRO catálogo, no una entrada nueva en aquél: un relleno
+ * `primary` en un chip informativo GRITA —por eso no está ahí— mientras que en el botón de
+ * transporte es exactamente el par que M3 tabula para una acción llena. La diferencia no es de
+ * color sino de qué ES la pieza.
+ *
+ * Los `on*` de estos pares son claros (blanco o casi), así que llegan al ratio de un glifo sobre su
+ * propio contenedor por construcción; el rango de apoyo, que se DERIVA, los pasa igualmente por
+ * [ensureContrast].
+ */
+/**
+ * Suelo de contraste de un glifo de ACCIÓN. 3:1 = el mínimo WCAG para un icono, no para texto.
+ */
+const val ACTION_ACCENT_MIN_CONTRAST = 3f
+
+/**
+ * Suelo de contraste de una etiqueta de TEXTO en acento. **4.5:1 y no los 3:1 de un icono**: el
+ * `labelLarge` de un botón mide 14sp, que no llega al umbral de "texto grande" de WCAG (18pt, o
+ * 14pt en negrita), así que le toca el criterio estricto.
+ */
+const val TEXT_ACCENT_MIN_CONTRAST = 4.5f
+
+/**
+ * El color de un glifo de ACCIÓN tintado —el play de una fila de artista, el de una card de álbum—
+ * sobre una superficie de CONTENIDO.
+ *
+ * **`primary` a secas NO sirve aquí**: un acento no tiene garantía de contraste contra una
+ * superficie NEUTRA, así que con una carátula lavada el disco desaparece. Es el mismo defecto que ya
+ * se arregló el 7 sep 2026 en la fila de artista, en el botón "Ver" de estadísticas y en el glifo de
+ * descarga de las filas de canción — **y `AlbumTileCard` se quedó atrás**, con el acento fijo y el
+ * comentario "En primary" al lado. MEDIDO el 8 sep en device sobre una paleta tostada, con las dos
+ * piezas apoyadas en la MISMA `AppColors.contentSurface`: la fila daba `#745840` a **5,31:1** y la
+ * card `#DA9E62` a **1,89:1**, o sea 30 puntos de tono de diferencia entre dos controles idénticos.
+ *
+ * Existe como helper y no copiado en cada sitio justo por eso: era una regla escrita una vez por
+ * consumidor, y el cuarto consumidor no se enteró. Mismo motivo que `detailHeaderScrim()`.
+ *
+ * [contentRoleOn] es role-first: prueba los acentos tabulados contra el fondo REAL y solo
+ * re-tonaliza `primary` si ninguno llega.
+ */
+@Composable
+fun actionAccentOn(
+    surface: Color,
+    /** [ACTION_ACCENT_MIN_CONTRAST] para un glifo; [TEXT_ACCENT_MIN_CONTRAST] para una etiqueta. */
+    minRatio: Float = ACTION_ACCENT_MIN_CONTRAST
+): Color {
+    val scheme = LocalAppColors.current
+    return remember(scheme.version, surface, minRatio) {
+        contentRoleOn(
+            surface, minRatio,
+            listOf(scheme.primary, scheme.secondary, scheme.onSecondaryContainer),
+            scheme.primary,
+        )
+    }
+}
+
+fun transportRolePairs(scheme: AppColorScheme): List<Pair<Color, Color>> =
+    playerRolePairs(scheme) + listOf(
+        scheme.primary to scheme.onPrimary,
+        scheme.secondary to scheme.onSecondary,
+    )
+
+fun transportLayersOn(
+    background: Color,
+    pairs: List<Pair<Color, Color>>,
+    minToneDelta: Double = TONAL_LAYER_DELTA * 2,
+    rankStep: Double = TRANSPORT_TONE_STEP
+): TransportLayers {
+    val backgroundTone = Hct.fromInt(background.toArgb()).tone
+    fun tone(color: Color) = Hct.fromInt(color.toArgb()).tone
+    fun distance(color: Color) = abs(tone(color) - backgroundTone)
+    val goesLighter = backgroundTone < TONAL_LAYER_MID_TONE
+
+    val visible = pairs.filter { distance(it.first) >= minToneDelta }
+    // Si el lado que toca no ofrece nada visible se acepta el otro antes que rendirse; y si no hay
+    // ninguno, el más lejano, que es el mismo escape que [roleLayerOn].
+    val base = visible.filter { (tone(it.first) >= backgroundTone) == goesLighter }
+        .ifEmpty { visible }
+        .ifEmpty { listOf(pairs.maxBy { distance(it.first) }) }
+        .minBy { distance(it.first) }
+
+    val baseHct = Hct.fromInt(base.first.toArgb())
+    // Cuánto se puede acercar el apoyo a la barra; lo que falte se lo aleja el principal, de modo
+    // que `accentTone - supportTone` sea SIEMPRE `rankStep`.
+    //
+    // El suelo del apoyo es el MISMO [minToneDelta] que filtra a los candidatos, y no
+    // [TONAL_LAYER_DELTA]: los dos rangos son botones, y el motivo por el que el filtro pide el
+    // doble del escalón de una capa pasiva —un botón no puede recederse hasta el límite de lo
+    // perceptible— vale igual para el de apoyo. Con el suelo de 8 había un caso REAL en el que el
+    // "siguiente" quedaba pegado a la barra: un `primary` que cae a ~16 puntos de ella gana como
+    // escalón más pequeño y empuja al apoyo justo al mínimo (simulado el 8 sep 2026 sobre los tonos
+    // medidos en device).
+    val lift = (rankStep - (distance(base.first) - minToneDelta)).coerceAtLeast(0.0)
+    val away = if (goesLighter) 1.0 else -1.0
+    val accentTone = (baseHct.tone + away * lift).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
+    val supportTone = (accentTone - away * rankStep).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
+    fun shade(toneValue: Double) = Color(Hct.from(baseHct.hue, baseHct.chroma, toneValue).toInt())
+
+    // El principal se queda con el color TABULADO mientras no haya hecho falta subirlo.
+    val accent = if (lift == 0.0) base.first else shade(accentTone)
+    val support = shade(supportTone)
+    return TransportLayers(
+        accent = accent,
+        onAccent = ensureContrast(base.second, accent),
+        support = support,
+        onSupport = ensureContrast(base.second, support)
+    )
+}
+
+/**
+ * CONTENIDO sobre un fondo: el PRIMER rol de [roles] que se lee sobre [background] con contraste
+ * >= [minRatio] y, solo si ninguno llega, [accent] con el TONO HCT movido hasta ese ratio
+ * ([ensureContrast]) — conservando su matiz y su croma.
+ *
+ * **Role-first, derivación como ÚLTIMO recurso**: se prueban roles TABULADOS de M3 en orden de
+ * preferencia y solo se fabrica un color cuando ninguno sirve. Existe porque la distancia entre dos
+ * roles la decide el ESTILO DE PALETA y el seed, así que ningún rol fijo se ve en TODAS las
+ * carátulas — con `Fidelity` y una portada lavada los tres acentos palidecen a la vez.
+ *
+ * [roles] no lleva neutros a propósito: el resultado siempre es tintado (un rol de acento o un
+ * acento re-tonalizado), nunca un gris.
+ *
+ * El gemelo para SUPERFICIES es [roleLayerOn], que escoge por TONO y nunca deriva. La unidad no es
+ * intercambiable: aquí se mide con ratio WCAG porque esto es contenido sobre un fondo.
+ */
+fun contentRoleOn(background: Color, minRatio: Float, roles: List<Color>, accent: Color): Color =
+    roles.firstOrNull { contrastRatio(it, background) >= minRatio }
+        ?: ensureContrast(accent, background, minRatio)
 
 /**
  * Ratio de contraste WCAG entre dos colores: (L_claro + 0.05) / (L_oscuro + 0.05), en [1, 21].

@@ -43,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppContainerBoundsTransform
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appSpatialSpec
@@ -65,10 +66,9 @@ import com.qhana.siku.ui.theme.AppRevealSpec
 @Composable
 internal fun NowPlayingTopBar(
     onBackClick: () -> Unit,
-    contentColor: Color,
     accentColor: Color,
     origin: PlaybackOrigin,
-    /** Color real bajo la barra: de él deriva el chip de origen su relleno para no fundirse. */
+    /** Color real bajo la barra: de él sale el contraste garantizado de los iconos de los extremos. */
     backgroundColor: Color,
     onAmbientMode: () -> Unit,
     /** Chip de origen sin etiqueta: en horizontal la barra vive en media pantalla. */
@@ -84,11 +84,22 @@ internal fun NowPlayingTopBar(
     // Los dos iconos de la barra van con el ACENTO del álbum, no con `onSurface`. Con onSurface (un
     // neutro casi acromático) se leían como un GRIS suelto al lado del resto de la barra, que va todo
     // teñido —el play, el corazón, el toolbar, el chip—: el problema no era de contraste (sobre un
-    // fondo claro onSurface contrasta de sobra) sino de COLOR. Se parte del acento y se pasa por la
-    // misma garantía de contraste que el chip (`ensureContrast`) para que siga siendo legible sobre
-    // el tope del fondo en cualquier paleta y en los dos temas.
-    val iconColor = remember(accentColor, backgroundColor) {
-        ensureContrast(accentColor, backgroundColor, TopBarIconMinContrast)
+    // fondo claro onSurface contrasta de sobra) sino de COLOR.
+    //
+    // Role-first ([contentRoleOn]): se prueban acentos TABULADOS contra el fondo real y solo se
+    // re-tonaliza [accentColor] si ninguno llega. Antes derivaba siempre, aunque hubiera rol válido.
+    val topBarColors = LocalAppColors.current
+    val iconColor = remember(topBarColors.version, accentColor, backgroundColor) {
+        contentRoleOn(
+            backgroundColor, TopBarIconMinContrast,
+            listOf(
+                topBarColors.primary,
+                topBarColors.secondary,
+                topBarColors.tertiary,
+                topBarColors.onSecondaryContainer,
+            ),
+            accentColor,
+        )
     }
 
     // El padding lateral NO es de la fila sino de cada botón, y sale del tamaño de SU glifo: los
@@ -115,8 +126,6 @@ internal fun NowPlayingTopBar(
 
         PlaybackSourceChip(
             origin = origin,
-            contentColor = contentColor,
-            accentColor = accentColor,
             backgroundColor = backgroundColor,
             compact = compactChip
         )
@@ -154,8 +163,8 @@ private fun opticalEdgePadding(iconSize: TextUnit, keyline: Dp): Dp {
 /**
  * Chip de ORIGEN del NowPlaying (compartido portrait/landscape): de dónde sale el audio que
  * suena. Pastilla de contenedor SÓLIDO tonal — informativa, no accionable — con sello M3
- * Expressive: el icono va sentado en una forma orgánica de [MaterialShapes] (cookie) del color del
- * acento, que además MORFA de forma al cambiar el origen.
+ * Expressive: el icono va sentado en una forma orgánica de [MaterialShapes] (cookie) que MORFA de
+ * forma al cambiar el origen.
  *
  * El FORMATO del archivo ya no vive acá: es otro dato (qué suena, no de dónde) y tiene su
  * propio chip centrado entre los tiempos del [ProgressSlider].
@@ -168,33 +177,27 @@ private fun opticalEdgePadding(iconSize: TextUnit, keyline: Dp): Dp {
 @Composable
 internal fun PlaybackSourceChip(
     origin: PlaybackOrigin,
-    contentColor: Color,
-    accentColor: Color,
-    /**
-     * Color que hay REALMENTE debajo del chip: el sólido, o el arranque del degradado (que es donde
-     * vive la barra superior). De él sale el relleno, así que la separación está garantizada en los
-     * dos modos sin ramas. Es un `Color` y no un Boolean a propósito: quien elige el fondo es
-     * `NowPlayingScreen`, y con un Boolean el chip tenía que RECONSTRUIR ese color por su cuenta.
-     */
+    /** Color REAL que hay debajo del chip; de él deriva su píldora. */
     backgroundColor: Color,
     compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Relleno DERIVADO del fondo real (hue y croma de `secondaryContainer`, tono a 8 puntos del
-    // fondo): sigue teñido por el álbum y no puede coincidir con lo que tiene detrás.
+    // El par TABULADO de M3 que mejor se apoya en el fondo real ([roleLayerOn]): se ESCOGE, no se
+    // deriva, así que la píldora siempre es un rol de la paleta y su texto el `on…` que M3 le
+    // garantiza.
     //
-    // Antes el relleno era `secondaryContainer` fijo, y con degradado ese es EXACTAMENTE el color
-    // del tope —el degradado arranca ahí, justo donde vive este chip—, así que chip y fondo eran el
-    // mismo color y lo único visible era el borde. Ni el borde `outline` ni la sombra podían
-    // arreglarlo: separaban por RELIEVE lo que no se separaba por color, y en tema oscuro una sombra
-    // sobre un fondo ya oscuro no se lee. Con el relleno derivado sobran los dos.
-    //
-    // El neutro `surfaceContainerHighest` que se probó antes que aquello sí resolvía el contraste,
-    // pero dejaba un chip GRIS al lado de un reproductor entero a color — esta vía conserva el
-    // tinte porque hue y croma los sigue poniendo el rol.
-    val chipColors = rememberTonalLayerColors(backgroundColor)
-    val chipContainerColor = chipColors.container
-    val chipContentColor = chipColors.content
+    // Estuvo en `secondaryFixedDim` fijo y el problema no era ese rol sino que fuera FIJO: los
+    // `*Fixed` son invariantes al tema, o sea T80 (claro) también en tema oscuro — discreto sobre
+    // un fondo claro y un faro sobre el degradado oscuro (visto en device: "resalta demasiado").
+    // Eligiendo por tono contra el fondo, el par cambia con el tema y el peso se mantiene.
+    val colors = LocalAppColors.current
+    val (chipContainerColor, chipContentColor) = remember(colors.version, backgroundColor) {
+        roleLayerOn(backgroundColor, playerRolePairs(colors))
+    }
+    // El asiento INVIERTE el par en vez de buscar un tercer rol: el contraste que M3 garantiza entre
+    // esos dos vale en los dos sentidos, así que la forma del origen se lee sin añadir ni un color.
+    val seatColor = chipContentColor
+    val seatContentColor = chipContainerColor
 
     // Forma expressive del asiento del icono, una por origen: cookie de 9 lados en local (disco
     // "dentado"), soft burst en descargado, sunny en stream (rayos). El cambio
@@ -236,18 +239,11 @@ internal fun PlaybackSourceChip(
                 modifier = Modifier
                     .size(seatSize)
                     .clip(seatShape)
-                    // Asiento con el ACENTO del álbum (mismo color que el botón de play):
-                    // ata el chip al tema de la carátula en vez del blanco/negro neutro.
-                    .background(accentColor)
+                    .background(seatColor)
             ) {
                 MaterialSymbol(
                     originIcon,
-                    // El asiento es el acento (mismo color que el play), así que el icono va con el
-                    // MISMO criterio que el glifo del play: blanco/negro por CONTRASTE real
-                    // (`maxContrastOn`), no por el umbral de luminancia 0.5 de `onContainerColor` —ese
-                    // sobre un acento medio elegía blanco cuando el negro contrasta el doble, y el
-                    // icono salía claro sobre un acento claro mientras el play, al lado, iba oscuro.
-                    color = maxContrastOn(accentColor),
+                    color = seatContentColor,
                     size = if (compact) 13.sp else 15.sp,
                     fill = true
                 )
@@ -586,10 +582,7 @@ private fun Modifier.clickableTextChip(onClick: () -> Unit): Modifier = this
 @Composable
 internal fun SongInfoSection(
     song: Song,
-    contentColor: Color,
-    variantColor: Color,
     isFavorite: Boolean,
-    playButtonColor: Color,
     onToggleFavorite: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit
@@ -626,8 +619,24 @@ internal fun SongInfoSection(
             Text(
                 text = song.title,
                 style = MaterialTheme.typography.headlineSmallEmphasized,
-                // Título en primary; artista y álbum en secondary.
-                color = AppColors.primary,
+                // Los TRES textos comparten rol (`onSecondaryContainer`) y la jerarquía la lleva la
+                // ESCALA TIPOGRÁFICA: headline enfatizado / bodyLarge / bodyMedium.
+                //
+                // Dos cosas que ya se probaron aquí y fallaron en device, las dos por el mismo
+                // motivo —dar por hecho un orden entre roles que M3 no promete—:
+                //
+                //  1. `on*FixedVariant`: los `*Fixed` son INVARIANTES al tema, así que
+                //     `onPrimaryFixedVariant` es ≈T30 (oscuro) también en tema oscuro —está
+                //     calculado contra `primaryFixedDim`, que es claro— y suelto sobre el degradado
+                //     oscuro medía ~1,4:1. Ilegible.
+                //  2. Título en `onPrimaryContainer` y subtítulos en `onSecondaryContainer`: entre
+                //     esos dos no hay orden garantizado, y en una paleta cian el secundario salió
+                //     MÁS claro que el primario — el título pesando menos que el artista.
+                //
+                // El único par de contenido que M3 sí ordena es `onSurface`/`onSurfaceVariant`, y es
+                // neutro. Mientras el criterio sea "tintado y sin derivar", la jerarquía tiene que
+                // salir del tipo, no del color.
+                color = AppColors.onSecondaryContainer,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = titleMarquee
@@ -636,7 +645,7 @@ internal fun SongInfoSection(
             Text(
                 text = song.artist.ifBlank { stringResource(R.string.common_unknown_artist) },
                 style = MaterialTheme.typography.bodyLarge,
-                color = AppColors.secondary,
+                color = AppColors.onSecondaryContainer,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clickableTextChip { onArtistClick(song.artist) }
@@ -645,7 +654,7 @@ internal fun SongInfoSection(
                 Text(
                     text = song.album,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = AppColors.secondary,
+                    color = AppColors.onSecondaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.clickableTextChip { onAlbumClick(song.album) }

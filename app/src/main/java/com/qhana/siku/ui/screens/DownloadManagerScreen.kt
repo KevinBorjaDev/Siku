@@ -83,7 +83,8 @@ fun DownloadManagerScreen(
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        containerColor = AppColors.background,
+        // Fondo de página: `surface` (M3 spec), el rol de toda pantalla principal — ver `SettingsScaffold`.
+        containerColor = AppColors.surface,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             // Barra de UNA fila. La `Medium` que había es de dos y su fila alta existe para dar
@@ -95,7 +96,10 @@ fun DownloadManagerScreen(
             // del token y no fijo—; lo que cambia es el número de filas.
             TopAppBar(
                 title = { Text(stringResource(R.string.download_title)) },
-                // Ver `SettingsScaffold`: una app bar sin `colors` se los pide al tema BASE.
+                // EXPLÍCITOS o la barra los pide al tema BASE (el del wallpaper). El par tabulado
+                // sin override: `surface` en reposo —invisible, porque ES la página— y
+                // `surfaceContainer` cuando el contenido le pasa por debajo. Estuvo en
+                // `chromeSurface` fijo mientras existió la horquilla.
                 colors = appTopAppBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {

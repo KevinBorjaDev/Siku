@@ -49,6 +49,14 @@
 #
 # `assumenosideeffects` deja además que R8 elimine el cálculo de los argumentos, así que las
 # concatenaciones que solo alimentaban un `Log.d` desaparecen con él.
+#
+# ⚠️ ESTA REGLA NO DISTINGUE QUIÉN LLAMA, y por eso se llevó por delante `AppLogger` entero: su
+# emisión usaba `Log.i`, así que en release el logger no escribía NADA —ni archivo (gateado por
+# BuildConfig.DEBUG) ni logcat— y la app distribuida quedaba sin ninguna ventana de diagnóstico.
+# Costó una sesión entera de depuración el 7 sep 2026, y el KDoc de la clase afirmaba lo contrario.
+# `AppLogger` emite ahora por `Log.println`, que NO está en esta lista. Si algún día se añade
+# `println` aquí, se vuelve a romper EN SILENCIO: la app compila, corre, y deja de contar lo que
+# hace.
 -assumenosideeffects class android.util.Log {
     public static int d(...);
     public static int v(...);

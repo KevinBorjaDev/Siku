@@ -53,6 +53,7 @@ import com.qhana.siku.data.source.DeviceAudioFolder
 import com.qhana.siku.data.util.CrashReporter
 import com.qhana.siku.ui.components.AppMenuPopup
 import com.qhana.siku.ui.components.DISABLED_CONTENT_ALPHA
+import com.qhana.siku.ui.components.contentRoleOn
 import com.qhana.siku.ui.components.groupedListItemShapes
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.ChoiceGroupWidth
@@ -1679,14 +1680,21 @@ fun SettingsProgressBarScreen(
                     .padding(horizontal = 16.dp, vertical = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Mismos roles que en el reproductor: el activo es el acento (allí, el color del
-                // álbum) y el riel es ese mismo color muy atenuado.
+                // Igual que en el reproductor ([contentRoleOn] contra `surface`).
                 ProgressBarPreview(
                     wavy = wavy,
                     trackHeight = thickness.dp,
                     showHandle = handle,
-                    activeColor = AppColors.primary,
-                    inactiveColor = AppColors.primary.copy(alpha = PREVIEW_RAIL_ALPHA)
+                    activeColor = contentRoleOn(
+                        AppColors.surface, 4.5f,
+                        listOf(AppColors.primary, AppColors.secondary, AppColors.onSecondaryContainer),
+                        AppColors.primary,
+                    ),
+                    inactiveColor = contentRoleOn(
+                        AppColors.surface, 1.5f,
+                        listOf(AppColors.secondaryContainer, AppColors.primaryContainer),
+                        AppColors.primary,
+                    )
                 )
             }
         }
@@ -1739,13 +1747,6 @@ fun SettingsProgressBarScreen(
         )
     }
 }
-
-/**
- * Opacidad del riel en la vista previa: la MISMA que el track recibe en el reproductor. Allí llega
- * como `playButtonColor.copy(0.2f)` y `ProgressSlider` lo vuelve a pasar por `copy(alpha = 0.25f)`
- * — que REEMPLAZA el alpha, no lo multiplica—, así que el valor que pinta es este.
- */
-private const val PREVIEW_RAIL_ALPHA = 0.25f
 
 /** Pestañas de la biblioteca: orden (drag & drop) + cuáles se muestran. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2229,7 +2230,12 @@ private fun SettingsScaffold(
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
-        containerColor = AppColors.background,
+        // Fondo de página: `surface` (M3 spec — 4 sep 2026), el rol de toda pantalla principal
+        // (biblioteca, detalles, estadísticas, descargas, ajustes). Estuvo en `surfaceContainer`
+        // desde el 20 ago con la idea de la "horquilla". Los bloques de Ajustes ya iban en
+        // `surfaceContainerHigh`, que es a donde el 7 sep se llevó también `contentSurface`: todas
+        // las superficies de contenido de la app son ahora el mismo nivel de tarjeta.
+        containerColor = AppColors.surface,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
@@ -2240,9 +2246,10 @@ private fun SettingsScaffold(
                         MaterialSymbol("arrow_back")
                     }
                 },
-                // EXPLÍCITOS: sin ellos la barra resuelve sus colores contra `MaterialTheme` —el
-                // esquema BASE— y la banda superior de TODA la pantalla se quedaba con el tinte del
-                // wallpaper mientras el contenido llevaba el de la carátula.
+                // `appTopAppBarColors()` (no crudo): sus colores salen de `AppColors`, no del
+                // `MaterialTheme` BASE (wallpaper). Default: `surface` en reposo, tinte
+                // `surfaceContainer` al scrollear (M3 spec — 4 sep 2026). Estuvo en `chromeSurface`
+                // fijo por la horquilla.
                 colors = appTopAppBarColors(),
                 // El default de la barra (`systemBarsForVisualComponents`) IGNORA la perforación,
                 // que en horizontal cae en un costado: sin esto la flecha de volver queda debajo.

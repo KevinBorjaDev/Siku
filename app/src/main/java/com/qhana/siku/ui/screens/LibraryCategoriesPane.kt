@@ -181,8 +181,10 @@ internal fun LibraryCategoriesPane(
     if (categories.isEmpty()) return
     val pagerState = rememberPagerState(pageCount = { categories.size })
 
-    // Ocultar la categoría activa desde Ajustes deja al pager apuntando a una página que ya no
-    // existe. Misma guarda que la del pager de los destinos.
+    // Red por si la lista de categorías cambiara de tamaño en caliente: dejaría al pager apuntando
+    // a una página que ya no existe. Hoy llegan FIJAS (ver `CategoryPages`: el estilo moderno no lee
+    // la config de pestañas), así que esto no se dispara — se queda porque el componente recibe la
+    // lista por parámetro y no puede prometer nada sobre ella.
     LaunchedEffect(categories.size) {
         if (pagerState.currentPage >= categories.size) {
             pagerState.scrollToPage(categories.lastIndex)

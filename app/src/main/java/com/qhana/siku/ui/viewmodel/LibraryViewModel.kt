@@ -460,8 +460,15 @@ class LibraryViewModel @Inject constructor(
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, WhileUiSubscribed, emptyMap())
 
-    /** Antepone un contexto al historial de "Seguir escuchando" (dedup + tope). */
-    fun recordContext(ctx: PlaybackContext) = musicPreferences.recordContext(ctx)
+    /**
+     * Antepone un contexto al historial de "Seguir escuchando" (dedup + tope) y avisa al player de
+     * que la cola va a pasar a pertenecer a ese contexto — que congela el saliente en su slot.
+     * Las dos cosas son el mismo evento ("empieza a sonar este sitio").
+     */
+    fun recordContext(ctx: PlaybackContext) {
+        musicPreferences.recordContext(ctx)
+        musicController.onContextStarting(ctx.key)
+    }
 
     /**
      * Ver [settlingFlow] y [sampledDuringSync]: gobierna el muestreo de las consultas del inicio

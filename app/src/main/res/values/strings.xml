@@ -996,7 +996,8 @@
     <string name="stats_title">Estadísticas</string>
     <!-- Entrada a Estadísticas desde el inicio. %1$s = tiempo escuchado este mes -->
     <string name="stats_home_entry_title">Tu mes en música</string>
-    <string name="stats_home_entry_empty">Escucha algo y aquí verás tu resumen</string>
+    <string name="stats_home_entry_empty">Escucha algo para ver tu resumen</string>
+    <string name="stats_home_entry_action">Ver</string>
     <!-- Selector de periodo -->
     <string name="stats_period_day_short">D</string>
     <string name="stats_period_week_short">S</string>

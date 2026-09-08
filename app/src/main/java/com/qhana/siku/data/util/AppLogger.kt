@@ -33,9 +33,20 @@ import javax.inject.Singleton
  * **El volcado a disco es SOLO en debug** ([BuildConfig.DEBUG]): en release no existe ninguna
  * pantalla ni exportación que lea `playback_debug.log`, así que sin root el archivo es inaccesible
  * — escribirlo sería I/O de por vida (con el servicio de reproducción el proceso vive días) para un
- * archivo que nadie puede abrir. En release ni se arranca el consumidor ni se encola nada; el
- * logcat, en cambio, se emite siempre (es barato y sí se puede capturar con la app conectada). Si
- * algún día se añade una pantalla de diagnóstico, el gate pasa a esa preferencia.
+ * archivo que nadie puede abrir. En release ni se arranca el consumidor ni se encola nada. Si algún
+ * día se añade una pantalla de diagnóstico, el gate pasa a esa preferencia.
+ *
+ * **El logcat SÍ se emite siempre, release incluida, y eso depende de un detalle frágil**: la
+ * emisión va por [Log.println] y no por `Log.i`/`Log.d`/`Log.v`. `proguard-rules.pro` declara esos
+ * tres `assumenosideeffects` para que R8 borre las llamadas ad-hoc repartidas por el código, y
+ * mientras esta clase los usaba se llevaba por delante TAMBIÉN todas sus líneas: en release el
+ * logger no emitía absolutamente nada — ni archivo (gateado arriba) ni logcat—, o sea que la app
+ * distribuida se quedaba SIN NINGUNA ventana de diagnóstico. Se descubrió el 7 sep 2026 intentando
+ * leer en un teléfono real si el audio offload estaba activo: 449 líneas de la app en logcat, cero
+ * con el tag `AppLog`. Hasta entonces este KDoc afirmaba que "el logcat se emite siempre", que era
+ * falso desde que se añadió la regla. `println` no está en ella, así que el reparto queda como se
+ * quería: las llamadas sueltas de otras clases se siguen eliminando y el diagnóstico propio
+ * sobrevive. **NO devolver la emisión a `Log.i`.**
  */
 @Singleton
 class AppLogger @Inject constructor(
@@ -74,14 +85,10 @@ class AppLogger @Inject constructor(
         val timestamp = System.currentTimeMillis()
         val entry = LogEntry(timestamp, category, message, level)
 
-        // Logcat síncrono, tal cual estaba.
-        val logTag = "AppLog/$category"
-        when (level) {
-            LogLevel.DEBUG -> Log.d(logTag, message)
-            LogLevel.INFO -> Log.i(logTag, message)
-            LogLevel.WARN -> Log.w(logTag, message)
-            LogLevel.ERROR -> Log.e(logTag, message)
-        }
+        // Logcat síncrono. Por [Log.println] y NO por `Log.i`/`Log.d`/`Log.w`: R8 elimina los
+        // tres primeros en release y con ellos desaparecía todo este logger. Ver el KDoc de la
+        // clase.
+        Log.println(level.priority, "AppLog/$category", message)
 
         // Persistencia: solo encolar (sin lanzar corrutinas por llamada), y solo en debug — en
         // release no hay consumidor que vacíe el canal ni archivo que nadie pueda leer.
@@ -199,6 +206,16 @@ data class LogEntry(
     val level: LogLevel
 )
 
-enum class LogLevel {
-    DEBUG, INFO, WARN, ERROR
+enum class LogLevel(
+    /**
+     * Prioridad equivalente de `android.util.Log`. Existe porque la emisión va por [Log.println],
+     * que la recibe como `Int` en vez de elegirse por el nombre del método — ver el KDoc de
+     * [AppLogger].
+     */
+    internal val priority: Int
+) {
+    DEBUG(Log.DEBUG),
+    INFO(Log.INFO),
+    WARN(Log.WARN),
+    ERROR(Log.ERROR)
 }

@@ -597,11 +597,19 @@ private const val WAVE_AMPLITUDE_DIVISOR = 4f
 
 /**
  * Contenido que debe verse ENCIMA de un shared element durante la transición de navegación
- * (título viajero, topbar pineada de los detalles): un shared element vuela en el OVERLAY
- * del [SharedTransitionScope], que dibuja sobre la capa normal — sin esto, el contenido
- * queda tapado por la imagen voladora y "aparece de golpe" cuando la transición termina.
- * Lo eleva al mismo overlay (por encima, zIndex 1) y le da entrada/salida con fade.
- * No-op si no hay scopes (pantalla montada sin transición compartida).
+ * (título viajero, topbar pineada de los detalles, y el SELECTOR de pestañas de la biblioteca):
+ * un shared element vuela en el OVERLAY del [SharedTransitionScope], que dibuja sobre la capa
+ * normal — sin esto, el contenido queda tapado por la imagen voladora y "aparece de golpe" cuando
+ * la transición termina.
+ *
+ * Los dos casos son el mismo problema con distinto síntoma. El del título es de SINCRONÍA: aparece
+ * tarde. El del chrome es de JERARQUÍA: la píldora y el selector siguen ahí después de navegar, así
+ * que algo que está de paso no puede pasarles por encima — y no basta con ordenarlos en el árbol,
+ * porque el overlay dibuja sobre el árbol entero. Por eso el chrome pide un [zIndexInOverlay] más
+ * alto que el default: tiene que ganarle también a la portada, que vuela por encima de las
+ * superficies del morph.
+ * Lo eleva al mismo overlay, en el peldaño que diga [zIndexInOverlay], y le da entrada/salida con
+ * fade. No-op si no hay scopes (pantalla montada sin transición compartida).
  *
  * La elevación se ata a la transición de ESTA pantalla, no a la del scope: el
  * [SharedTransitionScope] es ÚNICO para toda la app (MainActivity), así que el default
@@ -623,7 +631,14 @@ private const val WAVE_AMPLITUDE_DIVISOR = 4f
 fun overSharedElementsModifier(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
-    headerState: SharedTransitionScope.SharedContentState? = null
+    headerState: SharedTransitionScope.SharedContentState? = null,
+    /**
+     * Peldaño de la escala de z del overlay (ver [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]). El default
+     * es el del título viajero, que solo tiene que ganarle a las SUPERFICIES del morph. El chrome
+     * persistente pasa [CHROME_OVERLAY_Z] porque debe ganarle además a la PORTADA, que vuela más
+     * arriba que ellas.
+     */
+    zIndexInOverlay: Float = 1f
 ): Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
     with(sharedTransitionScope) {
         Modifier
@@ -633,7 +648,7 @@ fun overSharedElementsModifier(
                     (transition.currentState != transition.targetState) &&
                         (headerState?.isMatchFound ?: true)
                 },
-                zIndexInOverlay = 1f
+                zIndexInOverlay = zIndexInOverlay
             )
             .then(with(animatedVisibilityScope) {
                 Modifier.animateEnterExit(

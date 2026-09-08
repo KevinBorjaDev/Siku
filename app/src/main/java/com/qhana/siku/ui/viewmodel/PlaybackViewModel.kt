@@ -1334,14 +1334,90 @@ class PlaybackViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Registra un contexto en "Seguir escuchando" y avisa al player para que congele el saliente
+     * en su slot. Mismo par que `LibraryViewModel.recordContext`, para los contextos que nacen
+     * dentro de este ViewModel (biblioteca entera / aleatoria).
+     */
+    private fun recordContext(ctx: PlaybackContext) {
+        musicPreferences.recordContext(ctx)
+        musicController.onContextStarting(ctx.key)
+    }
+
     /** Reproduce TODA la biblioteca en su orden natural (contraparte de [shuffleAllFromLibrary]). */
     fun playAllFromLibrary() {
         viewModelScope.launch {
             val songs = repository.getAllSongs()
             if (songs.isNotEmpty()) {
-                musicPreferences.recordContext(PlaybackContext.LibraryAll)
+                recordContext(PlaybackContext.LibraryAll)
                 playSongs(songs, 0)
             }
+        }
+    }
+
+    /**
+     * Reanuda un contexto de "Seguir escuchando" donde se dejó: si hay slot guardado, restaura su
+     * cola/índice/posición (y el orden barajado); si no, reproduce [songs] entero desde el inicio.
+     * [songs] llega ya resuelto por el caller (álbum/artista/género/lista/favoritos).
+     */
+    fun resumeContext(ctx: PlaybackContext, songs: List<Song>) {
+        if (songs.isEmpty()) return
+        musicPreferences.recordContext(ctx)
+        // Si ese contexto ES lo que suena, la tarjeta solo abre el NowPlaying: no se reinicia nada.
+        if (musicController.isActiveContext(ctx.key)) return
+        resetRetryBudget()
+        val oldJob = playJob
+        playJob = viewModelScope.launch {
+            oldJob?.cancelAndJoin()
+            musicController.onContextStarting(ctx.key)
+            val restored = musicController.restoreContext(ctx.key)
+            if (restored != null) {
+                musicController.playRestored(restored)
+                autoDownloadFirst(restored.playlist.getOrNull(restored.index))
+            } else {
+                musicController.announceSelection(songs[0])
+                val errorMsg = playbackUseCase.playSongs(songs, 0)
+                if (errorMsg != null) showPlaybackError(errorMsg) else autoDownloadFirst(songs.firstOrNull())
+            }
+        }
+    }
+
+    /** Reanuda "Toda la biblioteca" / "Aleatorio" desde "Seguir escuchando". */
+    fun resumeLibraryContext(shuffled: Boolean) {
+        val ctx = if (shuffled) PlaybackContext.LibraryShuffle else PlaybackContext.LibraryAll
+        musicPreferences.recordContext(ctx)
+        if (musicController.isActiveContext(ctx.key)) return
+        resetRetryBudget()
+        val oldJob = playJob
+        playJob = viewModelScope.launch {
+            oldJob?.cancelAndJoin()
+            musicController.onContextStarting(ctx.key)
+            val restored = musicController.restoreContext(ctx.key)
+            if (restored != null) {
+                musicController.playRestored(restored)
+                autoDownloadFirst(restored.playlist.getOrNull(restored.index))
+                return@launch
+            }
+            val songs = repository.getAllSongs()
+            if (songs.isEmpty()) return@launch
+            if (shuffled) {
+                when (val result = playbackUseCase.playShuffled(songs)) {
+                    is MusicPlaybackUseCase.PlayResult.Success -> autoDownloadFirst(result.song, result.willStream)
+                    is MusicPlaybackUseCase.PlayResult.Error -> showPlaybackError(result.messageRes)
+                    else -> {}
+                }
+            } else {
+                val errorMsg = playbackUseCase.playSongs(songs, 0)
+                if (errorMsg != null) showPlaybackError(errorMsg) else autoDownloadFirst(songs.firstOrNull())
+            }
+        }
+    }
+
+    /** Prefetch de la primera canción de una cola recién puesta, si es remota. */
+    private suspend fun autoDownloadFirst(song: Song?, forcePriority: Boolean = false) {
+        if (song == null) return
+        if (!song.path.startsWith("file://") && song.remoteId != null) {
+            startAutoDownload(song, forcePriority = forcePriority)
         }
     }
 
@@ -1367,7 +1443,7 @@ class PlaybackViewModel @Inject constructor(
         shuffled: Boolean
     ) {
         resetRetryBudget()
-        musicPreferences.recordContext(
+        recordContext(
             if (shuffled) PlaybackContext.LibraryShuffle else PlaybackContext.LibraryAll
         )
         // El snapshot hay que traerlo antes de decidir, así que las dos ramas empiezan igual; lo que
@@ -1401,7 +1477,7 @@ class PlaybackViewModel @Inject constructor(
 
     fun shuffleAllFromLibrary() {
         resetRetryBudget()
-        musicPreferences.recordContext(PlaybackContext.LibraryShuffle)
+        recordContext(PlaybackContext.LibraryShuffle)
 
         // `cancelAndJoin` DENTRO del job nuevo, como los otros tres puntos de entrada: con un
         // `cancel()` suelto la cancelación no se espera, así que un `playSongs` anterior podía

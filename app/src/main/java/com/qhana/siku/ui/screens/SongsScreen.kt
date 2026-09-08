@@ -376,12 +376,11 @@ private fun SongItemOptimized(
     onStatusClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Fondo de la fila: `surface` (98) — el lado del CONTENIDO de la horquilla. La fila es MÁS
-    // CLARA que la página (`surfaceContainer`, 94) y flota sobre ella, igual que las tarjetas de
-    // llamada del Dialer de Google, que es la referencia de la que salió este reparto (ver
-    // `headerColor` en LibraryScreen). Estuvo en `surfaceContainerHigh` (92) y luego en
-    // `surfaceContainer` (94), las dos apilando hacia el lado oscuro: así la cabecera nunca
-    // conseguía separarse de la banda de filas que le pasa por debajo al scrollear.
+    // Fondo de la fila: [AppColors.contentSurface], que es el token de una TARJETA
+    // (`surfaceContainerHigh`) y no el de un list item. El porqué —con los tokens del jar que lo
+    // sostienen— vive en su KDoc, y hay que leerlo antes de tocar esto: en M3 un list item vale
+    // `Surface`, que es EL MISMO color que la página, porque un list item no pretende flotar; estas
+    // filas sí, y además son la punta origen del container transform hacia el reproductor.
     val rowSurface = AppColors.contentSurface
     // Resaltado del ítem en reproducción, por el helper compartido y NO por el rol a pelo: es el
     // mismo tratamiento que la cola y los detalles, y tiene que salir de una sola definición. El
@@ -612,12 +611,14 @@ private fun SourceFilterRow(
             QuickActionButton(
                 "shuffle",
                 stringResource(R.string.home_action_shuffle),
+                anchor = true,
                 onClick = onShuffleAll
             )
             QuickActionButton(
                 "play_arrow",
                 stringResource(R.string.home_action_play_order),
                 fill = true,
+                anchor = true,
                 onClick = onPlayAll
             )
         }

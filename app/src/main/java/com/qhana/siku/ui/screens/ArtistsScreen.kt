@@ -51,6 +51,7 @@ import com.qhana.siku.ui.components.QueueOverflowButton
 import com.qhana.siku.ui.components.ArtistPhotoMask
 import com.qhana.siku.ui.components.ArtistPhotoShape
 import com.qhana.siku.ui.components.CountChip
+import com.qhana.siku.ui.components.actionAccentOn
 import com.qhana.siku.ui.components.rememberRowActionColors
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
@@ -304,7 +305,14 @@ private fun ArtistRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Quick-play de todo el artista. SIN fondo (IconButton estándar); el glifo
                 // `play_circle` (disco relleno) ya se lee como botón sin recargar la fila con una
-                // píldora. En primary.
+                // píldora.
+                //
+                // **Su color NO es `primary` a secas** (7 sep 2026, visto en device): un acento no
+                // tiene garantía de contraste contra una superficie NEUTRA —aquí la tarjeta de la
+                // fila—, y con una carátula casi acromática en tema claro el disco desaparecía. La
+                // regla vive en [actionAccentOn], compartida con el play de `AlbumTileCard`, que se
+                // apoya en la MISMA superficie y llevaba el acento fijo.
+                val playColor = actionAccentOn(AppColors.contentSurface)
                 IconButton(
                     onClick = onPlayClick,
                     shapes = IconButtonDefaults.shapes(),
@@ -313,7 +321,7 @@ private fun ArtistRow(
                     MaterialSymbol(
                         "play_circle",
                         size = 30.sp,
-                        color = AppColors.primary,
+                        color = playColor,
                         fill = true
                     )
                 }
@@ -339,6 +347,12 @@ private fun ArtistRow(
  * Aviso de backfill de fotos en pausa por red medida, con la decisión en manos del usuario.
  * Mismo lenguaje visual ámbar que DownloadStateBanner (el aviso de descargas pausadas).
  */
+/**
+ * Contraste mínimo del glifo de quick-play sobre la fila: 3:1, el mínimo WCAG de un elemento NO
+ * textual. Constante propia y no la del icono de estado de `SongListItem` —aunque hoy valgan lo
+ * mismo—: son dos superficies distintas y calibrar una no puede mover la otra.
+ */
+
 @Composable
 private fun ArtistPhotosMeteredBanner(
     onDownload: () -> Unit,

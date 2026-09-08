@@ -3,7 +3,6 @@ package com.qhana.siku.ui.screens
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +20,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.toShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.toShape
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
@@ -45,18 +45,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.R
 import com.qhana.siku.data.model.Song
-import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.ArtCarouselCard
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QuickActionButton
-import com.qhana.siku.ui.components.TONAL_LAYER_DELTA
-import com.qhana.siku.ui.components.rememberTonalLayerColors
 import com.qhana.siku.ui.components.formatListeningTime
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
+import com.qhana.siku.ui.theme.appCardColors
+import com.qhana.siku.ui.theme.appButtonColors
 import com.qhana.siku.ui.viewmodel.HomeDiscover
 import com.qhana.siku.ui.viewmodel.HomeDiscoverKind
 import com.qhana.siku.ui.viewmodel.RelatedArtistUi
@@ -94,32 +93,6 @@ private val GreetingTopPadding = 8.dp
 
 /** Lado del distintivo de la entrada a Estadísticas. El mismo que el corazón de Favoritos. */
 private val StatsBadgeSize = 48.dp
-
-/**
- * Lado del botón circular del chevron. Menor que el distintivo de la izquierda ([StatsBadgeSize]) a
- * propósito: aquél es la identidad de la fila y éste solo su affordance, así que no deben pesar
- * igual.
- */
-/**
- * Cuánto se separa el chevron del contenedor de la tarjeta: **el DOBLE del salto tonal normal**.
- *
- * Los 8 puntos de `TONAL_LAYER_DELTA` están calibrados sobre las superficies NEUTRAS de la app —la
- * escala de `surfaceContainer`, donde 8 puntos son todo el recorrido de la escala de contenedores—.
- * Medido a ojo en device dos veces sobre `primaryContainer` crudo (vívido, con el croma dominando la
- * percepción) y las dos el círculo se desvanecía con un solo salto.
- *
- * **Se queda así (1 sep 2026) aunque la tarjeta ya no sea `primaryContainer` crudo** —ahora es una
- * capa derivada (`cardColors` en [StatsEntry]), MENOS saturada, que hereda su croma del fondo
- * neutro de la página— porque el chevron sigue siendo una capa SOBRE otra capa, no sobre el fondo
- * llano: es el
- * mismo caso por el que el indicador activo del toolbar de la biblioteca
- * (`LIBRARY_TOOLBAR_ACTIVE_TONE_DELTA`) también usa el doble. Si en device se ve exagerado ahora que
- * la tarjeta bajó de intensidad, esta es la primera constante a bajar — no se tocó a ciegas porque
- * "menos saturado" no es lo mismo que "vale el mismo delta que una superficie neutra".
- */
-private const val StatsChevronToneDelta = TONAL_LAYER_DELTA * 2
-
-private val StatsChevronSize = 40.dp
 
 /**
  * Si este carrusel tiene algo que desplazar. Load-bearing para el GESTO, no para el aspecto:
@@ -358,77 +331,34 @@ private fun GreetingHeader(stats: HomeStats) {
 }
 
 /**
- * Entrada a Estadísticas, con la anatomía de la **píldora de Favoritos** de la pestaña Listas:
- * superficie tonal de lados totalmente redondos, distintivo `Cookie9Sided` de acento a la
- * izquierda, y dos renglones de texto.
+ * Entrada a Estadísticas: **Filled Card de M3** (`surfaceContainerHighest`), con un distintivo
+ * `Cookie4Sided` (girado 90°) a la izquierda, dos renglones de texto, y un botón "Ver" a la derecha
+ * que es el ÚNICO objetivo táctil (la fila entera no navega).
  *
- * **Recorrido hasta aquí, para no repetirlo.** Empezó como una tarjeta de 78dp bajo el saludo; se
- * comprimió a un glifo tonal de 48dp al lado del titular y en device "no parecía un botón" (la
- * tarjeta decía *esto lleva a algún sitio* con tres señales —etiqueta, resumen y chevron— y de las
- * tres solo quedaba el relleno); volvió como barra a todo el ancho con etiqueta y chevron, y esa
- * "no parecía M3 Expressive" — con razón, porque era de los pocos controles de la app SIN morph de
- * forma al pulsar y con un alto y un radio escritos a mano en vez de las tallas tabuladas.
+ * Sello y botón van en el par Fixed de la familia SECONDARY (`secondaryFixedDim`/`onSecondaryFixed`)
+ * — sobre una tarjeta, Fixed no depende de con qué superficie se encuentre y `on*Fixed` va
+ * garantizado contra `*FixedDim`.
  *
- * Lo que lo arregla no es el tamaño sino el IDIOM: una barra a todo el ancho con un chevron pegado
- * al borde es el patrón de una fila de lista, y ninguna cantidad de morph la saca de ahí. La
- * píldora de Favoritos ya resolvió este mismo problema —"un acceso destacado que no es una fila
- * más"— así que esto es su segunda instancia, no un diseño nuevo.
- *
- * **El chevron va en un botón CIRCULAR** y no como glifo suelto: una superficie propia dice "esto
- * se toca" sin gastar una etiqueta. Se probó como píldora vertical (el idiom de "añadir canciones"
- * en la botonera de un detalle) y se descartó en device.
+ * (En revisión de roles por pasos — no consolidar la doc hasta cerrar.)
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
-    // La tarjeta entera se DERIVA del fondo de página (1 sep 2026), no toma `primaryContainer`
-    // tal cual: ese rol es, por definición, el contenedor MÁS saturado que tiene la app, y con un
-    // estilo de paleta vívido se comía la pantalla — se veía igual de fuerte con Fiel a la carátula
-    // y con Vívido, o sea que no era un problema de ESE estilo sino del rol en sí (visto en device,
-    // dos capturas comparadas). `role`/`onRole` = `primaryContainer`/`onPrimaryContainer` para que
-    // siga siendo la familia PRIMARY —y por tanto distinta de los `QuickActionButton` de abajo, que
-    // son `secondaryContainer`, ver más abajo—, pero el TONO sale a una distancia medida del fondo
-    // real de la página en vez de heredar el tono que M3 le fija al rol completo.
-    val cardColors = rememberTonalLayerColors(
-        background = AppColors.surfaceContainer,
-        role = AppColors.primaryContainer,
-        onRole = AppColors.onPrimaryContainer
-    )
-    // El fondo sobre el que se apoya el chevron es el contenedor de la FILA, no el de la página.
-    //
-    // **Y el ROL del que deriva tiene que ser el de esa misma fila** (29 ago 2026): el default de
-    // `rememberTonalLayerColors` es `secondaryContainer`, o sea que tomaba su hue y su CROMA —bajos,
-    // porque es un contenedor pálido— y solo movía el tono 8 puntos respecto al fondo. Sobre el
-    // `secondaryContainer` de antes eso funcionaba porque los cromas coincidían; sobre el fondo real
-    // de la fila (ahora [cardColors], antes el `primaryContainer` crudo) un círculo de croma bajo a
-    // 8 puntos de tono se desvanece: la separación tonal estaba, pero la de croma jugaba en contra.
-    // Pasando el rol de la propia fila, hue y croma coinciden y **lo único que los separa es el
-    // tono**, que es justo lo que la regla promete. Regla general: al derivar una capa sobre un
-    // contenedor, el rol que se pasa es el de ESE contenedor, no el default.
-    val chevronColors = rememberTonalLayerColors(
-        background = cardColors.container,
-        role = cardColors.container,
-        onRole = cardColors.content,
-        delta = StatsChevronToneDelta
-    )
-    AppSurface(
+    // Filled Card de M3 (`FilledCardTokens.ContainerColor` = `surfaceContainerHighest`), vía
+    // `appCardColors` para que el rol salga de `AppColors` (carátula) y no del `MaterialTheme` base.
+    val cardColors = appCardColors()
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = HomeContentPadding),
-        onClick = onClick,
+        // SIN `onClick` en la tarjeta (2 sep 2026): la acción la lleva el botón "Ver". Antes
+        // toda la fila era el objetivo táctil y el chevron un affordance mudo.
         // Un peldaño por debajo de la píldora completa (`RoundedCornerShape(50)`, que es lo que
         // lleva la de Favoritos): con el alto de esta fila el radio pleno son ~36dp y se comía
         // demasiado los extremos. `extraLarge` son 28 y es TOKEN, no un número a ojo — el MiniPlayer
         // usa este mismo par para conmutar entre píldora y rectángulo redondeado.
         shape = MaterialTheme.shapes.extraLarge,
-        // Familia PRIMARY y no `secondaryContainer` (29 ago 2026, visto en device): con el
-        // secundario llevaba EXACTAMENTE el mismo color que los `QuickActionButton` de justo
-        // debajo, y no se distinguía de ellos. Y no son lo mismo: esto NAVEGA a otra pantalla,
-        // aquéllos arrancan reproducción sin moverte de aquí. El acento principal para lo que es un
-        // destino, el secundario para las acciones — la jerarquía completa de la zona está en el
-        // KDoc de `CountChip`, que es el escalón de más abajo. Ver [cardColors] arriba para por qué
-        // ya no es el rol `primaryContainer` crudo.
-        color = cardColors.container
+        colors = cardColors
     ) {
         Row(
             modifier = Modifier
@@ -440,13 +370,11 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             AppSurface(
-                shape = MaterialShapes.Cookie9Sided.toShape(),
-                // El content color de [cardColors] como CONTENEDOR del distintivo, no el container:
-                // sobre la tarjeta esos dos comparten matiz y croma (son el mismo par), así que el
-                // distintivo se fundiría con su fondo si usara el mismo lado. El par `content` está,
-                // por definición, al otro extremo de tono — que es justo lo que hace falta para que
-                // un sello se lea. Su glifo va del color del contenedor, cerrando el par.
-                color = cardColors.content,
+                // `Cookie4Sided` girado 90° (`startAngle` rota la geometría del `Shape`, no el
+                // contenido). Par Fixed `secondaryFixedDim`/`onSecondaryFixed`: un escalón por
+                // debajo del botón "Ver", que desde el 8 sep 2026 se lleva el `primary` lleno.
+                shape = MaterialShapes.Cookie4Sided.toShape(startAngle = 90),
+                color = AppColors.secondaryFixedDim,
                 modifier = Modifier.size(StatsBadgeSize)
             ) {
                 // fillMaxSize: sin él el Box se ciñe al glifo y `Center` no centra nada dentro del
@@ -456,7 +384,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         "bar_chart",
                         fill = true,
                         size = 24.sp,
-                        color = cardColors.container
+                        color = AppColors.onSecondaryFixed
                     )
                 }
             }
@@ -465,52 +393,64 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                 Text(
                     text = stringResource(R.string.stats_home_entry_title),
                     style = MaterialTheme.typography.bodyLargeEmphasized,
-                    // El content de [cardColors], el par de su propio container — no un `on-` de
-                    // rol fijo, que dejaría de prometer contraste en cuanto el container se recalcula.
-                    color = cardColors.content,
+                    // El `contentColor` de la tarjeta (`onSurface`), su par declarado.
+                    color = cardColors.contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val hasData = stats.monthPlays > 0
                 Text(
-                    text = if (stats.monthPlays > 0) {
+                    text = if (hasData) {
                         homeListeningTimeText(stats.monthListenedMs)
                     } else {
                         // Sin nada escuchado no se pinta un "0 min", que no invita a entrar.
                         stringResource(R.string.stats_home_entry_empty)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = rememberSecondaryContentColor(cardColors.content, cardColors.container),
-                    maxLines = 1,
+                    // `onSurfaceVariant`, directo: el contenedor es neutro (`surfaceContainerHighest`)
+                    // y para la escala neutra M3 SÍ tabula un rol de apoyo — `secondaryContentColor`
+                    // es el cálculo por tono que existe para cuando NO lo hay (contenedores de
+                    // acento tipo `primaryContainer`), no para este caso.
+                    color = AppColors.onSurfaceVariant,
+                    // El dato ("2h 15m") es compacto en CUALQUIER idioma y a 1 línea le sobra sitio;
+                    // la ayuda del estado vacío es una frase y no un dato, así que su longitud varía
+                    // con el idioma y la escala tipográfica — a 1 línea se cortaba a la mitad
+                    // ("Play something and your summar…", visto en device en inglés). 2 líneas es
+                    // el techo real del sitio que deja la fila (icono + botón "Ver" a los lados).
+                    maxLines = if (hasData) 1 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            // NO lleva `onClick` propio: la acción es la de la fila entera, y dos objetivos táctiles
-            // para el mismo destino serían dos formas de hacer lo mismo a un centímetro. Es un
-            // AFFORDANCE, así que va sin semántica propia para que el lector de pantalla anuncie una
-            // sola acción (y por eso tampoco le aplica el mínimo táctil de 48dp).
+            Spacer(modifier = Modifier.width(8.dp))
+            // El ÚNICO objetivo táctil de la tarjeta: la acción vive aquí, no en la fila. Un VERBO
+            // ("Ver"), no un botón de icono.
             //
-            // Su color se DERIVA del contenedor real de la fila y no de un rol: dos roles de la
-            // misma banda tonal pueden fundirse según lo que el estilo de paleta activo haya hecho
-            // con esa banda, mientras que fijar el tono a una distancia MEDIDA del fondo da la misma
-            // separación en cualquier paleta y en los dos temas. Ver [rememberTonalLayerColors].
-            Box(
-                modifier = Modifier
-                    .size(StatsChevronSize)
-                    .clip(CircleShape)
-                    .background(chevronColors.container),
-                contentAlignment = Alignment.Center
+            // **Botón LLENO en `primary`** (8 sep 2026, decisión en device). Estuvo en el par
+            // `secondaryFixedDim`/`onSecondaryFixed`, que llegó el 4-5 sep huyendo de un `primary`
+            // que con Fidelidad se volvía casi invisible — pero aquello era `primary` como
+            // CONTENIDO sobre la tarjeta neutra, y ahí M3 no promete nada; como CONTENEDOR de un
+            // botón lleno, `onPrimary` sobre `primary` sí es un par tabulado, así que la etiqueta
+            // se lee siempre. Lo que queda expuesto es el borde del botón contra la tarjeta
+            // (`surfaceContainerHighest`): con una paleta muy lavada pueden acercarse de tono.
+            //
+            // El DISTINTIVO de la izquierda se queda en el par Fixed a propósito: cuando los dos
+            // llevaban el mismo color, el adorno pesaba igual que la acción.
+            Button(
+                onClick = onClick,
+                colors = appButtonColors()
             ) {
-                MaterialSymbol("chevron_right", size = 20.sp, color = chevronColors.content)
+                // Sin `style`: `Button` ya pone `labelLarge` en su slot.
+                Text(text = stringResource(R.string.stats_home_entry_action))
             }
         }
     }
 }
 
 /**
- * ACCIONES RÁPIDAS del inicio en GRILLA que envuelve (máx. 3 por fila, `FlowRow`). Botones tonales
- * XSmall de M3 Expressive ([QuickActionButton]). Las dos primeras (aleatorio / en orden) se
- * deshabilitan si no hay canciones. Todas se ven a la vez (sin scroll lateral).
+ * ACCIONES RÁPIDAS del inicio en GRILLA que envuelve (máx. 3 por fila, `FlowRow`). Botones XSmall de
+ * M3 Expressive ([QuickActionButton]), todos con el mismo color; las 3 principales (aleatorio, en
+ * orden, favoritos) van con `anchor = true` — rectángulo redondeado en vez de píldora. Aleatorio /
+ * en orden se deshabilitan si no hay canciones. Todas se ven a la vez (sin scroll lateral).
  *
  * **Sin cabecera de sección** (27 ago 2026): era el único título del inicio que no nombraba un
  * contenido sino una categoría de control, y unos botones con su glifo y su verbo se explican solos.
@@ -538,9 +478,9 @@ private fun HomeQuickActions(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         maxItemsInEachRow = 3
     ) {
-        QuickActionButton("shuffle", stringResource(R.string.home_action_shuffle), enabled = canPlayAll, onClick = onShuffleAll)
-        QuickActionButton("play_arrow", stringResource(R.string.home_action_play_order), enabled = canPlayAll, fill = true, onClick = onPlayAll)
-        QuickActionButton("favorite", stringResource(R.string.home_action_favorites), enabled = hasFavorites, fill = true, onClick = onShuffleFavorites)
+        QuickActionButton("shuffle", stringResource(R.string.home_action_shuffle), enabled = canPlayAll, anchor = true, onClick = onShuffleAll)
+        QuickActionButton("play_arrow", stringResource(R.string.home_action_play_order), enabled = canPlayAll, fill = true, anchor = true, onClick = onPlayAll)
+        QuickActionButton("favorite", stringResource(R.string.home_action_favorites), enabled = hasFavorites, fill = true, anchor = true, onClick = onShuffleFavorites)
         // Acciones por ORIGEN. Solo existen mientras la biblioteca esté partida entre lo que
         // suena sin red y lo que la necesita (misma puerta que los chips de filtro de las
         // listas, ver [LibraryViewModel.hasSourceSplit]): con todo descargado, "Sin conexión"
@@ -552,9 +492,18 @@ private fun HomeQuickActions(
             QuickActionButton("offline_pin", stringResource(R.string.home_action_offline), onClick = onShuffleOffline)
             QuickActionButton("cloud", stringResource(R.string.home_action_not_downloaded), onClick = onShuffleNotDownloaded)
         }
-        // Géneros (selección del día). El label ES el nombre del género (no un string res).
+        // Géneros (selección del día). El label es solo el PRIMER segmento del tag
+        // ("Progressive Metal, Fusion" → "Progressive Metal"): los tags multi-género en coma hacían
+        // píldoras larguísimas —truncadas y solas en su fila, con medio ancho de pantalla vacío al
+        // lado (device, 5 sep 2026)—. El tag CRUDO se sigue pasando a `onShuffleGenre`: es la clave
+        // de la consulta. El tope de 20 caracteres de [QuickActionButton] sigue cubriendo un primer
+        // segmento largo suelto.
         genres.forEach { genre ->
-            QuickActionButton("genres", label = genre, onClick = { onShuffleGenre(genre) })
+            QuickActionButton(
+                "genres",
+                label = genre.substringBefore(',').trim(),
+                onClick = { onShuffleGenre(genre) }
+            )
         }
     }
 }

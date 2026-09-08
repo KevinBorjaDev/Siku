@@ -246,16 +246,10 @@ fun StatsScreen(
                 // Expressive de la barra pequeña es precisamente la que añade subtítulo (no existe
                 // una "SmallFlexibleTopAppBar"), y aquí el subtítulo natural sería el periodo — que
                 // es justo lo que ya dice, y de forma interactiva, la fila de las flechas.
-                // `surfaceContainerHigh` y no el `surface` por defecto del helper: esta pantalla
-                // tiene el fondo en `surfaceContainer` (el nivel MEDIO), y la horquilla de color
-                // dice que el contenido SUBE y las barras BAJAN. Con el default, la barra quedaba
-                // POR ENCIMA del fondo y se leía como una banda clara pegada arriba. Es el mismo
-                // valor que usa la topbar overlay de los cuatro detalles, que comparten fondo.
-                // Ver `SettingsScaffold`: una app bar sin `colors` se los pide al tema BASE.
-                colors = appTopAppBarColors(
-                    containerColor = AppColors.surfaceContainerHigh,
-                    scrolledContainerColor = AppColors.surfaceContainerHigh
-                ),
+                // `appTopAppBarColors()` (no crudo): los colores salen de `AppColors`, no del tema
+                // BASE. Default: `surface` en reposo, tinte `surfaceContainer` al scrollear (M3 spec
+                // — 4 sep 2026). Estuvo en `surfaceContainerHigh` fijo por la horquilla.
+                colors = appTopAppBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         MaterialSymbol("arrow_back")
@@ -267,9 +261,9 @@ fun StatsScreen(
             )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        // Fondo en el nivel MEDIO de la escala: el contenido sube a `surface` y las barras bajan.
-        // Mismo reparto que los detalles.
-        containerColor = AppColors.surfaceContainer
+        // Fondo de página: `surface` (M3 spec — 4 sep 2026). Las filas se separan de él porque son
+        // TARJETAS (`AppColors.contentSurface`), igual que en los detalles.
+        containerColor = AppColors.surface
     ) { paddingValues ->
         val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
             ComponentConfig.FloatingBarListInset
@@ -817,10 +811,10 @@ private fun HistogramAxis(columns: List<ActivityColumn>, color: Color) {
  * Las dos posiciones se probaron el 30 ago 2026 y el problema no era dónde estaba el control sino
  * que existiera: el ranking es de diez y siempre se ve entero, así que no hay nada más que enseñar.
  *
- * **El color vive en el SELLO, no en el contenedor.** No es una elección nueva: es lo que ya hacían
- * tres de las cuatro tarjetas que esto sustituye (`summaryCardStyles`, índices 3..5 — contenedor
- * neutro, distintivo teñido). Cuatro bloques saturados seguidos competirían entre sí y con la
- * tarjeta del periodo, que es la que debe llevar la voz cantante.
+ * **El color vive en el SELLO, no en el contenedor** (contenedor neutro, distintivo teñido). Cuatro
+ * bloques saturados seguidos competirían entre sí y con la tarjeta del periodo, que es la que debe
+ * llevar la voz cantante. El sello de las cuatro cabeceras es el MISMO color (`primaryFixedDim` /
+ * `onPrimaryFixed`) — el porqué, en [summaryCardStyles].
  */
 @Composable
 private fun RankingSectionHeader(
@@ -897,55 +891,50 @@ private data class SummaryCardStyle(
 /**
  * Los seis acentos del resumen, en el orden en que se pintan.
  *
- * **Uno por métrica**: las tarjetas eran rectángulos `surface` con un glifo gris de 20sp, o sea
- * indistinguibles entre sí salvo por su texto. Con contenedor propio, cada dato se reconoce antes
- * de leerlo. La silueta del distintivo NO participa: es un círculo en las seis (ver [SummaryCard]),
- * y lo que las separa es el color y el ancho de su caja.
+ * **Los índices 0/1 (tarjeta del periodo) tiñen el CONTENEDOR entero** — ahí el acento SÍ trabaja,
+ * es un bloque grande. El 0 es el que se usa; el 1 quedó sin consumidores tras el rediseño del 30
+ * ago 2026.
  *
- * M3 solo tabula TRES familias de acento, así que las tres últimas no estrenan color: repiten
- * familia en su variante tenue (el par `container` sobre el techo de la escala neutra). Inventar un
- * cuarto acento fuera de la paleta rompería el tema dinámico, que es de donde sale todo esto. Lo
- * que las sigue separando es el color de su distintivo y el ancho de su caja.
+ * **Los sellos de las cabeceras (índices 2..5) son los CUATRO el mismo color** — `primaryFixedDim` /
+ * `onPrimaryFixed` — a propósito (5 sep 2026, device). Dos vueltas hasta aquí:
+ *  - Estaban en `tertiary` + tres pares `*Container`: contraste tabulado por M3 pero croma a merced
+ *    del estilo de paleta, y con una carátula apagada los cuatro salían grises con el glifo perdido.
+ *  - Se pasaron a un par Fixed por familia (`primary`/`secondary`/`tertiary`/`primary`), y entonces
+ *    `tertiary` —que es el primario con el MATIZ ROTADO ~60º— saltó a dorado en una paleta roja: el
+ *    sello de álbumes se leía como "el especial", no como "otra sección".
+ * El sello es un círculo de 28dp con su icono, y el icono + la etiqueta de al lado ya distinguen la
+ * sección; el matiz no aporta nada y `tertiary` restaba. Fixed (no `*Container`) porque conserva
+ * tono Y croma pase lo que pase con la paleta, `Dim` (T80) para despegar del fondo de página, y
+ * `onPrimaryFixed` va garantizado a 7:1 contra `primaryFixedDim`. Mismo criterio que el disco de la
+ * racha. **NO volver a un color por sección.**
  */
 @Composable
-private fun summaryCardStyles(): List<SummaryCardStyle> = listOf(
-    SummaryCardStyle(
-        container = AppColors.primaryContainer,
-        onContainer = AppColors.onPrimaryContainer,
-        badge = AppColors.primary,
-        onBadge = AppColors.onPrimary
-    ),
-    SummaryCardStyle(
-        container = AppColors.secondaryContainer,
-        onContainer = AppColors.onSecondaryContainer,
-        badge = AppColors.secondary,
-        onBadge = AppColors.onSecondary
-    ),
-    SummaryCardStyle(
-        container = AppColors.tertiaryContainer,
-        onContainer = AppColors.onTertiaryContainer,
-        badge = AppColors.tertiary,
-        onBadge = AppColors.onTertiary
-    ),
-    SummaryCardStyle(
+private fun summaryCardStyles(): List<SummaryCardStyle> {
+    val headerBadge = SummaryCardStyle(
         container = AppColors.surfaceContainerHighest,
         onContainer = AppColors.onSurface,
-        badge = AppColors.primaryContainer,
-        onBadge = AppColors.onPrimaryContainer
-    ),
-    SummaryCardStyle(
-        container = AppColors.surfaceContainerHighest,
-        onContainer = AppColors.onSurface,
-        badge = AppColors.secondaryContainer,
-        onBadge = AppColors.onSecondaryContainer
-    ),
-    SummaryCardStyle(
-        container = AppColors.surfaceContainerHighest,
-        onContainer = AppColors.onSurface,
-        badge = AppColors.tertiaryContainer,
-        onBadge = AppColors.onTertiaryContainer
+        badge = AppColors.primaryFixedDim,
+        onBadge = AppColors.onPrimaryFixed
     )
-)
+    return listOf(
+        SummaryCardStyle(
+            container = AppColors.primaryContainer,
+            onContainer = AppColors.onPrimaryContainer,
+            badge = AppColors.primary,
+            onBadge = AppColors.onPrimary
+        ),
+        SummaryCardStyle(
+            container = AppColors.secondaryContainer,
+            onContainer = AppColors.onSecondaryContainer,
+            badge = AppColors.secondary,
+            onBadge = AppColors.onSecondary
+        ),
+        headerBadge, // [2] Tus canciones
+        headerBadge, // [3] Tus artistas
+        headerBadge, // [4] Tus álbumes
+        headerBadge, // [5] Tus géneros
+    )
+}
 
 /**
  * Verde de META CUMPLIDA, el par contenedor/contenido.
@@ -956,12 +945,18 @@ private fun summaryCardStyles(): List<SummaryCardStyle> = listOf(
  * la carátula, la celebración saldría azul o morada según el disco que estuviera sonando, y
  * entonces no diría nada.
  *
- * Dos parejas porque el tono útil cambia con el tema, y la rama se decide por la LUMINANCIA de la
- * superficie real y no por `isSystemInDarkTheme()`, que miente con el tema forzado desde Ajustes
- * (mismo criterio que el velo del fondo desenfocado del reproductor).
+ * Tres colores —contenedor, contenido y pista del anillo— hardcodeados por tema (la rama se decide
+ * por la LUMINANCIA de la superficie real, no por `isSystemInDarkTheme()`, que miente con el tema
+ * forzado desde Ajustes). La `track` es un tercer tono explícito del mismo verde: ni el contenedor
+ * (invisible) ni el contenido (borraría el progreso) sirven de pista, y mezclar tampoco es una
+ * opción (nada de derivaciones en esta pantalla).
  */
-private val StreakGoalGreenDark = Color(0xFF1E4620) to Color(0xFFB6F2B8)
-private val StreakGoalGreenLight = Color(0xFFC7F2C8) to Color(0xFF12331A)
+private data class StreakGoalGreen(val container: Color, val onContainer: Color, val track: Color)
+
+private val StreakGoalGreenDark =
+    StreakGoalGreen(Color(0xFF1E4620), Color(0xFFB6F2B8), Color(0xFF3F7C49))
+private val StreakGoalGreenLight =
+    StreakGoalGreen(Color(0xFFC7F2C8), Color(0xFF12331A), Color(0xFF6BBE7E))
 
 /**
  * La racha, arriba del todo.
@@ -992,33 +987,46 @@ private fun StreakRow(days: Int) {
     // es el del periodo — la racha es un dato que no depende siquiera del selector.
     //
     // El acento no desaparece, se concentra: lo llevan el ANILLO y su disco, que es donde se lee sin
-    // pelearse con nada. Es el mismo reparto que ya hacen tres de las cuatro `summaryCardStyles`
-    // (contenedor neutro, distintivo teñido).
+    // pelearse con nada. Es el mismo reparto que las cabeceras de sección (`summaryCardStyles`):
+    // contenedor neutro, distintivo teñido.
     //
     // La meta cumplida SÍ tiñe la tarjeta entera, y por eso sigue significando algo: es el único
-    // estado que estrena color fuera de la paleta, y se gana el sitio precisamente por ser el único.
-    val container = if (reached) goalGreen.first else AppColors.surfaceContainerHighest
-    val onContainer = if (reached) goalGreen.second else AppColors.onSurface
-    // **Todo lo que va ENCIMA de la tarjeta sale de un PAR tabulado**, y esto es un arreglo de
-    // contraste (device, 28 ago 2026: "icono sin contraste"). Estuvo con `primary` de relleno y
-    // `primaryContainer` de glifo, o sea dos roles VECINOS: con una paleta donde el contenedor sale
-    // claro, el disco y su llama quedaban del mismo color y el anillo se perdía sobre la tarjeta.
+    // estado que estrena color fuera de la paleta, y se gana el sitio precisamente por ser el único
+    // — el mismo criterio que ahora comparte el distintivo (ver `ringColor` más abajo). Sin meta,
+    // container/onContainer son LITERALMENTE los roles de `appCardColors()` (`surfaceContainerHighest`
+    // / `onSurface`), los mismos que el card de entrada a esta pantalla.
+    val container = if (reached) goalGreen.container else AppColors.surfaceContainerHighest
+    val onContainer = if (reached) goalGreen.onContainer else AppColors.onSurface
+    // **Todo lo que va ENCIMA de la tarjeta sale de un PAR con contraste garantizado**, y esto es
+    // un arreglo de contraste (device, 28 ago 2026: "icono sin contraste"). Estuvo con `primary` de
+    // relleno y `primaryContainer` de glifo, o sea dos roles VECINOS: con una paleta donde el
+    // contenedor sale claro, el disco y su llama quedaban del mismo color y el anillo se perdía
+    // sobre la tarjeta.
     //
-    // Un par `on*`/`*` es el único con contraste garantizado por definición —M3 los tabula justo
-    // para esto—, así que el disco va relleno del color de acento y su glifo del compañero: con
-    // racha, `primary` sobre `onPrimary`; sin ella y sobre el verde, la inversión del par de la
-    // propia tarjeta. Es además lo que hace la referencia, donde el distintivo es un círculo lleno
-    // sobre la tarjeta y no un acento sobre otro acento.
-    val ringColor = when {
-        reached -> goalGreen.second
-        active -> AppColors.primary
-        else -> AppColors.onSurface
-    }
-    val ringGlyphColor = when {
-        reached -> goalGreen.first
-        active -> AppColors.onPrimary
-        else -> AppColors.surfaceContainerHighest
-    }
+    // **Par Fixed: `primaryFixedDim` de relleno, `onPrimaryFixed` de glifo** (5 sep 2026), los
+    // MISMOS que el distintivo y el botón "Ver" del card de entrada a esta pantalla (`StatsEntry`
+    // en `HomeScreen.kt`, ver [appFixedAccentButtonColors]). El disco vive sobre la tarjeta NEUTRA
+    // (`surfaceContainerHighest` sin meta), y `primary` contra un contenedor neutro ajeno NO tiene
+    // ninguna garantía de M3: con `PaletteStyle.Fidelity` y una carátula clara podía quedar casi
+    // tan pálido como la tarjeta y el disco se leía fundido con ella. `onPrimaryFixed` sí la tiene
+    // —M3 lo calcula a 7:1 por `contrastCurve` contra `primaryFixedDim`, su propio fondo—, así que
+    // la llama contrasta con el disco en cualquier paleta y en los dos temas. `Dim` (no el `Fixed`
+    // liso) es el tono más profundo, el que reemplaza el peso que tenía `primary`.
+    //
+    // **En TODOS los estados menos la meta**, incluido "sin racha": el distintivo es un badge de
+    // identidad de la sección (paridad con `StatsEntry`, que tampoco distingue "sin dato"), no un
+    // indicador de estado. **La meta cumplida es la ÚNICA excepción**: sigue tiñendo de verde
+    // porque es el único estado que se gana un color fuera de la paleta por ser, precisamente, el
+    // único.
+    val ringColor = if (reached) goalGreen.onContainer else AppColors.primaryFixedDim
+    val ringGlyphColor = if (reached) goalGreen.container else AppColors.onPrimaryFixed
+    // Anillo: arco = disco, pista = un rol/color aparte y SÓLIDO (nada de alpha ni derivación).
+    //  - Sin meta: arco `primaryFixedDim` (T80), pista `secondaryFixedDim` (T80). `secondaryContainer`
+    //    a secas está en T90, el mismo tono que la tarjeta (`surfaceContainerHighest`), y la pista se
+    //    fundía; el Dim baja a T80 y se despega. Fixed y no un contenedor neutro porque su tono no
+    //    depende de la escala.
+    //  - Meta: los tres verdes salen de [StreakGoalGreen] — la `track` es su tercer tono explícito.
+    val ringTrackColor = if (reached) goalGreen.track else AppColors.secondaryFixedDim
     AppSurface(
         color = container,
         shape = StatsCardShape,
@@ -1041,10 +1049,9 @@ private fun StreakRow(days: Int) {
                     playing = true,
                     animated = false,
                     color = ringColor,
-                    // La pista tiene que VERSE: con ella invisible no hay contra qué medir el arco
-                    // y un 14 % se lee como "bastante". Es el mismo color del arco, atenuado —del
-                    // arco y no del contenido de la tarjeta, para que los dos sean la misma pieza.
-                    trackColor = ringColor.copy(alpha = STREAK_TRACK_ALPHA),
+                    // Color OPACO en los dos casos (arco/pista = dos roles distintos, como en M3).
+                    // Ver donde se elige `ringTrackColor`, más arriba.
+                    trackColor = ringTrackColor,
                     strokeWidth = StreakRingStroke,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -1067,15 +1074,18 @@ private fun StreakRow(days: Int) {
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    // La etiqueta nombra el último hito conseguido; sin ninguno, dice qué es
-                    // esta tarjeta. Así el día 31 no repite lo del día 30.
-                    text = stringResource(achieved?.second ?: R.string.stats_streak_title),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = rememberSecondaryContentColor(onContainer, container),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // La etiqueta nombra el último hito conseguido; sin ninguno, dice solo "Racha". Sin
+                // racha activa NO se muestra: "Racha" encima de "Sin racha activa" es redundante, y
+                // la cifra ya se explica sola. Así el día 31 tampoco repite lo del día 30.
+                if (active) {
+                    Text(
+                        text = stringResource(achieved?.second ?: R.string.stats_streak_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = rememberSecondaryContentColor(onContainer, container),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
                     text = if (active) {
                         pluralStringResource(R.plurals.stats_streak_days, days, days)
@@ -1091,12 +1101,6 @@ private fun StreakRow(days: Int) {
         }
     }
 }
-
-/**
- * Alfa de la pista del anillo de la racha. Sale del color de CONTENIDO de la tarjeta y no de un rol
- * neutro: sobre un contenedor de acento (o sobre el verde) un gris no pertenece a la familia.
- */
-private const val STREAK_TRACK_ALPHA = 0.28f
 
 /** Punto medio de la escala de luminancia: por encima, la superficie es clara. */
 private const val LUMINANCE_MIDPOINT = 0.5f

@@ -68,6 +68,39 @@ fun tonalGradientStops(from: Color, to: Color): List<Pair<Float, Color>> {
     }
 }
 
+/**
+ * El color que este degradado tiene a [screenFraction] de la pantalla (0 = arriba, 1 = abajo).
+ *
+ * Lo consume quien se DIBUJA encima y necesita saber sobre qué se apoya —hoy la barra de progreso y
+ * sus chips, que eligen su rol contra el fondo real. Sale de la MISMA cuenta que el brush y por eso
+ * vive aquí: `surface` no vale como respuesta (es el extremo de abajo, y con [COLOR_BIAS] por debajo
+ * de 1 el color se estira hacia abajo, así que a media pantalla el fondo todavía tiene color), y una
+ * fracción tabulada a mano se desincronizaría del degradado en cuanto alguien tocara el sesgo.
+ *
+ * La posición de una parada es `t^COLOR_BIAS`, así que para ir de la pantalla al parámetro hay que
+ * invertirlo: `t = screenFraction^(1/COLOR_BIAS)`.
+ */
+fun tonalGradientColorAt(from: Color, to: Color, screenFraction: Float): Color {
+    val start = Hct.fromInt(from.toArgb())
+    val end = Hct.fromInt(to.toArgb())
+    val t = screenFraction.coerceIn(0f, 1f).toDouble().pow(1.0 / COLOR_BIAS)
+    val startIsNeutral = start.chroma < NEUTRAL_CHROMA_CUTOFF
+    val endIsNeutral = end.chroma < NEUTRAL_CHROMA_CUTOFF
+    val hue = when {
+        startIsNeutral && endIsNeutral -> start.hue
+        startIsNeutral -> end.hue
+        endIsNeutral -> start.hue
+        else -> lerpHue(start.hue, end.hue, t)
+    }
+    return Color(
+        Hct.from(
+            hue,
+            start.chroma + (end.chroma - start.chroma) * t,
+            start.tone + (end.tone - start.tone) * t
+        ).toInt()
+    )
+}
+
 /** Interpolación de matiz por el camino CORTO: el hue es circular y 350 a 10 son 20 grados, no 340. */
 private fun lerpHue(from: Double, to: Double, t: Double): Double {
     val delta = ((to - from) % 360.0 + 540.0) % 360.0 - 180.0

@@ -44,6 +44,19 @@ internal fun NowPlayingPortrait(
     bufferedPositionFlow: StateFlow<Long>,
     /** La canción se está streameando: fuera de ahí el búfer no informa de nada. */
     showBuffer: Boolean,
+    /**
+     * El color del fondo a una fracción dada de la ALTURA de la pantalla (0 arriba, 1 abajo). La
+     * barra de progreso y sus chips eligen su rol contra lo que tienen debajo, y dónde caen depende
+     * del layout —la carátula es `weight(1f)`—, así que no puede ser un color fijo. Ver `groundAt`
+     * en `NowPlayingScreen`.
+     */
+    groundAt: (Float) -> Color,
+    /**
+     * Color real del fondo al PIE de la pantalla, que es donde vive el toolbar de acciones en las
+     * dos orientaciones. De él derivan su contenedor y el relleno de sus toggles: ver
+     * `appPlayerToolbarColors`.
+     */
+    bottomBackgroundColor: Color,
     /** Gestos del reproductor (Ajustes → Reproducción). */
     gesturesEnabled: Boolean,
     /** Arrastre de cierre compartido: la carátula también lo alimenta. */
@@ -123,10 +136,7 @@ internal fun NowPlayingPortrait(
 
         SongInfoSection(
             song = song,
-            contentColor = contentColor,
-            variantColor = variantColor,
             isFavorite = isFavorite,
-            playButtonColor = playButtonColor,
             onToggleFavorite = playerActions.onToggleFavorite,
             onArtistClick = onArtistClick,
             onAlbumClick = onAlbumClick
@@ -143,9 +153,7 @@ internal fun NowPlayingPortrait(
             bufferedPositionFlow = bufferedPositionFlow,
             showBuffer = showBuffer,
             onSeek = playerActions.onSeek,
-            trackColor = playButtonColor,
-            inactiveTrackColor = playButtonColor,
-            textColor = variantColor,
+            groundAt = groundAt,
             format = format,
             detailedFormat = detailedFormat,
             onToggleDetailedFormat = onToggleDetailedFormat,
@@ -180,6 +188,7 @@ internal fun NowPlayingPortrait(
                     contentColor = contentColor,
                     playButtonColor = accent,
                     playButtonContentColor = accentContent,
+                    groundAt = groundAt,
                     isPlayingOrBuffering = isPlayingOrBuffering,
                     playbackState = playbackState,
                     spin = playSpin
@@ -191,7 +200,7 @@ internal fun NowPlayingPortrait(
                     showLyrics = showLyrics,
                     isLyricsLoading = uiState.isLyricsLoading,
                     keepScreenOn = keepScreenOn,
-                    playButtonColor = accent,
+                    background = bottomBackgroundColor,
                     songRemoteId = song.remoteId,
                     isDownloaded = uiState.isDownloaded,
                     isDownloading = uiState.isDownloading,
@@ -242,6 +251,19 @@ internal fun NowPlayingLandscape(
     bufferedPositionFlow: StateFlow<Long>,
     /** La canción se está streameando: fuera de ahí el búfer no informa de nada. */
     showBuffer: Boolean,
+    /**
+     * El color del fondo a una fracción dada de la ALTURA de la pantalla (0 arriba, 1 abajo). La
+     * barra de progreso y sus chips eligen su rol contra lo que tienen debajo, y dónde caen depende
+     * del layout —la carátula es `weight(1f)`—, así que no puede ser un color fijo. Ver `groundAt`
+     * en `NowPlayingScreen`.
+     */
+    groundAt: (Float) -> Color,
+    /**
+     * Color real del fondo al PIE de la pantalla, que es donde vive el toolbar de acciones en las
+     * dos orientaciones. De él derivan su contenedor y el relleno de sus toggles: ver
+     * `appPlayerToolbarColors`.
+     */
+    bottomBackgroundColor: Color,
     /** Gestos del reproductor (Ajustes → Reproducción). */
     gesturesEnabled: Boolean,
     /** Arrastre de cierre compartido: la carátula también lo alimenta. */
@@ -314,7 +336,6 @@ internal fun NowPlayingLandscape(
             // `ExpressiveActionIcon` da en vertical.
             NowPlayingTopBar(
                 onBackClick = onBackClick,
-                contentColor = contentColor,
                 accentColor = playButtonColor,
                 origin = origin,
                 backgroundColor = backgroundColor,
@@ -358,13 +379,14 @@ internal fun NowPlayingLandscape(
 
             Spacer(modifier = Modifier.height(NowPlayingConfig.ItemGap))
 
-            // Toolbar de acciones. Usa playButtonColor directo (sin el reveal cookie, que queda
-            // con los controles de la derecha): igual sigue el acento del álbum vía el theme.
+            // Toolbar de acciones. Queda FUERA del reveal cookie (que vive con los controles, en la
+            // columna de la derecha) y no lo necesita: desde que la barra es standard, todo su color
+            // se deriva del fondo y ya no lleva el acento del álbum.
             BottomActionBar(
                 showLyrics = showLyrics,
                 isLyricsLoading = uiState.isLyricsLoading,
                 keepScreenOn = keepScreenOn,
-                playButtonColor = playButtonColor,
+                background = bottomBackgroundColor,
                 songRemoteId = song.remoteId,
                 isDownloaded = uiState.isDownloaded,
                 isDownloading = uiState.isDownloading,
@@ -394,10 +416,7 @@ internal fun NowPlayingLandscape(
         ) {
             SongInfoSection(
                 song = song,
-                contentColor = contentColor,
-                variantColor = variantColor,
                 isFavorite = isFavorite,
-                playButtonColor = playButtonColor,
                 onToggleFavorite = playerActions.onToggleFavorite,
                 onArtistClick = onArtistClick,
                 onAlbumClick = onAlbumClick
@@ -411,9 +430,7 @@ internal fun NowPlayingLandscape(
                 bufferedPositionFlow = bufferedPositionFlow,
                 showBuffer = showBuffer,
                 onSeek = playerActions.onSeek,
-                trackColor = playButtonColor,
-                inactiveTrackColor = playButtonColor,
-                textColor = variantColor,
+                groundAt = groundAt,
                 format = format,
                 detailedFormat = detailedFormat,
                 onToggleDetailedFormat = onToggleDetailedFormat,
@@ -443,6 +460,7 @@ internal fun NowPlayingLandscape(
                     contentColor = contentColor,
                     playButtonColor = accent,
                     playButtonContentColor = accentContent,
+                    groundAt = groundAt,
                     isPlayingOrBuffering = isPlayingOrBuffering,
                     playbackState = playbackState,
                     spin = playSpin

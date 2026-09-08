@@ -158,8 +158,7 @@ fun AmbientPlayerScreen(
                 // aplica por dentro `ACCENT_TRACK_ALPHA`. El `.copy(alpha = 0.2f)` que había aquí no
                 // pintaba nada —`Color.copy` REEMPLAZA el alfa, no lo multiplica, así que el 0.25 de
                 // dentro lo borraba— pero decía que sí: un número que parece decidir la opacidad de
-                // la pista y no la decide. Es el mismo caso que anota `PREVIEW_RAIL_ALPHA` en
-                // Ajustes, y el motivo de quitarlo no es que se viera mal sino que se leía mal.
+                // la pista y no la decide.
                 UnifiedProgressBar(currentPosition = currentPosition, duration = duration, onSeek = { musicController.seekTo(it) }, trackColor = Color.White, inactiveTrackColor = Color.White, textColor = Color.White.copy(alpha = AMBIENT_TIME_ALPHA), showThumb = true, trackHeight = 4.dp, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(32.dp))
                 AmbientControls(

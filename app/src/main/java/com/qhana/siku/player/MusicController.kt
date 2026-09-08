@@ -29,6 +29,7 @@ import com.qhana.siku.data.util.JankProbe
 import com.qhana.siku.data.util.LogLevel
 import com.qhana.siku.player.manager.ListeningClock
 import com.qhana.siku.player.manager.PlaylistManager
+import com.qhana.siku.player.manager.RestoredSession
 import com.qhana.siku.player.manager.SessionStateManager
 import com.qhana.siku.player.manager.SongCacheManager
 import com.qhana.siku.service.MusicPlaybackService
@@ -267,6 +268,26 @@ class MusicController @Inject constructor(
      * no puede pasar por una mejora invisible para quien está escuchando.
      */
     private val pendingItemRefresh = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Clave del [com.qhana.siku.data.model.PlaybackContext] cuya cola es la que está viva
+     * (`null` = reproducción sin contexto: una canción suelta desde búsqueda, un encolado…).
+     *
+     * Alimenta "Seguir escuchando": al cambiar de contexto —o al parar— el SALIENTE se congela en
+     * un slot ([SessionStateManager.snapshotContext]) para que su tarjeta lo reanude donde se
+     * quedó. El contexto ACTIVO no necesita slot: su progreso vive en la sesión global, que ya se
+     * restaura al reabrir la app.
+     */
+    @Volatile private var activeContextKey: String? = musicPreferences.loadActiveContextKey()
+
+    /**
+     * Intención dejada por [onContextStarting] / [declareRestoredContext] para el PRÓXIMO reemplazo
+     * completo de cola: a qué contexto pertenecerá. Se consume en [resolvePendingContext] (dentro
+     * de `playAt`), que es el único sitio que sabe si la cola se reemplazó de verdad. Un reemplazo
+     * sin intención declarada = reproducción SIN contexto (canción suelta, encolado…).
+     */
+    private var pendingContextDeclared = false
+    private var pendingContextKey: String? = null
 
     init {
         // La descarga es lo único que cambia una canción por debajo de la cola: `PlaylistManager`
@@ -545,6 +566,9 @@ class MusicController @Inject constructor(
                     withContext(Dispatchers.Main) {
                         playlistManager.setPlaylist(restored.playlist, restored.index)
                         playlistManager.restoreShuffleState(restored.shuffleEnabled, restored.originalPlaylist)
+                        // La cola restaurada pertenece al contexto persistido: sin esto, `playAt`
+                        // la trataría como reproducción sin contexto y borraría `activeContextKey`.
+                        declareRestoredContext()
                         playAt(restored.index, startPosition = restored.position, autoPlay = false)
                     }
                 }
@@ -683,6 +707,7 @@ class MusicController @Inject constructor(
                     if (autoPlay && !controller.isPlaying) controller.play()
                     updatePlaybackState()
                     syncManager.prioritizeSong(song.id)
+                    resolvePendingContext(queueReplaced = false)
                     return@launch
                 }
 
@@ -710,6 +735,10 @@ class MusicController @Inject constructor(
                     controller.seekTo(index, startPosition)
                     JankProbe.mark { "playAt: seekTo hecho" }
                 }
+                // Un reemplazo completo de cola es lo único que cambia de contexto ("Seguir
+                // escuchando"): aplica la intención que dejó `onContextStarting`, o la borra si el
+                // reemplazo no vino de un contexto (canción suelta, encolado…).
+                resolvePendingContext(queueReplaced = !queueInSync)
                 controller.prepare()
                 applyReplayGain(song)
 
@@ -736,6 +765,8 @@ class MusicController @Inject constructor(
                 _playbackError.tryEmit(
                     PlaybackErrorInfo(-1, context.getString(R.string.error_playback_load), song.id)
                 )
+                // La reproducción falló: no se cambia de contexto, solo se descarta la intención.
+                resolvePendingContext(queueReplaced = false)
             }
         }
     }
@@ -941,6 +972,11 @@ class MusicController @Inject constructor(
 
     fun stop() {
         cancelSleepTimer()
+        // Congelar el contexto activo ANTES de vaciar: parar no es olvidar dónde ibas, y su
+        // tarjeta de "Seguir escuchando" debe seguir reanudando ahí.
+        snapshotActiveContext()
+        activeContextKey = null
+        musicPreferences.saveActiveContextKey(null)
         mediaController?.stop()
         mediaController?.clearMediaItems()
         _currentSong.value = null
@@ -1594,6 +1630,100 @@ class MusicController @Inject constructor(
         val position = mediaController?.currentPosition ?: _currentPosition.value
         scope.launch(Dispatchers.IO) {
             sessionStateManager.savePosition(index, position, songId)
+        }
+    }
+
+    // === Contexto de reproducción ("Seguir escuchando") ===
+
+    /**
+     * Declara que la cola va a pasar a pertenecer al contexto [key] (un álbum, una lista, la
+     * biblioteca…). Se llama JUSTO ANTES de armar la cola nueva —cuando la que suena es todavía la
+     * del contexto anterior—, así que aquí se congela ese contexto SALIENTE en su slot; el cambio
+     * de contexto activo se aplica al reemplazarse la cola de verdad (ver [resolvePendingContext]).
+     *
+     * Lo llaman los mismos sitios que registran el contexto en el carrusel (`recordContext`): son
+     * el mismo evento.
+     */
+    fun onContextStarting(key: String) {
+        if (key.isBlank()) return
+        if (key != activeContextKey) snapshotActiveContext()
+        pendingContextDeclared = true
+        pendingContextKey = key
+    }
+
+    /** Arranque: la cola que se está restaurando pertenece al contexto que estaba activo al cerrar. */
+    private fun declareRestoredContext() {
+        pendingContextDeclared = true
+        pendingContextKey = activeContextKey
+    }
+
+    /**
+     * Consume la intención de [onContextStarting]. Solo un [queueReplaced] completo cambia de
+     * contexto: un seek o un "ya estás aquí" conservan la cola —y el contexto— y solo descartan la
+     * intención. Sin intención declarada, un reemplazo completo deja la reproducción SIN contexto.
+     */
+    private fun resolvePendingContext(queueReplaced: Boolean) {
+        val declared = pendingContextDeclared
+        val key = pendingContextKey
+        pendingContextDeclared = false
+        pendingContextKey = null
+        if (!queueReplaced) return
+        val newKey = if (declared) key else null
+        if (newKey != activeContextKey) {
+            activeContextKey = newKey
+            musicPreferences.saveActiveContextKey(newKey)
+        }
+    }
+
+    /**
+     * ¿[key] es el contexto cuya cola está viva AHORA (con canciones)? Entonces "reanudarlo" desde
+     * su tarjeta es un no-op de reproducción: ya está sonando donde se dejó.
+     */
+    fun isActiveContext(key: String): Boolean =
+        key == activeContextKey && playlistManager.getCurrentPlaylist().isNotEmpty()
+
+    /**
+     * Slot de reanudación de [key] resuelto contra la BD (`null` si no hay o no queda ninguna
+     * canción). El caller decide: reproducir la sesión restaurada ([playRestored]) o el contexto
+     * entero desde el inicio.
+     */
+    suspend fun restoreContext(key: String): RestoredSession? = sessionStateManager.restoreContext(key)
+
+    /**
+     * Carga una sesión ya resuelta y la reproduce desde su índice/posición. Mismo mecanismo que la
+     * restauración de arranque ([syncCurrentState]) pero con `autoPlay = true`: reanudar una
+     * tarjeta es un "dale al play aquí".
+     */
+    suspend fun playRestored(restored: RestoredSession) {
+        if (restored.playlist.isEmpty()) return
+        val safeIndex = restored.index.coerceIn(0, restored.playlist.lastIndex)
+        restored.playlist.getOrNull(safeIndex)?.let { syncManager.prioritizeSong(it.id) }
+        val items = prepareQueueOffMain {
+            playlistManager.setPlaylist(restored.playlist, safeIndex)
+            // setPlaylist resetea el aleatorio: reponerlo SIN re-barajar (la cola restaurada ya
+            // viene en el orden en que se reproducía).
+            playlistManager.restoreShuffleState(restored.shuffleEnabled, restored.originalPlaylist)
+        }
+        withContext(Dispatchers.Main) {
+            playAt(safeIndex, startPosition = restored.position, autoPlay = true, prebuiltItems = items)
+        }
+        saveSessionState()
+    }
+
+    /**
+     * Congela el contexto activo en su slot con el estado VIVO de la cola. No-op si no hay
+     * contexto o la cola está vacía. Debe llamarse en Main (lee `mediaController.currentPosition`).
+     */
+    private fun snapshotActiveContext() {
+        val key = activeContextKey ?: return
+        val playlist = playlistManager.getCurrentPlaylist()
+        if (playlist.isEmpty()) return
+        val index = playlistManager.currentIndex.value
+        val position = mediaController?.currentPosition ?: _currentPosition.value
+        val shuffle = playlistManager.isShuffleEnabled.value
+        val original = playlistManager.getOriginalPlaylist()
+        scope.launch(Dispatchers.IO) {
+            sessionStateManager.snapshotContext(key, playlist, index, position, shuffle, original)
         }
     }
 

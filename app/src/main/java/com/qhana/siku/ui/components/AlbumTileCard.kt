@@ -182,13 +182,23 @@ fun AlbumTileCard(
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
-            // SIN fondo; el glifo `play_circle` (disco relleno) se lee como botón. En primary.
+            // SIN fondo; el glifo `play_circle` (disco relleno) se lee como botón.
+            //
+            // El color por [actionAccentOn] contra la superficie REAL de la card, la misma regla y
+            // el mismo helper que el play de la fila de artista — que se apoya además en la misma
+            // `contentSurface`. Estuvo en `primary` FIJO hasta el 8 sep 2026 y medía **1,89:1** en
+            // una paleta tostada, contra los 5,31:1 de la fila: el mismo control, dos mecanismos.
             IconButton(
                 onClick = onPlayClick,
                 shapes = IconButtonDefaults.shapes(),
                 modifier = Modifier.size(40.dp)
             ) {
-                MaterialSymbol("play_circle", size = 30.sp, color = AppColors.primary, fill = true)
+                MaterialSymbol(
+                    "play_circle",
+                    size = 30.sp,
+                    color = actionAccentOn(AppColors.contentSurface),
+                    fill = true
+                )
             }
         }
     }

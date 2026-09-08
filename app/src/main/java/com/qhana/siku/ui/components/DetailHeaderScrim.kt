@@ -24,9 +24,10 @@ import com.qhana.siku.ui.theme.AppColors
  * [HALF_VEIL_STOP]) y solo la banda del título, el 15 % de abajo, queda sólida desde
  * [SOLID_STOP]. Mover una obliga a mirar dónde cae el texto.
  *
- * Va sobre `surfaceContainer` porque es el fondo de página de los cuatro detalles (la horquilla de
- * superficies: el fondo es el nivel MEDIO, no el extremo), así que el degradado muere exactamente
- * en el color de lo que hay debajo del header y no se ve dónde termina.
+ * Va sobre `surface` porque es el fondo de página de los cuatro detalles (M3 spec — 4 sep 2026;
+ * antes era `surfaceContainer` por la "horquilla"), así que el degradado muere exactamente en el
+ * color de lo que hay debajo del header y no se ve dónde termina. **Este valor SIGUE al
+ * `containerColor` del `Scaffold` de los detalles — si uno cambia, el otro también, o hay costura.**
  *
  * **`Brush.verticalGradient` y NO `tonalVerticalGradient`**: esto es un scrim, o sea que necesita
  * alfa, y HCT no lo tiene — interpolar ahí daría un degradado opaco. Es la advertencia que ya está
@@ -35,7 +36,7 @@ import com.qhana.siku.ui.theme.AppColors
 @Composable
 @ReadOnlyComposable
 fun detailHeaderScrim(): Brush {
-    val ground = AppColors.surfaceContainer
+    val ground = AppColors.surface
     return Brush.verticalGradient(
         IMAGE_CLEAR_STOP to Color.Transparent,
         HALF_VEIL_STOP to ground.copy(alpha = HALF_VEIL_ALPHA),

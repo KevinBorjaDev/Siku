@@ -39,6 +39,7 @@ import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.model.toUiModel
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.tonalVerticalGradient
+import com.qhana.siku.ui.theme.tonalGradientColorAt
 import com.qhana.siku.ui.theme.appTextButtonColors
 import com.qhana.siku.ui.util.shareSong
 import com.qhana.siku.ui.state.NowPlayingUiState
@@ -313,6 +314,15 @@ fun NowPlayingScreen(
     // Fondo del gradiente = `secondaryContainer` → `surface` (rol del esquema, SEED-ONLY): antes era
     // el color CRUDO del álbum mezclado 50%. Sigue teñido del álbum (tema seedeado) y el tema anima
     // `secondaryContainer` al cambiar de canción (el fundido de `ProvideAppColors`).
+    //
+    // **Se PROBÓ arrancarlo en `primaryContainer`** —el color de la píldora del mini, para que el
+    // container transform fuera continuo de punta a punta— **y el usuario lo descartó en device el
+    // 8 sep 2026: "demasiado fuerte el primary".** El problema no es la continuidad sino el PESO:
+    // `primaryContainer` es el contenedor con más croma del esquema, y lo que en una píldora de
+    // 80dp se lee como identidad, ocupando el tercio superior de la pantalla se come todo lo demás.
+    // NO reintroducirlo. La discontinuidad de color al abrir (medida: 40,7 puntos de tono en una
+    // paleta Fidelidad roja, ~10 en Equilibrada) es un cruce de contenedores, que es lo que un
+    // container transform de M3 hace de todas formas.
     val albumPrimary = AppColors.secondaryContainer
 
     // Play button + TODOS los acentos que derivan de esto = rol PRIMARY del esquema. El color
@@ -321,11 +331,15 @@ fun NowPlayingScreen(
     // `albumAccent`, ya eliminados). El tema funde primary al cambiar de canción (ver `ProvideAppColors`),
     // así que no hace falta el animateColorAsState local.
     val playButtonColor = AppColors.primary
-    // Glifo del play por CONTRASTE real (`maxContrastOn`), NO `onPrimary`: en la mayoría de temas
-    // coinciden, pero en Fidelity `onPrimary` puede ser un par de bajo contraste (gris azulado sobre
-    // un primary casi negro) y el triángulo salía apagado. Mismo criterio que el play del MiniPlayer,
-    // el chip de origen y el toggle de letras: contenido sobre un acento = maxContrastOn.
-    val playButtonContentColor = maxContrastOn(playButtonColor)
+    // Glifo del play: `onPrimary` SI cumple, y `maxContrastOn` solo como último recurso. El par
+    // `primary`/`onPrimary` es el que M3 tabula y es lo que hay que usar mientras funcione; el
+    // motivo por el que aquí había un blanco/negro incondicional es que en Fidelity ese par puede
+    // salir de bajo contraste (gris azulado sobre un primary casi negro) y el triángulo se apagaba
+    // — pero eso es el caso raro, no el normal, y resolverlo siempre a blanco o negro tiraba el rol
+    // también cuando servía.
+    val playButtonContentColor = if (
+        contrastRatio(AppColors.onPrimary, playButtonColor) >= PLAY_GLYPH_MIN_CONTRAST
+    ) AppColors.onPrimary else maxContrastOn(playButtonColor)
 
     val surfaceColor = AppColors.surface
     val solidBackgroundColor = AppColors.surfaceContainer
@@ -352,6 +366,31 @@ fun NowPlayingScreen(
         NowPlayingBackground.GRADIENT -> albumPrimary
         NowPlayingBackground.SOLID -> solidBackgroundColor
     }
+
+    // El gemelo de [topBackgroundColor], pero como FUNCIÓN de la altura: la barra de progreso y sus
+    // chips eligen su rol contra el fondo que tienen debajo, y a diferencia de la barra superior
+    // ellos no están pegados a un extremo del degradado — flotan donde el layout los deje, que
+    // depende de la carátula (es `weight(1f)`), de la orientación y del alto del teléfono.
+    //
+    // Se resolvió primero con `AppColors.surface` —el extremo de abajo— y era mentira: `COLOR_BIAS`
+    // está por debajo de 1, o sea que el color se estira HACIA ABAJO, y a la altura de la barra el
+    // degradado todavía tiene color. La píldora salía más oscura que lo que la rodeaba y se leía
+    // como un hueco (visto en device). Va aquí, junto al brush, por lo mismo que el de arriba: son
+    // la misma decisión.
+    val groundAt: (Float) -> Color = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
+        when (background) {
+            NowPlayingBackground.GRADIENT -> { fraction ->
+                tonalGradientColorAt(albumPrimary, surfaceColor, fraction)
+            }
+            NowPlayingBackground.SOLID -> { _ -> solidBackgroundColor }
+        }
+    }
+
+    // El gemelo de [topBackgroundColor] para el EXTREMO DE ABAJO, que es donde vive el toolbar de
+    // acciones en las dos orientaciones (en horizontal, al pie de la columna de la carátula). Sale
+    // del mismo oráculo que la barra de progreso en vez de un rol fijo por el mismo motivo: en modo
+    // sólido el fondo ES `surfaceContainer`, o sea el token que M3 tabula para el toolbar standard.
+    val bottomBackgroundColor = remember(groundAt) { groundAt(1f) }
 
     val contentColor = AppColors.onSurface
     val variantColor = AppColors.onSurfaceVariant
@@ -626,7 +665,6 @@ fun NowPlayingScreen(
                 if (!isLandscape) {
                     NowPlayingTopBar(
                         onBackClick = navigationActions.onBackClick,
-                        contentColor = contentColor,
                         accentColor = playButtonColor,
                         origin = origin,
                         backgroundColor = topBackgroundColor,
@@ -663,6 +701,8 @@ fun NowPlayingScreen(
                         durationFlow = durationFlow,
                         bufferedPositionFlow = bufferedPositionFlow,
                         showBuffer = isStreaming,
+                        groundAt = groundAt,
+                        bottomBackgroundColor = bottomBackgroundColor,
                         origin = origin,
                         backgroundColor = topBackgroundColor,
                         gesturesEnabled = gesturesEnabled,
@@ -710,6 +750,8 @@ fun NowPlayingScreen(
                         durationFlow = durationFlow,
                         bufferedPositionFlow = bufferedPositionFlow,
                         showBuffer = isStreaming,
+                        groundAt = groundAt,
+                        bottomBackgroundColor = bottomBackgroundColor,
                         gesturesEnabled = gesturesEnabled,
                         dismiss = activeDismiss,
                         format = formatInfo,
@@ -1041,6 +1083,16 @@ private fun MediaMetadataRetriever.readFormatInfo(): AudioFormatInfo {
 }
 
 /** Etiqueta cuando no se pudo determinar el contenedor. */
+/**
+ * Contraste que le exigimos al par `primary`/`onPrimary` antes de aceptarlo para el glifo del play.
+ * Es el mínimo WCAG de un ICONO (no el 4.5 de texto): el triángulo es una forma grande y maciza.
+ *
+ * `internal` porque `PlaybackControls` lo REPONE: si el contenedor del play tuvo que moverse de tono
+ * para verse sobre el fondo, el par deja de estar garantizado y el glifo se recalcula contra el
+ * contenedor REAL. Es el mismo listón, y escribirlo dos veces sería poder cambiar solo uno.
+ */
+internal const val PLAY_GLYPH_MIN_CONTRAST = 3f
+
 private const val UNKNOWN_FORMAT = "AUDIO"
 
 /** Entradas del caché de fichas técnicas. Ver [audioFormatCache]. */

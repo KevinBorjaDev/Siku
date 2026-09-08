@@ -128,9 +128,16 @@ const val PLAYER_CONTAINER_SHARED_KEY = "player_container"
  *  1. **superficie ENTRANTE** ([CONTAINER_SURFACE_OVERLAY_Z_ENTERING], 0) — crece sólida por debajo.
  *  2. **superficie SALIENTE** ([CONTAINER_SURFACE_OVERLAY_Z_EXITING], 1) — se disuelve encima de la
  *     que entra, que es lo que hace que abrir y cerrar se vean iguales.
- *  3. **portada** ([CONTAINER_ART_OVERLAY_Z], 2) — por encima de todo, porque es lo único que VIAJA
- *     de una superficie a la otra en vez de escalar con una de ellas.
+ *  3. **portada** ([CONTAINER_ART_OVERLAY_Z], 2) — por encima de las dos superficies, porque es lo
+ *     único que VIAJA de una a la otra en vez de escalar con una de ellas.
+ *  4. **chrome PERSISTENTE** ([CHROME_OVERLAY_Z], 3) — la píldora y el selector de pestañas, que
+ *     existen ANTES y DESPUÉS de la transición y por tanto no pueden quedar tapados por algo que
+ *     está de paso. No participan del morph: se suben al overlay solo para poder ordenarse frente
+ *     a él (ver `overSharedElementsModifier`), porque el overlay dibuja sobre el árbol ENTERO y
+ *     desde el árbol no hay z que alcance. Es el mismo motivo por el que ya se elevaba el título
+ *     viajero de los detalles, un peldaño más arriba porque aquí lo que hay debajo es la portada.
  *
+
  * Los nombres son de CONTENEDOR y no del player porque la escala la comparten todos los container
  * transform de la app —píldora, fila de canción y (más adelante) tarjetas—: son la misma coreografía
  * con distinta punta de origen, y tener una escala por origen sería garantizar que se desincronicen.
@@ -152,6 +159,9 @@ const val CONTAINER_SURFACE_OVERLAY_Z_EXITING = 1f
 
 /** Ver la escala completa en [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]. */
 const val CONTAINER_ART_OVERLAY_Z = 2f
+
+/** Ver la escala completa en [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]. */
+const val CHROME_OVERLAY_Z = 3f
 
 /**
  * Forma de la carátula, común al MiniPlayer y al NowPlaying: morph continuo entre un SQUIRCLE

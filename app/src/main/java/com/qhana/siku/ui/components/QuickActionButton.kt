@@ -36,18 +36,24 @@ private const val LABEL_AVG_CHAR_EM = 0.5f
 private const val QUICK_ACTION_ICON_OPTICAL_SIZE = 20
 
 /**
- * Acción rápida: **botón tonal XSmall** de M3 Expressive, con glifo y etiqueta.
+ * Acción rápida del inicio / pestaña Todas: **botón tonal XSmall de M3 Expressive**, con glifo y
+ * etiqueta.
  *
  * **Fue un `AssistChip` hasta el 28 ago 2026**, y el cambio lo pidió el usuario en device. Los dos
  * miden 32dp de alto, así que no es una cuestión de tamaño sino de QUÉ ES la pieza: un chip
  * *describe o acota* (el conteo, el orden, los filtros de origen — todo eso sigue siendo chip en la
- * fila de Todas), mientras que estas cinco entradas **arrancan reproducción**, que es un verbo. Y
- * la anatomía lo dice sola: la píldora (`CornerFull`) en vez del rectángulo de 8dp del chip, y el
+ * fila de Todas), mientras que estas entradas **arrancan reproducción**, que es un verbo. Y la
+ * anatomía lo dice sola: la píldora (`CornerFull`) en vez del rectángulo de 8dp del chip, y el
  * **morph al presionar** hacia `CornerSmall`, que un `AssistChip` no tiene.
  *
+ * Todas van con el MISMO color (`FilledTonalButton` / `secondaryContainer`). Las principales
+ * (`anchor = true`) se distinguen por la FORMA: rectángulo redondeado (`shapes.medium`, 12dp) en vez
+ * de la píldora (`CornerFull`) que llevan los géneros y las acciones por origen. El color no separa
+ * las dos capas —se probó y se descartó, ver `CLAUDE.md`—; la forma sí, sin depender de la paleta.
+ *
  * Todo lo dimensionable sale de [ButtonDefaults] a partir de UNA altura
- * ([ButtonDefaults.ExtraSmallContainerHeight]) — forma, relleno interior, glifo y separación —, así
- * que cambiar de talla es cambiar esa línea y no cinco números sueltos.
+ * ([ButtonDefaults.ExtraSmallContainerHeight]) — relleno interior, glifo y separación —, así que
+ * cambiar de talla es cambiar esa línea y no cinco números sueltos.
  *
  * Vive en `components` y no en `HomeScreen` desde el 22 ago 2026, cuando la pestaña **Todas**
  * estrenó los suyos: son la MISMA acción con el mismo aspecto en dos superficies, y escritos dos
@@ -59,6 +65,7 @@ fun QuickActionButton(
     label: String,
     enabled: Boolean = true,
     fill: Boolean = false,
+    anchor: Boolean = false,
     onClick: () -> Unit
 ) {
     val size = ButtonDefaults.ExtraSmallContainerHeight
@@ -72,11 +79,19 @@ fun QuickActionButton(
     // El token viene en dp y [MaterialSymbol] dimensiona en sp —es una fuente variable, no un
     // vectorial—, así que se convierte con la densidad en vez de escribir el número a ojo.
     val iconSize = with(LocalDensity.current) { ButtonDefaults.iconSizeFor(size).toSp() }
+    // Píldora + morph a `CornerSmall` bajo el dedo (el default de esta talla). Las principales parten
+    // de un rectángulo redondeado y el morph las lleva un paso más cuadradas.
+    val shapes = if (anchor) {
+        ButtonDefaults.shapes(
+            shape = MaterialTheme.shapes.medium,
+            pressedShape = MaterialTheme.shapes.small
+        )
+    } else {
+        ButtonDefaults.shapesFor(size)
+    }
     FilledTonalButton(
         onClick = onClick,
-        // `shapesFor` da el par (píldora en reposo, `CornerSmall` bajo el dedo) de ESTA talla; el
-        // default de `FilledTonalButton` es el de la talla Small y su morph sería otro.
-        shapes = ButtonDefaults.shapesFor(size),
+        shapes = shapes,
         modifier = Modifier.heightIn(size),
         enabled = enabled,
         colors = appFilledTonalButtonColors(),

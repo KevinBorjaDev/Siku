@@ -28,8 +28,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import com.materialkolor.contrast.Contrast
-import com.materialkolor.hct.Hct
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -39,6 +37,9 @@ import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.TransformResult
 import androidx.graphics.shapes.rectangle
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
@@ -49,7 +50,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.ui.theme.appSelectableMenuItemColors
 import com.qhana.siku.ui.theme.AppMenuGroup
-import com.qhana.siku.ui.theme.appVibrantFloatingToolbarColors
+import com.qhana.siku.ui.theme.appPlayerToolbarActiveContainer
+import com.qhana.siku.ui.theme.appPlayerToolbarColors
 import com.qhana.siku.R
 import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.model.PlayerToolbarAction
@@ -59,6 +61,7 @@ import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.components.*
 
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appMenuItemColors
 import com.qhana.siku.ui.theme.appSpatialSpec
@@ -480,11 +483,25 @@ internal fun ExpressiveToggleIcon(
     iconSize: TextUnit = 24.sp
 ) {
     val haptic = LocalHapticFeedback.current
-    // Activo = acento del álbum, SIN contenedor (Standard D3), pero pasado por ensureContrast contra
-    // el `surface` para que SIEMPRE sea PROMINENTE (≥3:1) — si no, un acento claro (p.ej. el lila de
-    // Orion) en tema claro pesa MENOS que el `onSurfaceVariant` oscuro del inactivo y se lee al
-    // revés. Conserva el matiz: en claro lo oscurece, en oscuro lo deja claro.
-    val activeColor = ensureContrast(accentColor, AppColors.surface, minRatio = 3f)
+    // Activo = acento del álbum, SIN contenedor (Standard D3), pero SIEMPRE prominente (≥3:1) sobre
+    // `surface` — si no, un acento claro (p.ej. el lila de Orion) en tema claro pesa MENOS que el
+    // `onSurfaceVariant` oscuro del inactivo y se lee al revés.
+    //
+    // Role-first ([contentRoleOn]): primero se prueban acentos TABULADOS y solo se re-tonaliza
+    // [accentColor] si ninguno llega. Antes derivaba siempre, aunque hubiera un rol que servía.
+    val toggleColors = LocalAppColors.current
+    val activeColor = remember(toggleColors.version, accentColor) {
+        contentRoleOn(
+            toggleColors.surface, 3f,
+            listOf(
+                toggleColors.primary,
+                toggleColors.secondary,
+                toggleColors.tertiary,
+                toggleColors.onSecondaryContainer,
+            ),
+            accentColor,
+        )
+    }
     val iconColor by animateColorAsState(
         targetValue = if (checked) activeColor else inactiveColor,
         // Effects: es un color, y los tokens effects son los únicos sin rebote.
@@ -584,11 +601,49 @@ internal fun PlaybackControls(
     contentColor: Color,
     playButtonColor: Color,
     playButtonContentColor: Color,
+    /**
+     * El color del fondo a una fracción dada de la ALTURA de la pantalla. El play es una superficie
+     * rellena que se apoya en el fondo del reproductor, así que necesita saber sobre QUÉ se apoya
+     * para garantizar que se ve — y dónde cae depende del layout (la carátula es `weight(1f)`). Ver
+     * `groundAt` en `NowPlayingScreen`.
+     */
+    groundAt: (Float) -> Color,
     isPlayingOrBuffering: Boolean,
     playbackState: PlaybackState,
     spin: PlayButtonSpinState
 ) {
     val haptic = LocalHapticFeedback.current
+    // DÓNDE cae el transporte dentro de la pantalla, para preguntarle a [groundAt] qué tiene detrás.
+    // Mismo idiom que `ProgressSlider`, incluida la siembra a media pantalla: es solo el valor del
+    // primer frame, y `onGloballyPositioned` lo corrige antes de que se note. Escribir el mismo
+    // Float en un `mutableFloatStateOf` no invalida nada, así que el callback por pasada de layout
+    // no cuesta.
+    var groundFraction by remember { mutableFloatStateOf(0.5f) }
+    val ground = groundAt(groundFraction)
+    // PISO de contraste del contenedor del play contra ese fondo (3:1, el mínimo WCAG de un elemento
+    // NO textual — [PLAY_CONTAINER_MIN_CONTRAST]).
+    //
+    // El play se queda en `primary`: es el rol que M3 define como el énfasis máximo y el ancla contra
+    // la que se mide el resto del reproductor, así que aquí NO se va a `contentRoleOn` ni a
+    // `roleLayerOn` — la primera cambiaría el play de FAMILIA según el álbum y la segunda elige a
+    // propósito el escalón más DISCRETO que aún se ve, que es lo contrario de lo que este botón hace.
+    // Lo único que faltaba era el piso: hasta ahora se guardaba el glifo contra el contenedor y NADA
+    // guardaba el contenedor contra el fondo. Con `Fidelity` y el spec 2025 `primary` vive en el tono
+    // de croma máximo, que en la familia amarillo/verde puede ser T90 — sobre el `surface` T98 del
+    // pie del degradado en tema claro el botón se apaga. Es el mismo defecto que dejó invisible el
+    // botón "Ver" de estadísticas, sobre una pieza más grande (que perdona más, no infinito).
+    //
+    // `ensureContrast` y no un rol distinto: conserva matiz y croma y mueve SOLO el tono, y solo
+    // cuando hace falta — en la inmensa mayoría de las paletas devuelve el mismo color.
+    val playContainer = remember(playButtonColor, ground) {
+        ensureContrast(playButtonColor, ground, PLAY_CONTAINER_MIN_CONTRAST)
+    }
+    // Si el contenedor se movió, el par `primary`/`onPrimary` deja de estar garantizado y el glifo
+    // se repone contra el contenedor REAL. No-op cuando no se movió: el color que llega ya cumple
+    // ese mismo listón contra el `primary` original (ver `NowPlayingScreen`).
+    val playContent = remember(playButtonContentColor, playContainer) {
+        ensureContrast(playButtonContentColor, playContainer, PLAY_GLYPH_MIN_CONTRAST)
+    }
     // Contenedor de prev/next: FILLED TONAL de M3 (spec para este tipo de botón secundario) =
     // secondaryContainer + onSecondaryContainer. Contraste del icono garantizado por el par M3.
     // Jerarquía: play = Filled/primary (acento pleno) > prev/next = Tonal/secondary.
@@ -603,7 +658,15 @@ internal fun PlaybackControls(
     // Transporte = SOLO prev / play / next, centrado. Shuffle se movió a la cola y repeat al
     // toolbar (eran ajustes de la cola, no del transporte; y competían con el play en la jerarquía).
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coords ->
+                val screenHeight = coords.findRootCoordinates().size.height
+                if (screenHeight > 0) {
+                    val centerY = coords.positionInRoot().y + coords.size.height / 2f
+                    groundFraction = (centerY / screenHeight).coerceIn(0f, 1f)
+                }
+            },
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -765,7 +828,7 @@ internal fun PlaybackControls(
                             onPlayPause()
                         },
                         shape = playShape,
-                        color = playButtonColor,
+                        color = playContainer,
                         interactionSource = playInteraction,
                         modifier = Modifier
                             .weight(playWidth.value)
@@ -799,12 +862,12 @@ internal fun PlaybackControls(
                                         // construye 7 Morphs entre MaterialShapes en el hilo principal.
                                         SideEffect { com.qhana.siku.data.util.JankProbe.mark { "LoadingIndicator del play compuesto" } }
                                         // LoadingIndicator expressive: morfea entre MaterialShapes.
-                                        LoadingIndicator(color = playButtonContentColor, modifier = Modifier.size(44.dp))
+                                        LoadingIndicator(color = playContent, modifier = Modifier.size(44.dp))
                                     }
                                     PlaybackState.PLAYING ->
-                                        MaterialSymbol("pause", size = PlayButtonIconSize, color = playButtonContentColor, fill = true)
+                                        MaterialSymbol("pause", size = PlayButtonIconSize, color = playContent, fill = true)
                                     else ->
-                                        MaterialSymbol("play_arrow", size = PlayButtonIconSize, color = playButtonContentColor, fill = true)
+                                        MaterialSymbol("play_arrow", size = PlayButtonIconSize, color = playContent, fill = true)
                                 }
                             }
                         }
@@ -865,13 +928,37 @@ internal fun PlaybackControls(
     }
 }
 
+/**
+ * Color del glifo de una entrada de MENÚ que tiene estado detrás: un escalón de peso,
+ * `onSurfaceVariant` → `onSurface`.
+ *
+ * **Ese par es el ÚNICO de contenido al que M3 le promete un orden**, y es neutro, así que la
+ * jerarquía se sostiene en los dos temas y con cualquier estilo de paleta sin medir ni derivar
+ * nada. Es lo que sustituyó al `primary` suelto que pintaba el temporizador (7 sep 2026): un acento
+ * sobre una superficie neutra —aquí el `surfaceContainerHighest` de `AppMenuPopup`— no tiene NINGUNA
+ * garantía de M3, que es el mismo defecto que dejó invisible el botón "Ver" de estadísticas.
+ *
+ * El inactivo NO se escribe: se hereda del `LocalContentColor` que el propio `DropdownMenuItem`
+ * provee alrededor del slot del icono (`Menu.kt:1573`), o sea el `leadingIconColor` de
+ * [appMenuItemColors]. Poner `onSurfaceVariant` a mano sería el mismo dato en dos sitios.
+ */
+@Composable
+private fun menuStateIconColor(active: Boolean): Color =
+    if (active) AppColors.onSurface else LocalContentColor.current
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun BottomActionBar(
     showLyrics: Boolean,
     isLyricsLoading: Boolean,
     keepScreenOn: Boolean,
-    playButtonColor: Color,
+    /**
+     * Color REAL del fondo del reproductor a la altura de la barra (el extremo de abajo del
+     * degradado, o el sólido). De él se derivan el contenedor del toolbar y el relleno del toggle
+     * activo: ver [appPlayerToolbarColors]. No puede ser un rol fijo — `surfaceContainer`, que es lo
+     * que M3 tabula para el standard, ES el fondo de esta pantalla en modo sólido.
+     */
+    background: Color,
     songRemoteId: String?,
     isDownloaded: Boolean,
     isDownloading: Boolean,
@@ -892,147 +979,20 @@ internal fun BottomActionBar(
     config: List<ToolbarActionState>,
     modifier: Modifier = Modifier
 ) {
-    // FLOATING TOOLBAR M3 Expressive (m3.material.io/components/toolbars), variante VIBRANT:
-    // container = `primaryContainer`, content = `onPrimaryContainer` (defaults de
-    // vibrantFloatingToolbarColors). Se eligió vibrant porque la standard (surfaceContainer) se
-    // perdía contra el fondo del NowPlaying.
-    val toolbarContentColor = AppColors.onPrimaryContainer
-    // Relleno del toggle ACTIVO: el color DE LA BARRA movido solo en el eje del TONO, lo bastante
-    // lejos de ella para VERSE y sin llegar a disputarle el énfasis al play.
-    //
-    // El porqué, MEDIDO sobre capturas del dispositivo. Con `onPrimaryContainer` (lo que había) el
-    // relleno salía a tono 90.2 contra el 80.1 del play en tema oscuro: el elemento más claro —y
-    // por tanto más enfático— de todo el reproductor era un toggle encendido, por duplicado. Con
-    // `secondary` tampoco basta: en oscuro ese rol vale 80 con TonalSpot, o sea EMPATA con el play;
-    // y en claro su croma de 19.1 dentro de una barra de 39.8 convertía el círculo en una mancha
-    // gris. El fondo de la barra (tono 34.9 en oscuro) nunca fue el problema.
-    //
-    // La regla tiene DOS mitades y las dos son necesarias:
-    //
-    //  1. Cuando hay recorrido hacia el play, el activo se coloca a [ACTIVE_TONE_FRACTION_UP] /
-    //     [_DOWN] del camino de la barra al acento: queda visible y por debajo de él en énfasis
-    //     sin depender de qué tono devuelva cada rol.
-    //  2. Un PISO de contraste contra la propia barra ([ACTIVE_MIN_CONTRAST_VS_BAR]) que el
-    //     resultado nunca puede incumplir. Esto es lo que faltaba: la interpolación garantiza
-    //     jerarquía, no visibilidad, y con un acento vivo puede no haber camino ninguno. MEDIDO en
-    //     el device con un tema fiel a la carátula (Dream Theater, seed naranja de croma alto): la
-    //     barra sale a tono 60.0 y el play a 63.9 — 3.99 tonos de recorrido —, y el fallback que
-    //     había ahí (llevar el activo AL tono del play) dejaba el disco a 1.14:1 contra su propio
-    //     fondo, o sea literalmente invisible. El caso no era exótico: desde que el seed se
-    //     persiste crudo, `primary` vive donde el croma es máximo y eso lo pega a
-    //     `primaryContainer`. Que el degenerado copiara al play era la causa raíz — play ≈ barra
-    //     ES la definición de ese caso.
-    //
-    // El resultado tiene que cumplir DOS cosas, y el disco se corrige solo si falla alguna:
-    //
-    //  A. Separarse de la BARRA al menos [ACTIVE_MIN_CONTRAST_VS_BAR], o el disco no se ve.
-    //  B. Dejar en pie el GLIFO, o sea que `ensureContrast` no tenga que cambiarlo de lado — porque
-    //     el glifo activo debe ser el MISMO color que los inactivos (ver [keepsGlyph]).
-    //
-    // Las dos son necesarias y cada una la descubrió una captura del device, cada una con un estilo
-    // de paleta distinto (Ajustes → Apariencia), que es lo que mueve estos tonos:
-    //
-    //  - Fiel a la carátula, tema oscuro: barra 60.0, play 63.9, glifo 14.9. Falla A (el candidato
-    //    sale a 62.4, o sea 1.09:1 contra su propio fondo: invisible).
-    //  - Equilibrado, tema oscuro: barra 35.0, play 63.9, glifo 90.2. Cumple A de sobra (candidato
-    //    52.5, 1.90:1) y falla B: el glifo claro no aguanta sobre un disco medio, así que
-    //    `ensureContrast` lo mandó a tono 4.6 — casi negro, el único icono NEGRO de una barra de
-    //    iconos claros.
-    //
-    // Mirar solo A arreglaba el primero y dejaba el segundo; mirar solo B, al revés. Y el tema
-    // claro/oscuro sale gratis de B: de qué lado cae el glifo ES la firma del tema y del estilo
-    // juntos, así que en Equilibrado oscuro la corrección BAJA el disco y en fiel a la carátula lo
-    // SUBE, sin una sola rama que pregunte por el tema.
-    //
-    // Cuando ninguna falla, el resultado es el de siempre TONO A TONO. Esto es load-bearing: una
-    // regla que decida la dirección por su cuenta arregla el estilo que se está mirando y estropea
-    // otro (con la barra a 70 y el play a 20 la interpolación da 50 con 1.95:1 —correcto— y una
-    // dirección impuesta "hacia arriba" lo mandaba a 86). La pregunta correcta no es "¿hacia dónde
-    // va el activo?" sino "¿el de siempre cumple? si no, corrígelo".
-    //
-    // La CORRECCIÓN va siempre alejándose del glifo, que es la única dirección que puede cumplir A y
-    // B a la vez: aleja el disco de la barra y se lo acerca al glifo en contraste. Si por ese lado no
-    // cabe el piso (barra ya casi blanca), se usa el otro.
-    //
-    // CONTRAPARTIDA ASUMIDA, y solo dentro de la corrección: ahí el disco puede acabar más claro que
-    // el play (75.2 contra 63.9 en el estilo fiel a la carátula) y deja de cumplirse "el activo
-    // nunca por encima del acento". Se acepta porque ese caso es exactamente el que se está
-    // corrigiendo —play y barra son el mismo color, así que esa jerarquía ya no existía— y porque el
-    // disco se mueve SOLO lo justo para el piso.
-    //
-    // Comprobado contra el estilo que ya estaba aprobado a la vista en tema claro (barra 90.1, play
-    // 42.4, glifo 30.0): cumple las dos y sigue dando 71.0, idéntico.
-    val toolbarContainerColor = AppColors.primaryContainer
-    val checkedBg = remember(playButtonColor, toolbarContainerColor, toolbarContentColor) {
-        val bar = Hct.fromInt(toolbarContainerColor.toArgb())
-        val playTone = Hct.fromInt(playButtonColor.toArgb()).tone
-        val glyphTone = Hct.fromInt(toolbarContentColor.toArgb()).tone
-        // Diseño de siempre: una fracción del camino tonal de la barra al play, con su fracción por
-        // sentido. Sin fallback: el que había (llevar el activo AL tono del play cuando el recorrido
-        // era corto) era la causa raíz, porque play ≈ barra ES ese caso.
-        val span = playTone - bar.tone
-        val candidate =
-            bar.tone + span * (if (span > 0) ACTIVE_TONE_FRACTION_UP else ACTIVE_TONE_FRACTION_DOWN)
-        val activeTone = if (
-            Contrast.ratioOfTones(candidate, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR &&
-            keepsGlyph(discTone = candidate, glyphTone = glyphTone)
-        ) {
-            candidate
-        } else {
-            // Las DOS direcciones — no solo "alejarse del glifo" — y, entre las que YA cumplen el
-            // piso de contraste contra la barra Y dejan al glifo del lado correcto (`keepsGlyph`),
-            // se prefiere la que retiene más croma de la barra (1 sep 2026, mismo criterio que
-            // [ensureContrast]). NINGÚN piso se relaja — eso es justo lo que este ajuste corrige de
-            // una versión anterior: el 1.6:1 sigue siendo el mínimo real, esto solo decide ENTRE
-            // soluciones que YA lo cumplen. Si solo una dirección cumple las dos condiciones, se usa
-            // esa igual que antes; si ninguna las cumple las dos, se cae al comportamiento de
-            // siempre —alejarse del glifo, con el otro lado de reserva— sin tocarlo.
-            val darkTone = Contrast.darkerUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
-            val lightTone = Contrast.lighterUnsafe(bar.tone, ACTIVE_MIN_CONTRAST_VS_BAR)
-            val darkOk = Contrast.ratioOfTones(darkTone, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR &&
-                keepsGlyph(discTone = darkTone, glyphTone = glyphTone)
-            val lightOk = Contrast.ratioOfTones(lightTone, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR &&
-                keepsGlyph(discTone = lightTone, glyphTone = glyphTone)
-            when {
-                darkOk && lightOk ->
-                    if (
-                        Hct.from(bar.hue, bar.chroma, darkTone).chroma >=
-                        Hct.from(bar.hue, bar.chroma, lightTone).chroma
-                    ) {
-                        darkTone
-                    } else {
-                        lightTone
-                    }
-                darkOk -> darkTone
-                lightOk -> lightTone
-                else -> {
-                    // Ninguna de las dos direcciones deja al glifo del lado correcto: el
-                    // comportamiento de siempre. Los `*Unsafe` CLAMPEAN a 100 y a 0 cuando el piso
-                    // no es alcanzable, así que la pregunta se le hace al contraste que el tono da
-                    // de verdad y no a si la función devolvió algo.
-                    val glyphAbove = glyphTone > bar.tone
-                    val away = if (glyphAbove) darkTone else lightTone
-                    if (Contrast.ratioOfTones(away, bar.tone) >= ACTIVE_MIN_CONTRAST_VS_BAR) away
-                    else if (glyphAbove) lightTone else darkTone
-                }
-            }
-        }
-        // Matiz y croma DE LA PROPIA BARRA: el activo es "la barra, destacada", así que solo debe
-        // moverse en el eje del tono. Antes salían de `secondary` y el resultado, MEDIDO en tema
-        // claro, era un croma de 19.1 dentro de una barra de 39.8: a media saturación el círculo
-        // se leía como una mancha gris sobre un fondo amarillo. El hue ya coincidía (106° en toda
-        // la pantalla), así que lo único que desentonaba era eso.
-        //
-        // Que use la paleta primaria NO reabre lo de "la primaria es del play": la barra entera ya
-        // es `primaryContainer`. Lo que sigue siendo exclusivo del play es el ROL `primary`, y el
-        // reparto de énfasis lo hace el tono, no la familia.
-        bar.withTone(activeTone.coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)).let { Color(it.toInt()) }
-    }
+    // FLOATING TOOLBAR M3 Expressive (m3.material.io/components/toolbars), variante **STANDARD** con
+    // el contenedor DERIVADO del fondo real que tiene debajo. El porqué —que el spec reparte las dos
+    // variantes por énfasis y aquí el control enfático es el play, y que aun así el token del
+    // standard no sirve tal cual porque ES el fondo del reproductor— está en [appPlayerToolbarColors].
+    val toolbarColors = appPlayerToolbarColors(background)
+    val toolbarContentColor = toolbarColors.toolbarContentColor
+    // Relleno del toggle ACTIVO: el MISMO fondo con el doble de separación que la barra, o sea un
+    // escalón más de la misma escala. Fuera de la familia del play no hay nada que arbitrar.
+    val checkedBg = appPlayerToolbarActiveContainer(background)
     // Glifo activo: parte del MISMO color que los iconos inactivos de la barra, para que lo único
     // que cambie al encender sea el disco de detrás. `ensureContrast` lo corrige si el relleno se
     // le acerca demasiado — hace falta porque al construir el color a mano se pierde la garantía
     // del par `on*` de M3, y es el mismo mecanismo del toggle de acento del transporte.
-    // `remember`ado como `checkedBg`: desde que `ensureContrast` camina el límite de croma
+    // `remember`ado igual que `checkedBg`: desde que `ensureContrast` camina el límite de croma
     // (hasta ~100 pasos, cada uno un `Hct.from`), recalcularlo en cada recomposición sin motivo
     // sería trabajo tirado.
     val activeContent = remember(toolbarContentColor, checkedBg) {
@@ -1045,7 +1005,7 @@ internal fun BottomActionBar(
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         HorizontalFloatingToolbar(
             expanded = true,
-            colors = appVibrantFloatingToolbarColors(),
+            colors = toolbarColors,
             // Spec floating toolbar: container de 64dp. La alpha18 NO lo respeta sola (medido
             // 72.5dp en dispositivo: acolcha 12dp alrededor de los touch targets de 48 aunque
             // se le pase contentPadding de 8) → altura FORZADA al token. Los visuales de 40dp
@@ -1188,12 +1148,11 @@ internal fun BottomActionBar(
                         // LoadingIndicator, que morfea formas en vez de ondular).
                         //
                         // Color = `toolbarContentColor` (el del glifo), NO el acento del álbum:
-                        // es la MISMA razón por la que el toggle activo dejó de usar
-                        // inverseSurface. Con carátula acromática el tema es Monochrome, y ahí
-                        // MCU coloca `primary` y `primaryContainer` del mismo lado tonal (oscuro:
-                        // T100 sobre T85; claro: T0 sobre T25) → la onda quedaba invisible sobre
-                        // el contenedor de la barra. El par container/onContainer tiene contraste
-                        // garantizado por construcción sea cual sea el seed.
+                        // es la MISMA razón por la que el toggle activo no lleva un acento. Con
+                        // carátula acromática el tema es Monochrome, y ahí MCU coloca `primary` y
+                        // los contenedores del mismo lado tonal → un acento quedaba invisible
+                        // sobre la barra. El contenido de la barra, en cambio, se lee sobre ella
+                        // por construcción sea cual sea el seed.
                         val density = LocalDensity.current
                         val waveStroke = remember(density) {
                             Stroke(
@@ -1248,11 +1207,29 @@ internal fun BottomActionBar(
                         // de cada item sale de su POSICIÓN en la lista real: el bloque cierra
                         // arriba y abajo aunque el usuario deje una sola acción en el overflow.
                         //
-                        // Letras y "mantener pantalla encendida" son TOGGLES y van con la
-                        // sobrecarga `checked` (contenedor marcado, morph de forma,
-                        // `Role.Checkbox`); antes su estado solo se veía en el relleno del icono,
-                        // que un lector de pantalla no anuncia. Repetición NO: cicla entre tres
-                        // valores y un checkbox mentiría sobre lo que hace.
+                        // DOS mecanismos para decir "activo", y el corte es qué HACE la entrada:
+                        //
+                        //  - **Contenedor** (`appSelectableMenuItemColors` + `checked`): solo para lo
+                        //    que se enciende y se apaga AQUÍ MISMO, que en este menú es una sola
+                        //    entrada, "mantener pantalla encendida". Trae el morph de forma y
+                        //    `Role.Checkbox`, que es lo que un lector de pantalla anuncia.
+                        //  - **Peso del glifo** ([menuStateIconColor] + `fill`): "hay algo activo
+                        //    detrás de esto". Es el de letras, EQ, temporizador y repetición.
+                        //
+                        // **Letras va con el segundo aunque su etiqueta se invierta** (7 sep 2026,
+                        // corregido por el usuario). Llevaba `checked` razonando que es un booleano
+                        // que se flipa desde el menú, y eso describe cómo se CIERRA, no qué abre: es
+                        // una capa a pantalla completa montada con `SheetOverlay`, el mismo
+                        // envoltorio que la cola. Anunciar como casilla algo que tapa el reproductor
+                        // entero era lo impreciso; el estado lo sigue diciendo la etiqueta.
+                        //
+                        // Repetición cae en el segundo por descarte —cicla entre tres valores, así
+                        // que un checkbox mentiría— y no necesita un tercer tratamiento: qué CLASE
+                        // de control es ya lo dicen su etiqueta y el cambio a `repeat_one`, mientras
+                        // que el peso del glifo responde otra pregunta, la misma que en el EQ.
+                        //
+                        // Cola, compartir, añadir y descargar comparten la MISMA regla: no tienen
+                        // estado, así que nunca llegan a la forma activa. No son un tercer caso.
                         overflowActions.forEachIndexed { index, action ->
                             val itemShapes = MenuDefaults.itemShape(
                                 index = index,
@@ -1273,17 +1250,23 @@ internal fun BottomActionBar(
                                     leadingIcon = {
                                         MenuItemIcon(
                                             if (repeatMode == RepeatMode.ONE) "repeat_one" else "repeat",
-                                            fill = repeatMode != RepeatMode.OFF
+                                            fill = repeatMode != RepeatMode.OFF,
+                                            color = menuStateIconColor(repeatMode != RepeatMode.OFF)
                                         )
                                     }
                                 )
                                 PlayerToolbarAction.LYRICS -> DropdownMenuItem(
-                                    colors = appSelectableMenuItemColors(),
-                                    checked = showLyrics,
-                                    onCheckedChange = { showMenu = false; onLyricsToggle() },
+                                    colors = appMenuItemColors(),
+                                    onClick = { showMenu = false; onLyricsToggle() },
                                     text = { Text(if (showLyrics) stringResource(R.string.np_hide_lyrics) else stringResource(R.string.np_show_lyrics)) },
-                                    shapes = itemShapes,
-                                    leadingIcon = { MenuItemIcon("lyrics", fill = showLyrics) }
+                                    shape = itemShapes.shape,
+                                    leadingIcon = {
+                                        MenuItemIcon(
+                                            "lyrics",
+                                            fill = showLyrics,
+                                            color = menuStateIconColor(showLyrics)
+                                        )
+                                    }
                                 )
                                 PlayerToolbarAction.QUEUE -> DropdownMenuItem(
                                     colors = appMenuItemColors(),
@@ -1312,7 +1295,13 @@ internal fun BottomActionBar(
                                     onClick = { showMenu = false; onOpenEqualizer() },
                                     text = { Text(stringResource(R.string.np_open_eq)) },
                                     shape = itemShapes.shape,
-                                    leadingIcon = { MenuItemIcon("graphic_eq") }
+                                    leadingIcon = {
+                                        MenuItemIcon(
+                                            "graphic_eq",
+                                            fill = eqEnabled,
+                                            color = menuStateIconColor(eqEnabled)
+                                        )
+                                    }
                                 )
                                 PlayerToolbarAction.ADD_TO_PLAYLIST -> DropdownMenuItem(
                                     colors = appMenuItemColors(),
@@ -1333,7 +1322,7 @@ internal fun BottomActionBar(
                                         MenuItemIcon(
                                             "snooze",
                                             fill = sleepTimerActive,
-                                            color = if (sleepTimerActive) playButtonColor else LocalContentColor.current
+                                            color = menuStateIconColor(sleepTimerActive)
                                         )
                                     }
                                 )
@@ -1375,9 +1364,9 @@ private val ToolbarDownloadIndicatorSize = 36.dp
 
 
 /**
- * Opacidad del track del anillo de descarga. Se deriva del MISMO color del indicador
- * (`onPrimaryContainer`, en vez de un rol suelto del esquema) porque la barra flotante es vibrant:
- * cualquier `surface*` cae encima del `primaryContainer` del contenedor y el track desaparece.
+ * Opacidad del track del anillo de descarga. Se deriva del MISMO color del indicador —el contenido
+ * de la barra— y no de un rol suelto del esquema: el contenedor del toolbar se DERIVA del fondo real
+ * (ver [appPlayerToolbarColors]), así que ningún `surface*` tabulado puede prometer verse encima.
  * Atenuado lo justo para que el recorrido pendiente se lea sin competir con la onda activa ni con
  * el glifo.
  */
@@ -1392,71 +1381,11 @@ private const val TOOLBAR_DOWNLOAD_TRACK_ALPHA = 0.3f
 private val ToolbarDownloadStrokeWidth = 2.5.dp
 
 /**
- * Dónde se coloca el relleno del toggle ACTIVO del toolbar, medido como fracción del camino
- * tonal que va del contenedor de la barra al botón de play (ver [BottomActionBar]).
- *
- * 0 sería invisible (el tono de la propia barra) y 1 lo empataría con el play, que es el defecto
- * que se venía arrastrando.
- *
- * Va SEPARADO por dirección porque la misma fracción no pesa igual subiendo que bajando. Subiendo
- * el recorrido es largo (barra 34.9 → play 80.1, MEDIDO en tema oscuro) y 0.6 deja el activo en
- * ~62: legible y con un 40% de margen por debajo del acento. Bajando es más corto (barra 90.1 →
- * play 42.4, tema claro) y ese mismo 0.6 dejaba el círculo en 61.4 con 2.34:1 contra su fondo —
- * correcto de jerarquía, pero demasiado marcado a la vista. Con 0.4 sube a ~71 y se queda en
- * ~1.75:1.
- */
-private const val ACTIVE_TONE_FRACTION_UP = 0.6
-private const val ACTIVE_TONE_FRACTION_DOWN = 0.4
-
-/**
- * Separación mínima, en contraste, entre el relleno del toggle activo y el contenedor de la barra
- * que tiene detrás. Es el PISO que la interpolación hacia el play no puede incumplir, y también lo
- * que decide la dirección (ver [BottomActionBar]).
- *
- * Calibrado con los dos extremos que ya se habían juzgado a la vista sobre el dispositivo: 1.75:1
- * (tema claro, el valor que quedó bien) y 2.34:1 (el que se descartó por "demasiado marcado").
- * 1.6:1 se queda por debajo del primero —así que no fuerza a nadie— y arregla el caso roto, que
- * estaba en 1.14:1. No bajarlo a ~1.4: ahí el disco vuelve a fundirse con la barra en cuanto el
- * acento es cromático.
- *
- * Se mide con [Contrast], la misma matemática que usa M3 para su propio sistema de contraste, así
- * que el paso "contraste objetivo → tono" es exacto y no hay que duplicarlo: el tono HCT y la
- * luminancia relativa de WCAG salen de la MISMA Y de CIEXYZ.
- */
-private const val ACTIVE_MIN_CONTRAST_VS_BAR = 1.6
-
-/**
  * Contraste mínimo del glifo del toggle activo contra su relleno. 4.5:1 = el mínimo AA para texto,
  * y el mismo listón que M3 garantiza en sus pares `color`/`onColor` — que aquí hay que reponer a
  * mano porque el relleno se construye con un tono propio.
  */
 private const val ACTIVE_GLYPH_MIN_CONTRAST = 4.5f
-
-/**
- * ¿Un disco de tono [discTone] deja en pie un glifo de tono [glyphTone], o `ensureContrast` va a
- * tener que CAMBIARLO DE LADO?
- *
- * Es la condición B de [BottomActionBar], y existe porque el glifo activo tiene que ser el mismo
- * color que los inactivos de la barra: si el disco lo obliga a invertirse, el toggle encendido pasa
- * a ser el único icono de otro color y se pierde justo lo que se quería comunicar. MEDIDO en device:
- * con la barra de Equilibrado en tema oscuro (glifo claro, tono 90.2) sobre un disco a 52.5, el
- * glifo acabó en 4.6 — negro dentro de una barra de iconos claros.
- *
- * Dos formas de estar a salvo, y basta una:
- *
- *  - **Contraste suficiente** ([ACTIVE_GLYPH_MIN_CONTRAST]): `ensureContrast` no interviene.
- *  - **Estar del lado bueno**: si interviene, que sea empujando el glifo MÁS hacia su propio lado en
- *    vez de cruzarlo. Eso se decide con la misma pregunta que se hace `ensureContrast` —¿contrasta
- *    más el negro o el blanco contra el disco?— comparada con el lado en el que el glifo ya está.
- *    Duplicar aquí ese criterio es deliberado: la alternativa es una constante con el tono del cruce
- *    (~49.4), que es el mismo dato escrito de una forma que no avisa si `ensureContrast` cambia.
- */
-private fun keepsGlyph(discTone: Double, glyphTone: Double): Boolean {
-    if (Contrast.ratioOfTones(glyphTone, discTone) >= ACTIVE_GLYPH_MIN_CONTRAST) return true
-    val darkWins = Contrast.ratioOfTones(0.0, discTone) >= Contrast.ratioOfTones(100.0, discTone)
-    return darkWins == (glyphTone < discTone)
-}
-
 /**
  * Medidas del botón de play. **Las tres son PROPIAS, no de la escala de icon button**, y se
  * calibraron mirando la pantalla: el contenedor Large son 96 de alto y el `Wide` 128 de ancho, y esa
@@ -1475,6 +1404,18 @@ private fun keepsGlyph(discTone: Double, glyphTone: Double): Boolean {
  * fundido de las letras) sin ninguna relación con esto. Compartir el dígito no es compartir el
  * concepto.
  */
+/**
+ * Contraste mínimo del CONTENEDOR del play contra el fondo del reproductor. 3:1 = el mínimo WCAG
+ * para un elemento no textual, que es lo que pide Material para una superficie: el botón es una
+ * forma maciza de 80dp, no texto.
+ *
+ * Constante propia y no la del glifo ([PLAY_GLYPH_MIN_CONTRAST]) —aunque hoy valgan lo mismo— por el
+ * mismo criterio que `ROW_ACTIVE_TONE_DELTA` o `LIBRARY_TOOLBAR_TONE_DELTA`: son dos preguntas
+ * distintas (el botón sobre la pantalla, el triángulo sobre el botón) y calibrar una no puede mover
+ * la otra.
+ */
+private const val PLAY_CONTAINER_MIN_CONTRAST = 3f
+
 private val PlayButtonHeight = 80.dp
 
 private val PlayButtonPlayingWidth = 80.dp

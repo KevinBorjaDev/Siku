@@ -28,8 +28,6 @@ import com.qhana.siku.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
-import com.materialkolor.contrast.Contrast
-import com.materialkolor.hct.Hct
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,361 +54,13 @@ import com.qhana.siku.ui.theme.appFastEffectsSpec
 // Historia, porque es el cuarto intento y los tres anteriores se descartaron: (1) una barra de 3dp
 // en el borde inferior que la forma de píldora obligaba a recortar 34dp por lado (a esa altura el
 // contorno ya se ha metido hacia adentro); (2) un tinte del contenedor entero; (3) un RELLENO de
-// altura completa cuyo borde vertical se leía como posición y que la píldora recortaba sola. El
-// relleno resolvió la geometría, pero tenía una pega documentada: pasaba por DEBAJO del título, así
-// que el texto tenía que medir su contraste contra el color del relleno (toda la maquinaria de
-// `rememberMiniPlayerColors`/`rememberMiniPlayerSurfaces`).
+// altura completa cuyo borde vertical se leía como posición y que la píldora recortaba sola.
 //
 // El anillo saca el progreso de debajo del texto: el título vuelve a apoyarse en el contenedor
-// LIMPIO y la medida de contraste se simplifica. Cabe en los 8dp de aire que la carátula (56dp)
-// deja dentro de los 72 de alto, va como HERMANO de la portada —no dentro de sus bounds— para no
-// viajar con el shared element hacia el NowPlaying, y el tick de posición solo repinta (se lee
-// dentro de la lambda de dibujo), nunca recompone.
-
-/**
- * Paso de la escala tonal (HCT) propia de la barra: 8 puntos, el mismo salto que M3 usa entre
- * peldaños de superficie y que `SongListItem.ROW_ACTION_TONE_DELTA` para la píldora de acciones.
- * Visible como otra superficie sin partir la barra en dos.
- *
- * Es un DESPLAZAMIENTO DE TONO y no una opacidad de un rol sobre otro, que es lo que había hasta el
- * 31 jul. Con `TonalSpot` un 16 % de `primary` sobre `primaryContainer` daba justo estos ~8 puntos y
- * parecía bien elegido, pero la distancia entre dos roles la decide el ESTILO DE PALETA: en "fiel a
- * la carátula" (`Fidelity`) ambos se pegan al color fuente, así que la mezcla movía el tono un par de
- * puntos y el progreso desaparecía. Es lo que ya documenta `rememberRowActionColors` —un rol fijo no
- * garantiza separación—, colado por la puerta del alpha.
- */
-private const val MiniPlayerToneStep = 8.0
-
-/**
- * Separación mínima del botón "siguiente" respecto a la barra: **1.8:1**.
- *
- * Es un CONTRASTE y no un número de pasos de tono, y ésa es la corrección del 20 ago. Un paso fijo
- * produce separaciones distintas según dónde caiga la barra —medido en device el mismo día: **1.35:1**
- * con carátula monocroma (barra en tono 30) y **1.27:1** en tema claro (barra en tono 73)—, o sea que
- * el botón se distinguía más o menos de su fondo según el disco que sonara. Pidiendo el contraste, el
- * desplazamiento sale solo y es el mismo en cualquier tema.
- *
- * El valor sale de dos medidas que coinciden: es lo que M3 da a ESE MISMO botón sobre su superficie en
- * el reproductor (`secondaryContainer` sobre `surface`, **1.90** medido con carátula monocroma) y lo
- * que el mini tenía antes de esta jornada (**1.82**). No es un mínimo de accesibilidad —no existe
- * ninguno para "un contenedor tonal sobre otro"; el del contenido va aparte, en
- * [MiniPlayerMinContrast]— sino el punto en el que dos superficies del mismo color se leen como dos
- * piezas.
- */
-private const val MiniPlayerButtonMinContrast = 1.8
-
-/**
- * Contraste mínimo del contenido de la barra sobre su fondo: 4.5:1, el AA de WCAG para texto pequeño
- * (`bodySmall` lo es, y el glifo de "siguiente" son trazos de ~2dp que a efectos de legibilidad se
- * comportan igual).
- *
- * **El glifo estuvo un rato en 3:1** —el mínimo de WCAG 1.4.11 para objetos gráficos, que es el que
- * formalmente le toca a un icono— porque con 4.5 salía BLANQUECINO. Volvió aquí el 20 ago por decisión
- * del usuario, y la razón es buena: en la píldora el contenedor del botón tiene que separarse ADEMÁS
- * de la barra, y cada punto que gana contra ella lo pierde contra su propio glifo (medido con carátula
- * monocroma: el botón pasó de tono 38 a 46 y el glifo cayó de 5.16:1 a 3.97:1 sin cambiar de color).
- * Con los fondos de las dos pantallas siendo distintos por construcción, **manda el contraste**: un
- * icono claro se lee, uno del color "correcto" a 3:1 no siempre. El precio es que sobre un contenedor
- * de tono medio el glifo acaba cerca del extremo claro de la escala.
- *
- * De él sale el color del subtítulo, no al revés: se toma el tono más CERCANO al fondo que todavía
- * cumple el umbral, así que queda lo más apagado que la accesibilidad permite y la jerarquía contra
- * el título sale medida en vez de inventada. Sustituye a un alpha a ojo, que es lo que este archivo
- * ya evitaba con `onSurface`/`onSurfaceVariant` — pares que aquí no valen: son el contenido de la
- * escala NEUTRA y el contenedor de la barra ya no está en ella.
- */
-private const val MiniPlayerMinContrast = 4.5
-
-/**
- * Umbral que DECIDE si el acento del play colisiona con el contenedor: 3:1 (WCAG gráfico). Por encima,
- * `primary` ya destaca solo y se deja intacto; por debajo, colisiona y el play se re-tonaliza con
- * [boostedAccent]. Es además el PISO que ese realce no puede dejar de cumplir.
- *
- * Colisionan tanto la carátula monocromática (no hay acento con que resaltar) como cualquier tema
- * `Fidelity`, donde `primary` y `primaryContainer` se pegan los dos al color fuente por diseño del
- * estilo — o sea que la rama es el caso NORMAL con esa paleta, no una excepción rara.
- */
-private const val MiniPlayerPlayMinContrast = 3f
-
-/**
- * Contraste al que se ASPIRA a llevar el play cuando colisiona con el contenedor: 6:1, muy por
- * encima del piso de 3:1, para que domine como acción principal — un 3:1 lo dejaba en un tono medio
- * confundible con el botón "siguiente".
- *
- * Es una ASPIRACIÓN y no una garantía, y esa distinción es el arreglo del 10 ago: cuando el tono que
- * haría falta se sale de [MiniPlayerAccentToneCeiling] se cede contraste para conservar el acento
- * (ver [boostedAccent]). Perseguirlo a toda costa fue lo que produjo un play BLANCO PURO — medido en
- * device con paleta "fiel a la carátula": contenedor `#65559F` (tono 41), play `#FFFFFF`.
- */
-private const val MiniPlayerPlayBoldContrast = 6.0
-
-/**
- * Extremos de tono HCT donde un color todavía ES un color: 10 y 90, el primer y último peldaño
- * CROMÁTICO de la escala tonal de M3 (los roles `*Container` viven ahí; 0 y 100 son negro y blanco
- * puros por definición, no tonos de una paleta).
- *
- * Existen porque el gamut sRGB estrecha el croma según se acerca a los extremos: pedir "el tono que
- * dé 6:1" contra un contenedor de tono medio devuelve tonos de 97-98, donde ningún matiz sostiene
- * croma y HCT entrega blanco. Acotar aquí es lo que mantiene el play siendo el ACENTO DEL ÁLBUM en
- * vez de una pieza neutra, que es su trabajo en esta barra.
- */
-private const val MiniPlayerAccentToneFloor = 10.0
-
-private const val MiniPlayerAccentToneCeiling = 90.0
-
-/**
- * Superficies de la barra derivadas del contenedor, desplazando el TONO hacia el centro de la escala.
- *
- * Que la dirección la decida el tono del fondo (una vez) es lo load-bearing: apunta siempre al CENTRO
- * de la escala, así que un contenedor claro se oscurece y uno oscuro se aclara, y ningún paso se sale
- * de rango. Vale igual en tema claro y oscuro sin una rama por tema.
- *
- * **Nota histórica:** la pista del anillo y el botón "siguiente" estaban a UNO y DOS pasos porque el
- * progreso era un RELLENO que le pasaba por DEBAJO al botón, y con un contenedor de tono medio una
- * derivación por capa invertía el sentido y devolvía al botón al tono del fondo (fondo 46 → relleno
- * 54 → botón 46, botón invisible sobre la mitad no reproducida — device, 31 jul). Desde que el
- * progreso es un ANILLO alrededor de la carátula, la pista y el botón ya NO se solapan: son dos
- * superficies independientes, y el único trabajo que le queda al desplazamiento del botón es separarlo
- * de la BARRA. El 20 ago ese desplazamiento dejó de contarse en pasos y pasó a pedirse por CONTRASTE
- * — el porqué, en [MiniPlayerButtonMinContrast].
- *
- * Que hoy pista y botón queden en el MISMO peldaño (uno cada uno) no los confunde: llevan cromas
- * distintos —la pista el de la barra, el botón el de `secondaryContainer`— y viven en extremos
- * opuestos de la píldora, un trazo de 4dp alrededor de la carátula contra un círculo de 48. La regla
- * de que "un paso lo colapsaría sobre la pista" valía cuando los dos salían del mismo croma.
- *
- * **DESCARTES del 20 ago, ninguno de los cuales hay que reintentar** (la jornada entera salió de que
- * el icono del "siguiente" se veía blanco en la píldora y beige en el reproductor):
- *
- * 1. **El par CRUDO aquí, como en el reproductor**: `secondaryContainer` cae en el mismo peldaño que
- *    la barra (30.8 contra 29.8) y el botón daba 1.0:1. No es calibración —
- *    **`secondaryContainer` sobre `primaryContainer` no es un patrón de M3**, que garantiza el
- *    contraste de un rol contra `surface`, no entre dos contenedores de acento.
- * 2. **Perseguir 3:1 entre botón y barra**: imposible. `secondaryContainer` tiene un TECHO de
- *    **2.31:1 contra negro puro**, así que ningún fondo oscuro llega a 3 — y el propio reproductor
- *    entrega 1.80. El 3:1 de M3 es para el ICONO (4.59 en las dos pantallas), nunca para el contenedor
- *    contra su superficie.
- * 3. **Mover la BARRA para que el botón pudiera ser el rol crudo**: bajarla la hunde bajo los chips de
- *    la home; subirla se implementó y se revirtió tras verla en device — ver [miniPlayerContainer],
- *    que es donde vive la lección (la igualdad de valor no da igualdad percibida).
- * 4. **Contar la separación en PASOS DE TONO** en vez de pedir un contraste: un paso fijo daba 1.35:1
- *    con carátula monocroma y 1.27:1 en tema claro, o sea el botón se distinguía más o menos de su
- *    fondo según el disco. Ver [MiniPlayerButtonMinContrast].
- * 5. **Sacar el CROMA del botón del par `secondaryContainer`** (para que coincidiera con el del
- *    reproductor): lo dejaba con el 48 % del croma de la barra en tema claro y el 33 % con carátula
- *    monocroma — el mismo "única pieza sin color de la barra" del 31 jul, por otra puerta.
- */
-@Immutable
-private data class MiniPlayerSurfaces(
-    /** Pista tenue del anillo de progreso (tono derivado del fondo, visible sin competir con el arco). */
-    val progress: Color,
-    /**
-     * Contenedor del botón "siguiente": el matiz y el croma de la BARRA con el tono llevado hasta
-     * [MiniPlayerButtonMinContrast] — mismo material, otra altura.
-     */
-    val buttonContainer: Color,
-    /**
-     * Glifo del botón "siguiente": el propio [buttonContainer] alejado por tono hasta cumplir
-     * [MiniPlayerMinContrast] — mismo croma que su fondo, la claridad que haga falta para leerse.
-     */
-    val buttonContent: Color,
-    /** Contenedor del play Y color del arco del anillo: el ACENTO, pero garantizado contra el fondo. */
-    val playContainer: Color,
-    /** Glifo del play, con contraste garantizado contra [playContainer]. */
-    val playContent: Color
-)
-
-/**
- * Despega el acento del álbum de la barra CONSERVÁNDOLO como acento: mismo matiz y mismo croma que
- * [primary], con el TONO llevado hasta donde el contraste lo pida.
- *
- * Sustituye a un `ensureContrast(primary, container, 6f)` que empujaba la luminosidad **HSL** hasta
- * alcanzar el ratio. Ese camino tiene dos fugas, las dos medidas en device el 10 ago con paleta
- * "fiel a la carátula" (contenedor `#65559F`, luminancia 0.118). (Nota: `ensureContrast` YA NO va en
- * HSL desde el 17 ago — ver su KDoc, que corrige una tercera fuga del mismo espacio de color: el
- * matiz fantasma de los colores casi blancos. Lo de aquí abajo describe cómo era entonces, y esta
- * función sigue haciendo falta porque su objetivo es OTRO: acotar a la banda cromática para que el
- * play siga siendo el acento del álbum, no solo cumplir un ratio.)
- *
- * 1. En HSL, `L → 1` es BLANCO sea cual sea la saturación. Contra ese contenedor el techo por el
- *    lado claro es 6.26:1, así que el único color que cumplía 6:1 era el blanco puro — y eso salía
- *    por pantalla: play y anillo en `#FFFFFF`, las dos piezas de mayor contraste de la pantalla y
- *    sin una gota del color del disco.
- * 2. Con un contenedor de luminancia entre 0.125 y 0.25 el objetivo es INALCANZABLE por los dos
- *    lados (ni blanco ni negro llegan a 6:1). El barrido salía igualmente por su tope devolviendo
- *    blanco, o sea incumpliendo en silencio el ratio que la firma prometía.
- *
- * Aquí el amo es el acento y el contraste va acotado: se pide el tono de
- * [MiniPlayerPlayBoldContrast], se recorta a la banda cromática ([MiniPlayerAccentToneCeiling] y
- * compañía) y solo si ni así se alcanza el piso de [MiniPlayerPlayMinContrast] —un fondo que no
- * admite 3:1 contra ningún tono cromático— se cede el croma y se va al extremo, que es cuando la
- * legibilidad pesa más que la identidad. Con el caso medido el play pasa de `#FFFFFF` a tono 90 con
- * el croma del acento, 4.85:1 contra la barra.
- *
- * La dirección la decide [MINI_MID_TONE], igual que el resto de derivaciones del archivo, así que no
- * hay una rama por tema.
- */
-private fun boostedAccent(primary: Color, container: Hct): Color {
-    val accent = Hct.fromInt(primary.toArgb())
-    fun withTone(tone: Double) = Color(Hct.from(accent.hue, accent.chroma, tone).toInt())
-    // `*Unsafe` devuelve un tono fuera de [0,100] cuando el ratio es inalcanzable por ese lado; ese
-    // valor sirve igual, porque lo único que se hace con él es acotarlo.
-    val ideal =
-        if (container.tone > MINI_MID_TONE) Contrast.darkerUnsafe(container.tone, MiniPlayerPlayBoldContrast)
-        else Contrast.lighterUnsafe(container.tone, MiniPlayerPlayBoldContrast)
-    val chromatic = withTone(ideal.coerceIn(MiniPlayerAccentToneFloor, MiniPlayerAccentToneCeiling))
-    val bar = Color(container.toInt())
-    return if (contrastRatio(chromatic, bar) >= MiniPlayerPlayMinContrast) chromatic
-    else withTone(ideal.coerceIn(HCT_TONE_MIN, HCT_TONE_MAX))
-}
-
-/**
- * Tonos canónicos de `primaryContainer` en la escala de M3: **30 en tema oscuro y 90 en claro**. Son
- * el destino al que [miniPlayerContainer] lleva el fondo de la barra cuando el estilo de paleta lo
- * deja del lado equivocado — no un valor elegido a ojo, sino el peldaño que ese rol ocupa en
- * cualquier tema de Material.
- */
-private const val MiniPlayerContainerToneDark = 30.0
-
-private const val MiniPlayerContainerToneLight = 90.0
-
-/**
- * Fondo de la barra: `primaryContainer` con el TONO enderezado al lado del tema (oscuro en tema
- * oscuro, claro en tema claro), conservando matiz y croma — o sea la misma identidad de color, otra
- * polaridad.
- *
- * **PROBADO Y DESCARTADO el 20 ago: derivar la barra DEL BOTÓN** (colocarla un paso por encima de
- * `secondaryContainer`, para que el botón pudiera ser el rol CRUDO y coincidir al píxel con el del
- * reproductor). Se implementó, se vio en device y se revirtió: **la igualdad de valor no da igualdad
- * percibida**. Verificado sobre la captura —botón `#57462A` en las dos pantallas, idénticos bit a
- * bit— y aun así el del mini se veía más oscuro, porque es **contraste simultáneo**: allá el fondo
- * está 20 puntos de tono POR DEBAJO del botón y aquí la barra quedaba 7 por ENCIMA, o sea el mismo
- * color con la polaridad de su entorno invertida. Igualar el valor y igualar la apariencia son
- * objetivos INCOMPATIBLES mientras los fondos difieran, y de los dos manda la apariencia. Con la barra
- * en su sitio el botón vuelve a ser una pieza ELEVADA sobre ella, como su gemelo lo es sobre
- * `surface`, y el precio son 7 puntos de tono de más en el contenedor.
- *
- * **Por qué el tono no puede ser el del rol:** lo decide el ESTILO DE PALETA, no el tema. Con el spec
- * 2025 y estilos como `Fidelity` o `Vibrant`, `primary` y `primaryContainer` se pegan los dos al
- * color de la carátula, así que en tema OSCURO la barra salía CLARA. Y como el play es el acento
- * (`primary`, también claro), no contrastaba contra ella y [boostedAccent] lo empujaba al extremo
- * contrario: play OSCURO sobre barra CLARA en la píldora, contra play CLARO sobre fondo oscuro en el
- * reproductor — el mismo botón con la polaridad invertida en las dos superficies, y encima
- * cambiándola a mitad del container transform que lleva una a la otra.
- *
- * Con el fondo del lado del tema, `primary` recupera su contraste natural contra él y el realce se
- * queda en no-op: el play de la píldora y el del reproductor vuelven a ser el MISMO par de colores.
- *
- * **Solo actúa cuando el tono está del lado contrario al del tema.** Un `primaryContainer` que ya
- * cae donde debe (TonalSpot y compañía) se devuelve intacto, así que los temas que estaban bien no
- * cambian ni un píxel. El lado del tema se lee de `surface` y no de un flag: es el fondo real sobre
- * el que flota la barra, y ya está resuelto por el esquema.
- */
-private fun miniPlayerContainer(primaryContainer: Color, surface: Color): Color {
-    val base = Hct.fromInt(primaryContainer.toArgb())
-    val darkTheme = Hct.fromInt(surface.toArgb()).tone <= MINI_MID_TONE
-    val wrongSide = if (darkTheme) base.tone > MINI_MID_TONE else base.tone < MINI_MID_TONE
-    if (!wrongSide) return primaryContainer
-    val tone = if (darkTheme) MiniPlayerContainerToneDark else MiniPlayerContainerToneLight
-    return Color(Hct.from(base.hue, base.chroma, tone).toInt())
-}
-
-@Composable
-private fun rememberMiniPlayerSurfaces(
-    container: Color,
-    /** Acento del álbum (`primary`): de aquí sale el play, forzado a contrastar con el contenedor. */
-    primary: Color
-): MiniPlayerSurfaces =
-    remember(container, primary) {
-        val base = Hct.fromInt(container.toArgb())
-        // Hacia el centro de la escala: un contenedor claro se oscurece y uno oscuro se aclara, así que
-        // ningún paso se sale de rango y no hace falta una rama por tema.
-        val direction = if (base.tone > MINI_MID_TONE) -1.0 else 1.0
-        fun step(times: Double) = Color(
-            Hct.from(
-                base.hue,
-                base.chroma,
-                (base.tone + direction * MiniPlayerToneStep * times).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
-            ).toInt()
-        )
-        // Botón "siguiente": **el propio contenedor de la barra** —su matiz y su croma— con el TONO
-        // llevado hasta [MiniPlayerButtonMinContrast]. Los dos ejes salen del FONDO, no de un rol:
-        //
-        //   · el CROMA y el MATIZ, porque el botón tiene que ser del mismo material que la barra. Del
-        //     20 ago hasta esta línea salieron del par `secondaryContainer` —para que el control
-        //     coincidiera con el del reproductor— y eso reintrodujo el fallo que el repo ya tenía
-        //     documentado del 31 jul: el botón conservaba **el 48 % del croma de la barra en tema
-        //     claro y el 33 % con carátula monocroma** (medido en device), o sea una pieza beige
-        //     lavada dentro de una píldora dorada. La distancia entre dos roles la decide el ESTILO
-        //     DE PALETA, así que ningún rol fijo puede prometer que su croma se parezca al del fondo;
-        //     el fondo sí.
-        //   · el TONO, porque de la barra es de quien el botón tiene que despegarse, y
-        //     `secondaryContainer` cae en su MISMO peldaño (30.8 contra 29.8 — el botón invisible).
-        //
-        // Lo que sí se conserva del par es el GLIFO (ver `buttonContent`): ése es contenido, no
-        // superficie, y su color no tiene por qué cambiar entre las dos puntas del morph.
-        val ideal =
-            if (base.tone > MINI_MID_TONE) Contrast.darkerUnsafe(base.tone, MiniPlayerButtonMinContrast)
-            else Contrast.lighterUnsafe(base.tone, MiniPlayerButtonMinContrast)
-        val button = Color(
-            Hct.from(
-                base.hue,
-                base.chroma,
-                // `*Unsafe` se sale de [0,100] cuando el ratio es inalcanzable por ese lado; acotarlo
-                // deja el botón en el extremo, que es lo más separado que la escala permite.
-                ideal.coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
-            ).toInt()
-        )
-        // Play (y arco del anillo) = el ACENTO del álbum, pero GARANTIZANDO que se despegue del
-        // contenedor. Cuando `primary` y `primaryContainer` caen en la misma banda, el play se leía
-        // como un hueco sobre el fondo (y el arco del anillo desaparecía).
-        //
-        // OJO con la intuición de que esa colisión es cosa de carátulas monocromáticas: la distancia
-        // entre DOS ROLES la decide el ESTILO DE PALETA (lo mismo que ya documenta
-        // [MiniPlayerToneStep]), y en "fiel a la carátula" (`Fidelity`) ambos se pegan al color
-        // fuente, así que la rama entra a diario con temas de color vivo. Por eso el realce no puede
-        // limitarse a "empujar hasta el ratio": tiene que seguir devolviendo un ACENTO, que es lo
-        // que hace [boostedAccent]. Con un tema de color `primary` ya supera el piso de 3:1 contra
-        // el fondo y esto es un no-op.
-        val playBg =
-            if (contrastRatio(primary, container) >= MiniPlayerPlayMinContrast) primary
-            else boostedAccent(primary, base)
-        MiniPlayerSurfaces(
-            progress = step(1.0),
-            buttonContainer = button,
-            // Glifo del "siguiente": **el propio botón**, alejado por tono hasta contrastar con él. Es
-            // el mismo principio que arma el contenedor un nivel más afuera —derivar del fondo y
-            // garantizar contraste— aplicado al contenido, así que el icono se queda con TODO el croma
-            // que el tema tenga (el del disco en una paleta de color, casi nada en una monocroma) sin
-            // depender de que un rol se lo traiga.
-            //
-            // Estuvo saliendo de `onSecondaryContainer` (el contenido que el NowPlaying da a este mismo
-            // botón) para que el icono fuera idéntico en las dos puntas del morph, y eso se abandonó el
-            // 20 ago: un rol trae un croma que NO tiene por qué parecerse al del fondo sobre el que
-            // aquí se pinta —el mismo motivo por el que el contenedor tampoco sale de un rol— y, sobre
-            // todo, deja el contraste a merced de dónde caiga el contenedor. Medido con carátula
-            // monocroma: al separar el botón de la barra, el glifo se quedó quieto en su color y su
-            // contraste cayó de 5.16:1 a 3.97:1. **Los fondos de las dos pantallas son distintos por
-            // construcción, así que entre igualar el color y garantizar la lectura, manda la lectura.**
-            //
-            // Antes de aquello la semilla era `onPrimaryContainer`, el par de la BARRA, y ése es el bug
-            // que abrió toda la jornada: es casi ACROMÁTICO (medido: `#FCEFDE`, croma 10) y como ya
-            // cumplía el ratio, `ensureContrast` lo dejaba intacto — icono blanco en la píldora y beige
-            // en el reproductor, con los dos contrastes idénticos (4.57 y 4.59).
-            //
-            // Pasar el botón como CONTENIDO y como CONTENEDOR no es un descuido: `ensureContrast`
-            // conserva el matiz y el croma de lo primero y le busca tono contra lo segundo, que es
-            // exactamente "el mismo color, apartado hasta que se lea".
-            buttonContent = ensureContrast(button, button, MiniPlayerMinContrast.toFloat()),
-            playContainer = playBg,
-            // Glifo del play por CONTRASTE real contra el botón (`maxContrastOn`), NO `onPrimary`: en
-            // temas Fidelity `onPrimary` es un par de bajo contraste (medido: gris azulado 5.6:1 sobre
-            // un primary casi negro) y el triángulo salía apagado. maxContrastOn da blanco nítido sobre
-            // el botón oscuro (y negro sobre el claro del caso boost). Mismo criterio que el chip y el
-            // toggle de letras: contenido sobre un acento = maxContrastOn.
-            playContent = maxContrastOn(playBg)
-        )
-    }
+// LIMPIO. Cabe en los 8dp de aire que la carátula (56dp) deja dentro de los 72 de alto, va como
+// HERMANO de la portada —no dentro de sus bounds— para no viajar con el shared element hacia el
+// NowPlaying, y el tick de posición solo repinta (se lee dentro de la lambda de dibujo), nunca
+// recompone.
 
 /**
  * Elevación de la sombra del MiniPlayer: **nivel 4** del spec de M3 (sube del nivel 3 del FAB porque
@@ -503,58 +153,12 @@ private fun Modifier.pillShadow(shape: Shape, elevation: Dp, alphaFactor: State<
  */
 private val ZeroProgressFlow: StateFlow<Long> = MutableStateFlow(0L)
 
-/**
- * Título y subtítulo del mini sobre el contenedor teñido de la barra.
- *
- * El título es el rol que le corresponde al contenedor (`onPrimaryContainer`) y el subtítulo se
- * DERIVA de él (ver [rememberMiniPlayerColors]). No son `onSurface`/`onSurfaceVariant`: ese par es
- * el contenido de la escala neutra, y la barra ya no vive en ella.
- *
- * Sustituyen a un blanco puro y un `#1A1A1A` FIJOS con alpha 0.7/0.6, elegidos por
- * `isSystemInDarkTheme()`. Eran lo único de esta pantalla que no se teñía con la carátula, y
- * consultaban el tema del SISTEMA, que no tiene por qué coincidir con el de la app (ver
- * `AmbientPlayerActivity`, que lo fuerza oscuro).
- */
+/** Colores del título y el subtítulo del mini. */
 @Immutable
 private data class MiniPlayerColors(
     val titleColor: Color,
     val contentColor: Color
 )
-
-/**
- * Par título/subtítulo sobre [container], con la jerarquía MEDIDA en vez de un alpha a ojo.
- *
- * El título usa el rol tal cual. El subtítulo conserva su matiz y su croma y se le fija el tono más
- * cercano al fondo que aún cumple [MiniPlayerMinContrast] — el mismo mecanismo con el que la
- * app resuelve el resto de sus pares derivados (`rememberRowActionColors`, el glifo activo del
- * toolbar). La dirección la decide el TONO del fondo, no una rama por tema, así que funciona igual
- * en claro y en oscuro y con cualquier paleta.
- */
-@Composable
-private fun rememberMiniPlayerColors(container: Color, onContainer: Color): MiniPlayerColors =
-    remember(container, onContainer) {
-        val containerTone = Hct.fromInt(container.toArgb()).tone
-        val onHct = Hct.fromInt(onContainer.toArgb())
-        // `*Unsafe` devuelve un tono fuera de [0,100] cuando el ratio es inalcanzable por ese lado
-        // (un fondo de tono medio no admite 4.5:1 hacia ninguno de los dos extremos). Acotar lo
-        // resuelve solo: el tono se va a 0 o 100, o sea al máximo contraste que ese lado puede dar,
-        // que es exactamente lo que se quería pedir.
-        val subtitleTone = (
-            if (containerTone > MINI_MID_TONE) Contrast.darkerUnsafe(containerTone, MiniPlayerMinContrast)
-            else Contrast.lighterUnsafe(containerTone, MiniPlayerMinContrast)
-        ).coerceIn(HCT_TONE_MIN, HCT_TONE_MAX)
-        MiniPlayerColors(
-            titleColor = onContainer,
-            contentColor = Color(Hct.from(onHct.hue, onHct.chroma, subtitleTone).toInt())
-        )
-    }
-
-/**
- * Centro de la escala de tono HCT: decide hacia qué lado se alejan del fondo las cosas que se
- * derivan de él (la pista del anillo, el botón "siguiente", el subtítulo). Es lo que hace que la
- * barra funcione igual en tema claro y oscuro sin una sola rama por tema.
- */
-private const val MINI_MID_TONE = 50.0
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -594,57 +198,31 @@ fun MiniPlayer(
 ) {
     if (song == null) return
 
-    // Background SÓLIDO teñido con el álbum: `primaryContainer`, o sea que la barra se separa del
-    // contenido por CROMA y no por tono.
+    // Background SÓLIDO teñido con el álbum: `secondaryContainer` CRUDO. La barra se separa del
+    // contenido por CROMA, no por tono — ningún fondo de lista usa ese rol.
     //
-    // Por qué no un peldaño de la escala neutra, que es lo natural para una superficie flotante: en
-    // esta app la escala está AGOTADA, y desde el 20 ago 2026 más todavía. El mini flota sobre
-    // bloques de lista, y el reparto de esas pantallas es una HORQUILLA que ocupa los dos lados
-    // —filas y tarjetas `surface` (98 en claro), página `surfaceContainer` (94), cabecera
-    // `surfaceContainerHigh` (92)—, así que lo único libre es `surfaceContainerLow` (96), metido
-    // JUSTO entre el contenido y el fondo sobre los que el mini tiene que destacar, o el techo (90),
-    // donde sería la superficie más oscura de la pantalla con diferencia. Cuando se probó (31 jul, con captura en device) las filas estaban en
-    // `surfaceContainerHigh` y el resultado fue el mismo por el mismo motivo — el mini se perdía.
-    // El reparto cambió; la conclusión no, y hoy hay MENOS sitio que entonces.
+    // **Era `primaryContainer` hasta el 8 sep 2026** (a prueba en device). El motivo del cambio es
+    // el PESO: con el spec 2025 y `PaletteStyle.Fidelity`, `primaryContainer` deja de ser el rol
+    // pálido de siempre y puede acabar siendo la superficie MÁS fuerte del esquema — medido en dos
+    // capturas, `#943424` (T35,8) y `#3875C5` (T49,0), en las dos **más oscuro y más saturado que
+    // el propio `primary`**. La familia secondary lleva menos croma por construcción, así que la
+    // píldora sigue siendo lo único tintado sobre la biblioteca sin gritar.
     //
-    // Antes de eso hubo un `BorderStroke` de 1dp con `outlineVariant`, también descartado: un filo
-    // de tono 80 cruzando por delante de filas y carátulas de colores no se lee como el borde de una
-    // superficie sino como una línea ajena. Los dos intentos fallaron por lo mismo — pedirle a la
-    // escala neutra una distancia que ya no tiene. `primaryContainer` no compite con nada de la
-    // pantalla porque ninguna lista usa ese rol de fondo, y de paso da al reproductor identidad
-    // propia, que es lo que hace cualquier mini-player conocido.
-    //
-    // Con el TONO enderezado al lado del tema, ver [miniPlayerContainer]: es lo que mantiene la
-    // barra siendo una superficie del tema y no su negativo.
+    // Efecto colateral BUSCADO: `secondaryContainer` es también la primera parada del degradado del
+    // NowPlaying (`albumPrimary`), así que las dos puntas del container transform pasan a compartir
+    // color y la apertura deja de ser un salto. Se había intentado al revés —llevar el degradado a
+    // `primaryContainer`— y el usuario lo descartó por demasiado fuerte; la continuidad sale igual
+    // bajando la píldora en vez de subiendo el reproductor.
     val scheme = LocalAppColors.current
-    val backgroundColor = remember(scheme.primaryContainer, scheme.surface) {
-        miniPlayerContainer(scheme.primaryContainer, scheme.surface)
-    }
+    val backgroundColor = scheme.secondaryContainer
 
-    // Las superficies derivadas de la barra —pista del anillo, tono del botón "siguiente" y el par
-    // del play— salen del contenedor desplazando el tono, ver [MiniPlayerSurfaces]. Opacas y por
-    // tono, no por tintes translúcidos: así la separación no depende de qué haya debajo ni de la
-    // distancia que la paleta activa deje entre dos roles.
-    //
-    // El contenido se MIDE contra el fondo ya enderezado en vez de tomar `onPrimaryContainer` a
-    // ciegas: cuando [miniPlayerContainer] mueve el tono, el par del rol deja de valer (era el
-    // contenido del OTRO lado de la escala). No-op cuando el fondo se deja tal cual, porque el par
-    // de M3 ya cumple ese ratio de sobra.
-    val onContainerColor = remember(scheme.onPrimaryContainer, backgroundColor) {
-        ensureContrast(scheme.onPrimaryContainer, backgroundColor, MiniPlayerMinContrast.toFloat())
+    // Título y artista: los dos en `onSecondaryContainer` CRUDO, el par tabulado de M3 con el fondo.
+    val textColors = remember(scheme.onSecondaryContainer) {
+        MiniPlayerColors(
+            titleColor = scheme.onSecondaryContainer,
+            contentColor = scheme.onSecondaryContainer
+        )
     }
-    val surfaces = rememberMiniPlayerSurfaces(
-        container = backgroundColor,
-        primary = scheme.primary
-    )
-
-    // El texto se mide contra el CONTENEDOR limpio: desde que el progreso es un anillo alrededor de
-    // la carátula, nada le pasa por debajo al título (antes se medía contra el relleno, que era el
-    // peor caso). Es el fondo real sobre el que se apoya el texto.
-    val textColors = rememberMiniPlayerColors(
-        container = backgroundColor,
-        onContainer = onContainerColor
-    )
 
     // Forma ELEGIBLE en Ajustes → Apariencia. Por defecto píldora completa: el MiniPlayer FLOTA
     // sobre la navbar del home (ya no va edge-to-edge con fondo plano hasta abajo).
@@ -803,7 +381,6 @@ fun MiniPlayer(
                     onPlayPause,
                     onNextClick,
                     textColors,
-                    surfaces,
                     isBuffering,
                     position,
                     duration,
@@ -825,8 +402,6 @@ private fun MiniPlayerContent(
     onPlayPause: () -> Unit,
     onNextClick: () -> Unit,
     textColors: MiniPlayerColors,
-    /** Superficies derivadas de la barra: colores del botón "siguiente" y pista del anillo. */
-    surfaces: MiniPlayerSurfaces,
     isBuffering: Boolean,
     /** Posición/duración para el anillo de progreso; se leen dentro del dibujo (repaint, no recompose). */
     position: State<Long>,
@@ -846,30 +421,19 @@ private fun MiniPlayerContent(
     // el parpadeo del flapping de isPlaying sin retrasar el estado con un reloj.
     val showAsPlaying = isPlaying || isBuffering
 
-    // Transporte: play resaltado (el ACENTO del álbum) y "siguiente" tonal.
-    //
-    // El play ya NO es `primary` crudo: cuando `primary` cae en la misma banda tonal que
-    // `primaryContainer` (el fondo) el play se leía como un hueco sobre él. Ahora sale de
-    // [MiniPlayerSurfaces], que en ese caso lo re-tonaliza conservando matiz y croma
-    // ([boostedAccent]) y recalcula el glifo — no-op mientras el par ya se separe solo. Ese mismo
-    // color va al arco del anillo, para que play y progreso sean el mismo acento.
-    //
-    // El siguiente tampoco es `secondaryContainer` crudo: ese rol cae en la MISMA banda tonal que el
-    // fondo del mini desde que la barra pasó a `primaryContainer`, o sea el botón desaparecía (y
-    // mover la BARRA para hacerle sitio se probó el 20 ago y se revirtió, ver [miniPlayerContainer]).
-    // Tampoco sale de NINGÚN rol: la distancia entre dos roles la decide el ESTILO DE PALETA, así que
-    // ninguno puede prometer ni separación ni parecido con el fondo. Probado por los dos lados y con
-    // el mismo síntoma —"la única pieza sin color de toda la barra"—: con `secondary` el 31 jul
-    // (`rememberRowActionColors`) y con `secondaryContainer` el 20 ago, que en tema claro dejaba el
-    // botón con la mitad del croma de la píldora.
-    //
-    // Es **el propio contenedor de la barra**, con el tono llevado hasta el contraste que lo separa
-    // (ver [MiniPlayerSurfaces]): mismo material, otra altura. Del par `secondaryContainer` solo se
-    // conserva el GLIFO, que es contenido y no superficie.
-    val sideContainer = surfaces.buttonContainer
-    val sideContent = surfaces.buttonContent
-    val playContainer = surfaces.playContainer
-    val playContent = surfaces.playContent
+    // Las CUATRO piezas teñidas del mini —play, "siguiente", arco y riel del anillo— salen de UNA
+    // sola decisión, en dos rangos con la separación garantizada (ver [transportLayersOn]). Hasta el
+    // 8 sep 2026 cada una elegía su color por su cuenta contra la barra y las cuatro convergían a
+    // dos colores separados por 1,9 puntos de tono: el mini entero en una capa plana, con el play
+    // encima llevando glifo NEGRO PURO.
+    val colors = LocalAppColors.current
+    val transport = remember(colors.version) {
+        transportLayersOn(colors.secondaryContainer, transportRolePairs(colors))
+    }
+    val playContainer = transport.accent
+    val playContent = transport.onAccent
+    val sideContainer = transport.support
+    val sideContent = transport.onSupport
 
     // Izados: los `transitionSpec` de los dos `AnimatedContent` del botón de play no son lambdas
     // composables. Mismos tokens que el glifo del transporte del NowPlaying — es el mismo control.
@@ -921,10 +485,18 @@ private fun MiniPlayerContent(
         // entra en los bounds del shared element: la portada viaja sola al NowPlaying y el anillo se
         // queda, desvaneciéndose con el MiniPlayer. `progress` es una lambda que lee la posición → el
         // tick la repinta, no recompone (mismo patrón que el indicador de descarga del toolbar).
-        // Mismo acento que el play (garantizado a contrastar con el fondo): así el progreso no
-        // desaparece con carátula monocromática, donde `primary` crudo se fundía con el contenedor.
-        val arcColor = surfaces.playContainer
-        val trackColor = surfaces.progress
+        //
+        // El anillo comparte los DOS rangos del transporte: el arco es lo principal (el dato, como el
+        // play es la acción) y el riel lo de apoyo. Que arco y play sean el MISMO color es la
+        // intención, no un descuido — lo que antes era un descuido es que el arco y el RIEL también
+        // lo fueran: cada uno salía de su propio [contentRoleOn] contra la barra, uno pidiendo 4.5:1
+        // y el otro 2:1, y las dos búsquedas caían en el mismo racimo de candidatos. Medido: arco
+        // `#F4BEB2` y riel `#F3B7AC`, 1,9 puntos de tono, o sea un aro liso de dos colores que son
+        // uno. El comentario que había —"arco a 4.5:1, el más OSCURO = el progreso"— describía
+        // además una paleta de barra clara: con la barra en T35,8 los dos umbrales se cumplen por el
+        // lado claro y "el más oscuro" no llegaba a existir.
+        val arcColor = transport.accent
+        val trackColor = transport.support
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(ComponentConfig.MiniPlayerRingSize)

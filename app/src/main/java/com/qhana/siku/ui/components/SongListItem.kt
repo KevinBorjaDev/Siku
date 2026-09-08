@@ -27,6 +27,7 @@ import com.qhana.siku.ui.appSharedTransitionScope
 import com.qhana.siku.ui.model.SongUiModel
 import com.qhana.siku.ui.model.toUiModel
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppContainerBoundsTransform
 
 // ============== FONDO Y ACCIONES DE LA FILA ==============
@@ -79,6 +80,13 @@ fun songRowBackground(base: Color, isPlaying: Boolean): Color {
         if (isPlaying) tonalLayerContainer(base, role, ROW_ACTIVE_TONE_DELTA) else base
     }
 }
+
+/**
+ * Contraste mínimo del glifo de estado de descarga sobre la fila: **3:1, el mínimo WCAG de un
+ * elemento NO textual**, que es lo que Material pide para un icono. Constante propia y no la del
+ * texto de la fila activa: son dos preguntas distintas y calibrar una no puede mover la otra.
+ */
+private const val STATUS_ICON_MIN_CONTRAST = 3f
 
 /**
  * Contraste mínimo del contenido de la fila ACTIVA sobre su relleno de acento. 4.5:1 = AA de TEXTO,
@@ -180,7 +188,34 @@ fun SongStatusIcon(
     contrast: Boolean = false,
     contrastColor: Color = AppColors.primary
 ) {
-    val primaryColor = if (!contrast) AppColors.primary else contrastColor
+    // Acento del glifo "descargada". **NO `AppColors.primary` a secas**, que es el defecto que M3
+    // documenta y esta app ya se comió tres veces: `primary` no tiene NINGUNA garantía de contraste
+    // contra una superficie NEUTRA, y aquí se apoya en la tarjeta de la fila. Visto en device el
+    // 7 sep 2026, tema claro y paleta amarilla: el disco del check quedaba amarillo sobre crema.
+    //
+    // [contentRoleOn] prueba primero acentos TABULADOS contra el fondo REAL y solo re-tonaliza
+    // `primary` si ninguno llega, con el 3:1 de WCAG para elemento NO textual (es un glifo macizo,
+    // no texto). Sin `tertiary` en la lista: este icono se repite en cada fila de la biblioteca y un
+    // salto de familia ahí se ve setecientas veces (mismo criterio que sacó los pares terciarios de
+    // `playerRolePairs`).
+    //
+    // El fondo es `contentSurface` y no hace falta pasarlo: desde el 7 sep TODA fila no activa de la
+    // app —biblioteca, detalles, cola, estadísticas— sale de ese mismo rol. La fila ACTIVA va por
+    // [contrast]/[contrastColor], porque ahí el relleno es de acento y su contenido ya lo derivó
+    // `rememberActiveRowContentColor`.
+    val statusColors = LocalAppColors.current
+    // `contentSurface` es una propiedad del objeto [AppColors] (elige el rol según el tema), no un
+    // campo del esquema, así que se lee AQUÍ y entra al `remember` como clave.
+    val rowSurface = AppColors.contentSurface
+    val restingColor = remember(statusColors.version, rowSurface) {
+        contentRoleOn(
+            rowSurface,
+            STATUS_ICON_MIN_CONTRAST,
+            listOf(statusColors.primary, statusColors.secondary, statusColors.onSecondaryContainer),
+            statusColors.primary
+        )
+    }
+    val primaryColor = if (!contrast) restingColor else contrastColor
 
     // Cache del tamaño en Sp para evitar recálculos
     val density = LocalDensity.current

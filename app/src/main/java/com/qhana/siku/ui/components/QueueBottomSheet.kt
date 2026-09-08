@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.ui.model.SongUiModel
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppSurface
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -347,10 +348,16 @@ fun QueueBottomSheet(
  * Acciones que operan sobre la cola ENTERA, en una floating toolbar M3 Expressive — el componente
  * del spec para un grupo de acciones que la app bar no admite, y el mismo que usa el NowPlaying.
  *
- * **Las tres llevan ICONO Y ETIQUETA.** Con dos de ellas como iconos sueltos había que adivinar
- * qué hacía cada una, y son acciones sobre la cola ENTERA — una de ellas destructiva: el peor
- * sitio para un glifo ambiguo. Cabe porque las etiquetas van en su forma corta ("Guardar",
- * "Vaciar"); la larga vive en el `contentDescription`, que es quien debe decirlo completo.
+ * **Las tres llevan ICONO Y ETIQUETA, y eso es DELIBERADO por dos motivos.** Con dos de ellas como
+ * iconos sueltos había que adivinar qué hacía cada una, y son acciones sobre la cola ENTERA —una de
+ * ellas destructiva—: el peor sitio para un glifo ambiguo. Y el ancho que ocupan es el que se busca:
+ * la barra tiene que llenar la hoja, no quedarse en tres botones sueltos en el centro. Cabe porque
+ * las etiquetas van en su forma corta ("Guardar", "Vaciar"); la larga vive en el
+ * `contentDescription`, que es quien debe decirlo completo.
+ *
+ * **NO quitarlas para ganar ancho.** El toolbar no scrollea ni tiene overflow, así que con la escala
+ * tipográfica del sistema alta las tres se salen — pero la salida de eso no es volver a los glifos
+ * pelados, que es justo lo que este diseño corrige.
  *
  * La jerarquía es la del toolbar del spec: **el que tiene ESTADO va con contenedor tonal, los
  * demás planos**. Aquí sale sola, porque el único con estado es el aleatorio —es un MODO, se
@@ -389,6 +396,27 @@ private fun QueueActionsToolbar(
     // barra y el token que M3 usa para su texto (`VibrantButtonUnselectedTextColor`). Los TextButton
     // fuerzan `primary`, que sobre este contenedor apenas se ve, así que se pasa explícito.
     val toolbarContent = AppColors.onPrimaryContainer
+    // Relleno del ALEATORIO encendido: el par TABULADO de M3 que mejor se apoya en la barra
+    // ([roleLayerOn]), con el DOBLE del escalón de una capa pasiva porque esto marca un estado.
+    //
+    // Estuvo en el par INVERTIDO de la propia barra (`onPrimaryContainer` de relleno,
+    // `primaryContainer` de contenido) razonando que es lo único que contrasta con ella "por
+    // construcción sea cual sea el seed". Era cierto y a la vez el problema: garantizar es el SUELO,
+    // no el objetivo, y ese par es el escalón MÁS GRANDE que existe — con la barra en T90 (claro) el
+    // relleno cae en T10, ochenta puntos de tono, o sea una píldora casi negra; en oscuro, casi
+    // blanca y la pieza más clara de la hoja. Es el mismo defecto que costó cien líneas en el
+    // toolbar del NowPlaying (un toggle encendido pesando más que nada de la pantalla) y la regla
+    // que [roleLayerOn] documenta después: **el escalón más pequeño que aún se ve, nunca el más
+    // lejano**. Aquí no rompía nada porque en esta hoja no hay ningún control con más énfasis, pero
+    // el criterio era el equivocado.
+    //
+    // `playerRolePairs` trae cada par en las DOS orientaciones, que es justo lo que hace falta cuando
+    // el fondo ES un rol del catálogo: la barra es `primaryContainer`, así que ese par mide distancia
+    // CERO —un rol no se separa de sí mismo— y queda descartado solo.
+    val colors = LocalAppColors.current
+    val (shuffleOnContainer, shuffleOnContent) = remember(colors.version) {
+        roleLayerOn(colors.primaryContainer, playerRolePairs(colors), TONAL_LAYER_DELTA * 2)
+    }
 
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         HorizontalFloatingToolbar(
@@ -402,14 +430,13 @@ private fun QueueActionsToolbar(
             ToggleButton(
                 checked = isShuffleEnabled,
                 onCheckedChange = { onShuffleToggle() },
-                // Activo = par `onPrimaryContainer`/`primaryContainer` INVERTIDO respecto al toolbar.
-                // El toolbar de esta barra es `primaryContainer` (vibrant); ni el `secondaryContainer`
-                // del tonal por defecto (pegado al fondo en croma bajo) ni un relleno `secondary`
-                // (que en un tema VÍVIDO comparte el matiz azul del toolbar y queda una píldora media
-                // apagada) despegan en TODOS los temas. Lo que contrasta con `primaryContainer` por
-                // construcción es su propio `onPrimaryContainer`: rellenar con él y poner el contenido
-                // en `primaryContainer` da una píldora sólida de alto contraste con la barra en los
-                // cuatro casos (vívido/apagado × claro/oscuro), sin depender del croma de la carátula.
+                // Activo = el par elegido arriba por [roleLayerOn] contra la barra. Un rol FIJO no
+                // sirve y eso ya está probado: ni el `secondaryContainer` del tonal por defecto
+                // (pegado a la barra en croma bajo) ni un relleno `secondary` (que en un tema VÍVIDO
+                // comparte matiz con el toolbar) despegan en TODOS los temas — la distancia entre dos
+                // roles la decide el estilo de paleta. Lo que cambió es CÓMO se resuelve eso: antes
+                // con el par invertido de la propia barra, que despega siempre porque es el salto
+                // máximo; ahora escogiendo el par tabulado más CERCANO que todavía se distingue.
                 //
                 // APAGADO = PLANO sobre la barra, igual que los otros dos items. Los cuatro roles
                 // van explícitos porque **un rol que no se pasa NO se hereda: se resuelve contra
@@ -422,15 +449,15 @@ private fun QueueActionsToolbar(
                 colors = ToggleButtonDefaults.tonalToggleButtonColors(
                     containerColor = Color.Transparent,
                     contentColor = toolbarContent,
-                    checkedContainerColor = AppColors.onPrimaryContainer,
-                    checkedContentColor = AppColors.primaryContainer
+                    checkedContainerColor = shuffleOnContainer,
+                    checkedContentColor = shuffleOnContent
                 ),
                 // PÍLDORA también encendido. El default de `ToggleButton` lleva
                 // `SelectedContainerShapeSquare` en `checkedShape`, así que al activarse morfeaba a
                 // squircle — correcto en un grupo de toggles, donde la forma distingue al elegido,
                 // pero aquí el squircle YA significa otra cosa (encolar, en la botonera de los
-                // detalles) y el estado se lee de sobra por el contenedor tonal y el relleno del
-                // glifo. Solo se sobrescribe `checkedShape`: el morph al presionar se conserva.
+                // detalles) y el estado se lee de sobra por el relleno de la píldora y el del glifo.
+                // Solo se sobrescribe `checkedShape`: el morph al presionar se conserva.
                 shapes = ToggleButtonDefaults.shapes(
                     checkedShape = ToggleButtonDefaults.roundShape
                 ),
@@ -485,11 +512,14 @@ private fun QueueItemRow(
 ) {
     // Resaltado del ítem en reproducción, por el helper compartido: un escalón de superficie teñido
     // con el croma de `primaryContainer` —la paleta primary lleva más color que la secondary— sobre
-    // la base REAL de estas filas, que aquí es `surfaceContainerHigh` y no el `surface` de la
-    // biblioteca. Con el rol a pelo, el mismo resaltado saltaba distinto en cada pantalla según de
-    // qué fondo partiera. En un álbum monocromo el tema entero es neutro y el escalón se lee solo
-    // por tono: es el límite del enfoque por contenedor cuando no hay color con el que teñir.
-    val backgroundColor = songRowBackground(AppColors.surfaceContainerHigh, isCurrentSong)
+    // la base de estas filas, que es [AppColors.contentSurface] como en TODAS las demás. Estuvo
+    // escrita aquí a mano (`surfaceContainerHigh`) porque la base de la biblioteca era otra; desde
+    // que las filas son tarjetas con el mismo token en las dos, esa copia era una segunda
+    // definición del mismo dato esperando a divergir. Con el rol a pelo, el resaltado saltaba
+    // distinto en cada pantalla según de qué fondo partiera. En un álbum monocromo el tema entero
+    // es neutro y el escalón se lee solo por tono: es el límite del enfoque por contenedor cuando
+    // no hay color con el que teñir.
+    val backgroundColor = songRowBackground(AppColors.contentSurface, isCurrentSong)
     // Contenido de la fila activa: el `on-` de ese relleno con contraste garantizado (el porqué vive
     // en `rememberActiveRowContentColor`, que es la definición ÚNICA que comparten las cuatro
     // superficies donde se resalta la canción actual).

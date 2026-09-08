@@ -462,45 +462,56 @@ object AppColors {
         @Composable @ReadOnlyComposable get() = LocalAppColors.current.surface
 
     /**
-     * **La horquilla de superficies, expresada en PERCEPCIÓN y no en nombres de rol.**
+     * Superficie del CONTENIDO —filas de canción, tarjetas, la píldora de búsqueda— sobre el fondo
+     * de página, que desde el 4 sep 2026 es `surface`.
      *
-     * El reparto de la app sale de muestrear el Dialer de Google: el fondo de página es el nivel
-     * MEDIO, el CONTENIDO se aleja hacia el lado claro y las BARRAS hacia el oscuro. Hasta el
-     * 29 ago 2026 esa regla estaba escrita con roles FIJOS —contenido `surface`, barras
-     * `surfaceContainerHigh`— porque se midió sobre el Dialer en tema CLARO, donde `surface` (98)
-     * está por encima de `surfaceContainer` (94).
+     * **`surfaceContainerHigh`, el token de una TARJETA, y NO el de un list item** (7 sep 2026,
+     * decisión del usuario tras leer las fuentes pineadas). El dato que lo decide está en el jar:
      *
-     * **En oscuro esos dos roles cambian de lado y la horquilla salía INVERTIDA.** Los tonos de la
-     * escala neutra oscura suben con el nivel de contenedor: `surface` = 6 (el más OSCURO de todos),
-     * `surfaceContainer` = 12, `surfaceContainerHigh` = 17. Así que en oscuro las filas se hundían
-     * bajo el fondo y las barras flotaban sobre él — justo al revés de lo que la horquilla dice, y
-     * al revés de lo que hace el propio Dialer. Medido en device el 29 ago 2026, misma pantalla y
-     * mismo minuto en las dos apps:
+     * ```
+     * ListTokens.ItemContainerColor          = Surface   // ListTokens.kt:32
+     * ListTokens.ItemSegmentedContainerColor = Surface   // :87  (la variante agrupada)
+     * ListTokens.ItemContainerElevation      = Level0
+     * ColorLightTokens.Background = Neutral98   ==   ColorLightTokens.Surface = Neutral98
+     * ColorDarkTokens.Background  = Neutral6    ==   ColorDarkTokens.Surface  = Neutral6
+     * ```
      *
-     *     superficie            Dialer oscuro    Siku (antes)
-     *     fondo de página       31,32,36         31,32,34   (igual: esto estaba bien)
-     *     filas / búsqueda      41,42,47  (+10)  18,19,23   (−13)  ← invertido
-     *     barra de navegación   27,28,32  (−4)   —
+     * O sea que **M3 pinta su list item del MISMO color que la página** (`Scaffold` arranca en
+     * `background`, Scaffold.kt:94). No es un descuido: en M3 un list item **no es una tarjeta** —
+     * elevación 0, y la estructura la dan el espaciado, los divisores y el thumbnail. Un ítem flat
+     * no necesita despegarse del fondo porque no pretende flotar sobre él.
      *
-     * O sea que Google **cambia el ROL según el tema para conservar la RELACIÓN**. Estas dos
-     * propiedades son eso: el rol correcto de cada lado en cada tema. En claro valen exactamente lo
-     * de siempre, así que el tema claro no cambió ni un píxel.
+     * **Las filas de esta app sí son tarjetas**: esquinas redondeadas, 2dp de gap y —sobre todo— son
+     * la punta ORIGEN del container transform hacia el reproductor, que necesita una superficie que
+     * crecer. Para esa anatomía M3 tabula otro nivel: `FilledCardTokens.ContainerColor` =
+     * `SurfaceContainerHighest`, `ElevatedCardTokens.ContainerColor` = `SurfaceContainerLow`.
      *
-     * El tema se detecta comparando la escala consigo misma (`surface` más oscura que
-     * `surfaceContainerHigh` ⇔ los contenedores suben ⇔ tema oscuro), que es la DEFINICIÓN de la
-     * escala en M3 y no un umbral de luminancia elegido a ojo.
+     * **Se elige `surfaceContainerHigh` y no el `Highest` de la tarjeta rellena** porque el techo de
+     * la escala neutra ya tiene dueño: `AppMenuPopup`, cuyo KDoc apoya su elección justamente en que
+     * "las superficies sobre las que un menú puede caer van de `surface` a `surfaceContainerHigh`".
+     * Subir las filas al techo dejaría al menú del mismo color que la fila que tapa. Da 6 puntos de
+     * tono en claro (98 → 92) y 11 en oscuro (6 → 17).
      *
-     * Superficie del CONTENIDO: filas, tarjetas y la píldora de búsqueda. Un peldaño hacia el
-     * lado claro desde el fondo de página.
+     * **El mismo rol en los DOS temas**, al revés que la versión anterior. Esto reemplaza a la
+     * "horquilla" —fondo en el nivel medio, contenido hacia el lado claro y barras hacia el oscuro,
+     * medida sobre el Dialer— que quedó a medias cuando el fondo de página volvió a `surface` el
+     * 4 sep: con la página en el EXTREMO de la escala ya no hay "hacia el lado claro" al que subir en
+     * tema claro, así que en claro las filas salían exactamente del color del fondo y las tarjetas
+     * no existían. Su gemela [chromeSurface] se quedó **sin un solo consumidor** en ese mismo pase.
+     *
+     * **NO reintroducir un rol por tema aquí.** La relación que la horquilla quería conservar la
+     * conserva ahora un nivel de contenedor fijo, porque el fondo también es fijo.
      */
     val contentSurface: Color
-        @Composable @ReadOnlyComposable get() = with(LocalAppColors.current) {
-            if (containersGoLighter) surfaceContainerHigh else surface
-        }
+        @Composable @ReadOnlyComposable get() = LocalAppColors.current.surfaceContainerHigh
 
     /**
      * Superficie de las BARRAS de navegación (fila de pestañas, rail): un peldaño hacia el lado
      * oscuro desde el fondo de página. La otra mitad de la horquilla — ver [contentSurface].
+     *
+     * ⚠️ **SIN CONSUMIDORES desde el 4 sep 2026**: ese pase llevó las barras a `surface` como el
+     * resto y esta propiedad quedó viva sin pintar nada. Se deja para decidirlo aparte, no porque
+     * haga falta — es exactamente la forma de subsistema muerto que ya dejó atrás el vidrio Haze.
      */
     val chromeSurface: Color
         @Composable @ReadOnlyComposable get() = with(LocalAppColors.current) {

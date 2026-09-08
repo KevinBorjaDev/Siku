@@ -18,6 +18,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import com.qhana.siku.ui.theme.appAssistChipBorder
 import com.qhana.siku.ui.theme.appSelectableMenuItemColors
 import com.qhana.siku.ui.theme.AppMenuGroup
 import com.qhana.siku.R
@@ -28,8 +30,8 @@ import com.qhana.siku.ui.theme.AppColors
  * (`SortMenuIconButton`, ya eliminado — sin corchetes, que sugieren un símbolo al que se puede ir)
  * para unificar Todas/Artistas/Álbumes: las tres
  * pantallas llevan sus controles como chips en la fila sobre el contenido. Muestra el
- * criterio activo ("Nombre ▾") y abre el mismo menú al tocarlo. Relleno tonal
- * (secondaryContainer), igual que el chip de conteo y los de origen.
+ * criterio activo ("Nombre ▾") y abre el mismo menú al tocarlo. **Outlined sin relleno**, el
+ * default de `AssistChip` en M3 y el mismo aspecto que los chips de origen en reposo.
  *
  * @param options pares (string resource del label, valor) en el orden del menú.
  */
@@ -58,18 +60,29 @@ fun <T> SortChip(
             // NEUTRO y no `secondaryContainer` (29 ago 2026): ése es el color de un botón tonal, y
             // este chip convive con los `QuickActionButton` del inicio y con los de la pestaña
             // Todas. **El acento marca lo ACCIONABLE; lo que describe o acota va en neutro** — la
-            // misma regla que dejó neutra la píldora de búsqueda, y la que ahora comparte con
-            // `CountChip`, del que este chip tiene que ser indistinguible: los dos salen juntos en
-            // la misma fila ("777 canciones" al lado de "Recientes primero").
+            // misma regla que dejó neutra la píldora de búsqueda.
+            //
+            // **SIN RELLENO, que es el default de `AssistChip` en M3** (7 sep 2026, decisión del
+            // usuario). Estuvo relleno en `surfaceContainerHighest` y sin borde, y eso ocupaba el
+            // único slot neutro que quedaba en la fila: en device, "777 canciones" y "Recientes
+            // primero" se leían como la misma pieza. El comentario que lo justificaba —"con borde
+            // sería la única pieza de la fila con contorno"— solo era cierto en una biblioteca sin
+            // split de origen; con los filtros visibles ya hay tres contornos y este chip PERTENECE
+            // a ese grupo, porque es lo mismo que ellos: un control que acota la lista.
+            //
+            // Al soltarlo, el relleno neutro queda libre para `CountChip`, que así pasa a ser la
+            // única pieza rellena-y-neutra de la fila y la única que no se lee como un control —
+            // que es la verdad, porque es la única que no se toca. **Ninguna de las dos cosas se
+            // puede revertir sola**: si este chip vuelve a rellenarse, el contador tiene que salir
+            // del neutro, y ahí no queda más que gastar un matiz (el `tertiaryContainer` morado que
+            // esto sustituye).
             colors = AssistChipDefaults.assistChipColors(
-                containerColor = AppColors.surfaceContainerHighest,
+                containerColor = Color.Transparent,
                 labelColor = AppColors.onSurface,
                 leadingIconContentColor = AppColors.onSurfaceVariant,
                 trailingIconContentColor = AppColors.onSurfaceVariant
             ),
-            // Sin borde: el contenedor sólido ya lo separa del fondo, y con borde además sería la
-            // única pieza de la fila con contorno.
-            border = null
+            border = appAssistChipBorder()
         )
         // Menú SEGMENTADO de M3 Expressive = `AppMenuPopup` (nuestro `DropdownMenuPopup`, ver su
         // kdoc) + `AppMenuGroup`. No basta

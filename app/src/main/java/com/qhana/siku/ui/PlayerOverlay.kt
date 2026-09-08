@@ -55,6 +55,7 @@ import com.qhana.siku.data.model.PlaybackState
 import com.qhana.siku.data.util.JankProbe
 import com.qhana.siku.data.util.SnackbarManager
 import com.qhana.siku.ui.components.AddSongsToPlaylistSheet
+import com.qhana.siku.ui.components.CHROME_OVERLAY_Z
 import com.qhana.siku.ui.components.CallerManagedVisibilityScope
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.MiniPlayer
@@ -373,10 +374,37 @@ fun BoxScope.PlayerOverlay(
                             }
                         }
                     }
+                    // La píldora es chrome PERSISTENTE: sigue en pantalla en las siete rutas de
+                    // `isPillRoute`, o sea que al navegar de la biblioteca a un detalle está antes y
+                    // después. Sin esto, la carátula que viaja hacia el detalle le pasaba POR ENCIMA
+                    // a mitad de camino: un shared element se dibuja en el OVERLAY del scope, que va
+                    // sobre el árbol ENTERO, así que ningún z del árbol le gana — hay que subir al
+                    // mismo overlay, por encima de la portada ([CHROME_OVERLAY_Z]).
+                    //
+                    // **La condición excluye la transición del PROPIO reproductor**, y eso es lo
+                    // load-bearing: ahí la píldora no es un espectador sino la punta de origen del
+                    // morph (`PLAYER_CONTAINER_SHARED_KEY`), y elevarla la sacaría de su sitio en la
+                    // coreografía justo cuando le toca ser la que crece. `isTransitionActive` es del
+                    // scope, que es ÚNICO para toda la app: con la capa quieta, la única transición
+                    // que puede estar corriendo es la de navegación, que es la que hay que esquivar.
+                    val pillOverOverlay = if (sharedTransitionScope != null) {
+                        with(sharedTransitionScope) {
+                            Modifier.renderInSharedTransitionScopeOverlay(
+                                renderInOverlay = {
+                                    isTransitionActive &&
+                                        !layerTransition.isRunning &&
+                                        layerTransition.currentState == layerTransition.targetState
+                                },
+                                zIndexInOverlay = CHROME_OVERLAY_Z
+                            )
+                        }
+                    } else Modifier
+
                     Column(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
+                            .then(pillOverOverlay)
                             .fillMaxWidth()
                             // Barras del sistema Y perforación: en horizontal las dos caen en un
                             // COSTADO, que es justo por donde la píldora llega al borde. Sin esto

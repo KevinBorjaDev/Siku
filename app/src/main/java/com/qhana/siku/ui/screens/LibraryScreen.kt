@@ -48,6 +48,8 @@ import com.qhana.siku.ui.PlayerArtOrigin
 import com.qhana.siku.ui.SharedTransitionGate
 import com.qhana.siku.ui.components.*
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.activeDestinationContainer
+import com.qhana.siku.ui.theme.onActiveDestination
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appMenuItemColors
 import com.qhana.siku.ui.theme.appTextButtonColors
@@ -147,20 +149,25 @@ private val tabInfo: Map<LibraryTabId, LibraryPage.Tab> = listOf(
  * Las cuatro vistas del CATÁLOGO, o sea las que en el estilo moderno viven dentro del destino
  * Biblioteca. Inicio y Listas quedan fuera porque no son vistas del catálogo: son destinos.
  *
- * En este orden, que es el del enum y el del default de `LibraryTabsConfig` — solo se usa como
- * fallback y para filtrar; el orden que manda es el que el usuario configuró.
+ * **Fijas: la config de pestañas NO se lee aquí**, y el orden es el del enum (= el del default de
+ * `LibraryTabsConfig`). El estilo moderno inhabilita el personalizador de pestañas en Ajustes, así
+ * que una config heredada del modo clásico seguía escondiendo y reordenando estas cuatro sin que
+ * el usuario tuviera control alguno sobre ellas: quien había ocultado Géneros y movido Álbumes en
+ * el otro modo se encontraba el catálogo mutilado y sin dónde arreglarlo. Es la MISMA regla que ya
+ * aplica [com.qhana.siku.ui.viewmodel.LibraryViewModel.homeTabHidden] —con el estilo moderno la
+ * config sigue guardada pero no dice nada—, que este sitio se había quedado sin aplicar.
  */
-private val CategoryTabIds = listOf(
+private val CategoryPages: List<LibraryPage.Tab> = listOf(
     LibraryTabId.SONGS,
     LibraryTabId.ARTISTS,
     LibraryTabId.ALBUMS,
     LibraryTabId.GENRES
-)
+).map(tabInfo::getValue)
 
 /**
  * Las páginas del **estilo moderno**: tres destinos fijos. Los DESTINOS no salen de la config de
  * pestañas a propósito —la barra de navegación es la estructura de la app, no contenido
- * configurable—, pero las categorías de dentro de Biblioteca SÍ la respetan (ver `categoryTabs`).
+ * configurable—, y las categorías de dentro de Biblioteca tampoco (ver [CategoryPages]).
  *
  * Biblioteca va en el MEDIO porque es el destino que más se usa y el pulgar llega mejor.
  */
@@ -404,17 +411,6 @@ fun LibraryScreen(
         }
     }
 
-    // Las cuatro vistas del CATÁLOGO, en el orden y con la visibilidad que el usuario configuró.
-    // Manda su configuración igual que en el modo clásico —"la barra es la estructura, las tabs son
-    // el contenido"—, y el fallback no es defensa de más: `LibraryTabsConfig` solo garantiza que
-    // quede UNA pestaña visible, y esa una podría ser Inicio, dejando Biblioteca sin nada que
-    // mostrar y sin forma de arreglarlo desde ahí.
-    val categoryTabs = remember(tabsConfig) {
-        tabsConfig.filter { it.visible && it.tab in CategoryTabIds }
-            .mapNotNull { tabInfo[it.tab] }
-            .ifEmpty { CategoryTabIds.mapNotNull { tabInfo[it] } }
-    }
-
     // --- CROMO DE NAVEGACIÓN: dónde se dibuja el selector de pestañas ---
     // Las tres presentaciones (fila arriba, barra abajo, rail al lado) son proyecciones del MISMO
     // `pagerState.currentPage`; esto solo decide cuál se pinta. La regla vive en `libraryChrome` y
@@ -494,9 +490,15 @@ fun LibraryScreen(
     // sobre él. Medido en device contra el mismo Dialer, tema oscuro: fondo `31,32,36` y tarjetas
     // `41,42,47` (+10 en el lado claro), barra de navegación `27,28,32` (−4); Siku pintaba sus filas
     // en `18,19,23`, o sea 13 puntos hacia el OTRO lado. Google cambia el rol por tema para
-    // conservar la relación, y eso es lo que hacen [AppColors.contentSurface] y
-    // [AppColors.chromeSurface] — leer su KDoc antes de tocar un color de esta pantalla. En claro
-    // valen `surface` y `surfaceContainerHigh`, o sea exactamente lo de siempre.
+    // conservar la relación, y eso es lo que hacían [AppColors.contentSurface] y
+    // [AppColors.chromeSurface].
+    //
+    // ⚠️ **ESO YA NO ES ASÍ y lo de abajo es HISTORIA, no la descripción del código.** El 4 sep el
+    // fondo de página volvió a `surface` (el extremo de la escala), y con el fondo en un extremo no
+    // hay "hacia el lado claro" al que subir en tema claro: la horquilla dejó de tener sentido. El
+    // 7 sep `contentSurface` pasó a `surfaceContainerHigh` en los DOS temas —el token de una
+    // tarjeta— y `chromeSurface` se quedó sin consumidores. Leer el KDoc de `contentSurface` antes
+    // de tocar un color de esta pantalla; lo que sigue vale por lo que se PROBÓ y descartó.
     //
     // Antes se apilaba todo hacia un lado desde `surface` (98 / 96 / 94: fondo, cabecera, filas) y
     // por eso "la escala se agotaba": las tres superficies competían por el mismo lado y siempre
@@ -512,39 +514,45 @@ fun LibraryScreen(
     // en tono Y croma a la vez, "no combinan". El diagnóstico que ordenó todo salió de medir los
     // píxeles de una captura: los tres colores tenían el MISMO hue y la misma calidez (R−G = 10-11),
     // o sea que el problema nunca fue de armonía sino de PESO y de DIRECCIÓN.
-    // Color de las BARRAS de navegación (la fila de pestañas, la de abajo y el rail): el peldaño
-    // que la horquilla les reserva.
-    val chromeColor = AppColors.chromeSurface
-    // **La cabecera solo lleva ese color mientras SEA una barra de navegación.** Con el selector
-    // abajo o al lado se queda con la búsqueda y nada más, así que deja de ser una barra y se funde
-    // con el fondo de página: una banda tonal a todo el ancho para sostener una píldora pesaría sin
-    // decir nada. La píldora de búsqueda no pierde separación — sigue en `surface`, un peldaño por
-    // encima del fondo, que es justo lo que hace el Dialer con sus tarjetas.
-    // La cabecera solo lleva color de BARRA mientras SEA una barra de navegación, o sea cuando el
-    // selector vive arriba. Con cualquiera de las tres presentaciones de fuera (toolbar, barra del
-    // estilo moderno o rail) se funde con el fondo de página.
-    val headerColor =
-        if (chrome == LibraryChrome.None) chromeColor else AppColors.surfaceContainer
-    // Contenedor de la píldora de búsqueda: el lado del CONTENIDO de la horquilla — 6 puntos por
-    // encima de su bloque cuando la cabecera es barra (92), y 4 sobre el fondo de página cuando se
-    // funde con él (94). En los dos casos queda del lado del contenido, que es lo que importa. Es lo que hace el Dialer, donde la search bar lleva exactamente el
-    // mismo color que las tarjetas de la lista (medido: `250,249,254` en las dos).
+    // 4 sep 2026 — revisión de roles por pasos: search bar, app bar y chrome de navegación aplanados
+    // a `surface`, igual que el fondo de página. Es lo que dejó a `chromeSurface` sin un solo
+    // consumidor.
     //
-    // **Se aparta de `SearchBarTokens.ContainerColor`** (`surfaceContainerHigh`, 92) y **va sin
-    // sombra**: el Level 3 de `SearchBarTokens.ContainerElevation` se implementó y se quitó el mismo
-    // día (20 ago, en device). Ese token da por hecho que la search bar flota sobre el fondo de la
-    // página; aquí vive DENTRO de una barra, y con la horquilla ya se separa de ella por tono. Con
-    // el token crudo el campo empataría con su propio bloque.
-    // NEUTRO a propósito: el color fuerte (`secondaryContainer`) es el lenguaje del estado
-    // SELECCIONADO —el tab activo—, y teñir también la búsqueda le robaba ese protagonismo.
-    val headerItemColor = AppColors.contentSurface
-
+    // **`chromeColor` se ELIMINÓ el 7 sep 2026**: era un solo valor para el rail y la barra de
+    // abajo, y M3 NO les da el mismo token —`NavigationRailCollapsedTokens.ContainerColor` es
+    // `Surface` y `NavigationBarTokens.ContainerColor` es `SurfaceContainer`—, así que compartir
+    // variable obligaba a que uno de los dos estuviera mal. La diferencia tiene sentido: un rail
+    // colapsado vive pegado al borde de la página y es parte de ella, mientras que la barra de
+    // abajo se apoya ENCIMA del contenido que le pasa por debajo. Cada uno pasa su token en su
+    // sitio de uso. Lo que sí comparten —y no puede divergir— son los colores de sus ÍTEMS, que
+    // salen de `appNavigationRailItemColors` / `appShortNavigationBarItemColors`: las tres
+    // presentaciones son proyecciones del mismo `pagerState`.
+    // **La cabecera solo lleva color de BARRA mientras SEA la barra de pestañas** (chrome ==
+    // `None`, las tabs puestas arriba bajo la búsqueda): ahí el bloque topbar+tabs es una sola
+    // pieza de navegación y necesita separarse del fondo (`surfaceContainer`, el rol canónico de
+    // M3 para un app bar sobre `surface`). Con el selector abajo, al lado o en el estilo moderno el
+    // bloque deja de ser barra de navegación — se queda solo con la búsqueda — y se funde con la
+    // página (`surface`), igual que el rail.
+    val headerColor =
+        if (chrome == LibraryChrome.None) AppColors.surfaceContainer else AppColors.surface
     // --- BÚSQUEDA ---
     // Todo el componente vive en `LibrarySearchBar.kt`, porque desde el estilo moderno lo montan
     // DOS pantallas: ésta y cada categoría abierta a pantalla completa. Ahí están el porqué de la
     // variante contained, el spec sin rebote y los tres detalles que solo se ven en device.
+    //
+    // Contenedor de la píldora: `SearchBarTokens.ContainerColor` = `surfaceContainerHigh`, el rol
+    // canónico de M3 en los DOS temas. Se pasa explícito (y no se deja al default del componente)
+    // porque `SearchBarDefaults.containedColors` lo resolvería contra el `MaterialTheme` BASE —el
+    // del wallpaper— y la píldora se saldría de la app teñida por la carátula. `AppColors.…` sí es
+    // el esquema seedeado. NEUTRO a propósito: el color fuerte (`secondaryContainer`) es el lenguaje
+    // del estado SELECCIONADO —el tab activo—, y teñir también la búsqueda le robaría protagonismo.
+    val headerItemColor = AppColors.surfaceContainerHigh
+    // Fondo del search view a pantalla completa: `surfaceContainerLow`, el MISMO rol que M3 da al
+    // full-screen contained, pero desde `AppColors` (carátula) y no del `MaterialTheme` base —el
+    // del wallpaper— que `containedColors` consultaría por su cuenta.
     val search = rememberLibrarySearch(
         itemColor = headerItemColor,
+        fullScreenColor = AppColors.surfaceContainerLow,
         onQueryChange = libraryViewModel::onSearchQueryChanged,
         onExpandedChange = libraryViewModel::onShowSearchChanged
     )
@@ -706,12 +714,16 @@ fun LibraryScreen(
             .fillMaxSize()
             .nestedScroll(currentScrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0,0,0,0),
-        // Fondo de la biblioteca: `surfaceContainer` (94), el nivel MEDIO de la escala — NO el
-        // extremo claro. Desde aquí el contenido sube a `surface` y las barras bajan a
-        // `surfaceContainerHigh`; la horquilla completa, con la medición del Dialer de la que sale,
-        // está en `headerColor`. Estuvo en `surface` (98) unas horas el 20 ago: con todo apilado
-        // hacia abajo desde el extremo, alguna frontera quedaba siempre en 2 puntos de tono.
-        containerColor = AppColors.surfaceContainer,
+        // Fondo de página: `surface` (M3 spec — 4 sep 2026, revisión de roles por pasos). Estuvo en
+        // `surfaceContainer` desde el 20 ago con la idea de la "horquilla" (fondo en el nivel MEDIO,
+        // contenido sube / barras bajan).
+        //
+        // Las filas se separan de él porque son TARJETAS y no list items: `AppColors.contentSurface`
+        // pasó a `surfaceContainerHigh` en los dos temas el 7 sep — leer su KDoc, que trae los
+        // tokens del jar que lo justifican (`ListTokens.ItemContainerColor` es `Surface`, y
+        // `Background` == `Surface`, o sea que un list item de M3 NO se separa de la página por
+        // diseño). `chromeSurface` quedó sin consumidores en el pase del 4 sep.
+        containerColor = AppColors.surface,
         // Sin snackbarHost: el host único vive en MainActivity, ya posicionado sobre el
         // MiniPlayer flotante. Tener otro acá duplicaba el componente y solo mostraba los
         // snackbars pedidos a mano desde esta pantalla, no los del bus.
@@ -902,7 +914,7 @@ fun LibraryScreen(
                         // El destino Biblioteca del estilo moderno: las categorías como
                         // pestañas, con su propio pager. Ver [LibraryCategoriesPane].
                         LibraryPage.Categories -> LibraryCategoriesPane(
-                            categories = categoryTabs,
+                            categories = CategoryPages,
                             contentPadding = listInsets,
                             // El MISMO color que la cabecera de búsqueda: en el estilo moderno
                             // aquélla se funde con el fondo de página (no es una barra de
@@ -1135,6 +1147,20 @@ fun LibraryScreen(
                 if (!modernNav) syncBannerSlot { bannerHeightPx = it }
             }
 
+            // El selector es chrome PERSISTENTE: existe antes y después de navegar a un detalle,
+            // así que no puede quedar tapado por la carátula que viaja hasta allá. Un shared element
+            // se dibuja en el OVERLAY del scope, o sea sobre el árbol entero, y desde el árbol no
+            // hay z que le gane: la única forma de ordenarse frente a él es subir al mismo overlay
+            // por encima ([CHROME_OVERLAY_Z]). Se aplica a las TRES presentaciones flotantes —son
+            // el mismo control en tres sitios, y arreglar una sola dejaría el bug vivo en las otras
+            // dos según el ajuste que tenga cada usuario. La fila de pestañas de la cabecera no lo
+            // necesita: queda bajo el header, fuera del camino de la portada.
+            val chromeOverOverlay = overSharedElementsModifier(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                zIndexInOverlay = CHROME_OVERLAY_Z
+            )
+
             // El rail va DESPUÉS de la cabecera, o sea por encima de todo lo demás, y ocupa la
             // columna que `railInset` acaba de dejar libre. Puede llenar la pantalla de alto sin
             // pelearse con la barra de estado por dos motivos: el body del Scaffold llega hasta
@@ -1145,8 +1171,11 @@ fun LibraryScreen(
                     pages = pages,
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                    containerColor = chromeColor,
-                    modifier = Modifier.align(Alignment.CenterStart)
+                    // `NavigationRailCollapsedTokens.ContainerColor` = `Surface`, o sea el mismo
+                    // color que la página: un rail colapsado es parte del borde, no una capa
+                    // sobre el contenido (el que sube a `surfaceContainer` es el rail MODAL).
+                    containerColor = AppColors.surface,
+                    modifier = Modifier.align(Alignment.CenterStart).then(chromeOverOverlay)
                 )
             }
 
@@ -1162,11 +1191,9 @@ fun LibraryScreen(
                     pages = pages,
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
-                    // El MISMO color que el `containerColor` del Scaffold: el toolbar deriva de él
-                    // su contenedor y su indicador, así que tiene que ser el fondo REAL de la
-                    // página y no un rol repetido a mano.
-                    background = AppColors.surfaceContainer,
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    // Sin `background`: sus colores son roles tabulados y ya no se derivan de la
+                    // página (7 sep 2026, ver `appLibraryToolbarColors`).
+                    modifier = Modifier.align(Alignment.BottomCenter).then(chromeOverOverlay)
                 )
             }
 
@@ -1176,8 +1203,10 @@ fun LibraryScreen(
             // aritméticas — la del Scaffold en un modo y la de aquí en los demás.
             //
             // A diferencia del toolbar, esta pieza NO flota: va pegada al borde y consume la navbar
-            // del sistema por dentro, así que su color sale de la horquilla (`chromeColor`, el
-            // mismo que la fila de arriba y el rail) y no derivado del fondo.
+            // del sistema por dentro, así que su color es un ROL tabulado y no algo derivado del
+            // fondo. `NavigationBarTokens.ContainerColor` = `SurfaceContainer`, un escalón de
+            // contenedor sobre el `surface` de la página — y NO el mismo valor que el rail, que
+            // M3 deja en `Surface` (ver la nota donde vivía `chromeColor`).
             if (chrome == LibraryChrome.NavBar) {
                 LibraryNavigationBar(
                     pages = pages,
@@ -1192,8 +1221,8 @@ fun LibraryScreen(
                     // feedback: dos motions para un solo toque, imitando además un gesto que en
                     // este modo no existe.
                     onTabSelected = { index -> scope.launch { pagerState.scrollToPage(index) } },
-                    containerColor = chromeColor,
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    containerColor = AppColors.surfaceContainer,
+                    modifier = Modifier.align(Alignment.BottomCenter).then(chromeOverOverlay)
                 )
             }
         }
@@ -1267,9 +1296,10 @@ fun LibraryScreen(
 }
 
 /**
- * Reanuda un contexto de "Seguir escuchando": obtiene sus canciones y reproduce como tal
- * (álbum/artista/lista/favoritos en cola; biblioteca en orden o aleatoria), refrescando su
- * posición en el historial. Abre el NowPlaying, como un "retomar".
+ * Reanuda un contexto de "Seguir escuchando" **donde se dejó**: si hay estado guardado para esa
+ * tarjeta, retoma su cola/índice/posición (y el orden barajado); si no —o si sus canciones ya no
+ * están— reproduce el contexto entero desde el inicio. Refresca la carátula del carrusel y abre el
+ * NowPlaying, como un "retomar".
  */
 private fun resumeContext(
     ctx: PlaybackContext,
@@ -1280,51 +1310,46 @@ private fun resumeContext(
     favoriteSongs: List<Song>,
     onNavigateToNowPlaying: (PlayerArtOrigin) -> Unit
 ) {
+    fun resumeWith(refreshed: PlaybackContext, songs: List<Song>) {
+        if (songs.isEmpty()) return
+        playbackViewModel.resumeContext(
+            refreshed.withCoverUri(songs.firstOrNull()?.albumArtUri?.toString()),
+            songs
+        )
+        onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+    }
     when (ctx) {
         is PlaybackContext.Album -> scope.launch {
-            val songs = browseViewModel.getAlbumSongs(ctx.name).first()
-            if (songs.isNotEmpty()) {
-                libraryViewModel.recordContext(ctx.copy(coverUri = songs.firstOrNull()?.albumArtUri?.toString()))
-                playbackViewModel.playSongs(songs, 0)
-                onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-            }
+            resumeWith(ctx, browseViewModel.getAlbumSongs(ctx.name).first())
         }
         is PlaybackContext.Artist -> scope.launch {
-            val songs = browseViewModel.getArtistSongs(ctx.name).first()
-            if (songs.isNotEmpty()) {
-                libraryViewModel.recordContext(ctx.copy(coverUri = songs.firstOrNull()?.albumArtUri?.toString()))
-                playbackViewModel.playSongs(songs, 0)
-                onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-            }
+            resumeWith(ctx, browseViewModel.getArtistSongs(ctx.name).first())
         }
         is PlaybackContext.Genre -> scope.launch {
-            val songs = browseViewModel.getGenreSongs(ctx.name).first()
-            if (songs.isNotEmpty()) {
-                libraryViewModel.recordContext(ctx.copy(coverUri = songs.firstOrNull()?.albumArtUri?.toString()))
-                playbackViewModel.playSongs(songs, 0)
-                onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-            }
+            resumeWith(ctx, browseViewModel.getGenreSongs(ctx.name).first())
         }
-        is PlaybackContext.Playlist -> {
-            libraryViewModel.playPlaylist(ctx.id)
-            onNavigateToNowPlaying(PlayerArtOrigin.NONE)
+        is PlaybackContext.Playlist -> scope.launch {
+            resumeWith(ctx, libraryViewModel.getPlaylistSongs(ctx.id).first())
         }
-        PlaybackContext.Favorites -> {
-            if (favoriteSongs.isNotEmpty()) {
-                libraryViewModel.recordContext(PlaybackContext.Favorites)
-                playbackViewModel.playSongs(favoriteSongs, 0)
-                onNavigateToNowPlaying(PlayerArtOrigin.NONE)
-            }
-        }
+        PlaybackContext.Favorites -> resumeWith(PlaybackContext.Favorites, favoriteSongs)
         PlaybackContext.LibraryShuffle -> {
-            playbackViewModel.shuffleAllFromLibrary()
+            playbackViewModel.resumeLibraryContext(shuffled = true)
             onNavigateToNowPlaying(PlayerArtOrigin.NONE)
         }
         PlaybackContext.LibraryAll -> {
-            playbackViewModel.playAllFromLibrary()
+            playbackViewModel.resumeLibraryContext(shuffled = false)
             onNavigateToNowPlaying(PlayerArtOrigin.NONE)
         }
     }
+}
+
+/** Copia el contexto con la carátula [uri], sin tocar los que no llevan carátula propia. */
+private fun PlaybackContext.withCoverUri(uri: String?): PlaybackContext = when (this) {
+    is PlaybackContext.Album -> copy(coverUri = uri)
+    is PlaybackContext.Artist -> copy(coverUri = uri)
+    is PlaybackContext.Genre -> copy(coverUri = uri)
+    is PlaybackContext.Playlist -> copy(coverUri = uri)
+    else -> this
 }
 
 /**
@@ -1636,7 +1661,9 @@ private fun LibraryTabs(
         // pestaña. Con el mismo color a alpha 0 la interpolación se queda en su propio tono y solo
         // se desvanece.
         val pillColor by animateColorAsState(
-            targetValue = AppColors.secondaryContainer.copy(alpha = if (selected) 1f else 0f),
+            // El MISMO rol que el indicador del toolbar, el rail y la barra moderna: son cuatro
+            // proyecciones del mismo `pagerState.currentPage`. Ver `activeDestinationContainer`.
+            targetValue = activeDestinationContainer.copy(alpha = if (selected) 1f else 0f),
             animationSpec = appEffectsSpec(),
             label = "tabPill"
         )
@@ -1663,7 +1690,7 @@ private fun LibraryTabs(
                 // — o sea que sin esto las seis pestañas se pintarían del color de la activa y ninguna
                 // se leería como inactiva. La activa va sobre la píldora, así que su color es el `on-`
                 // del contenedor, no el acento suelto.
-                selectedContentColor = AppColors.onSecondaryContainer,
+                selectedContentColor = onActiveDestination,
                 unselectedContentColor = AppColors.onSurfaceVariant,
                 text = null,
                 icon = {

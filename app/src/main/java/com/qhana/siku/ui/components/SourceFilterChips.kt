@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import com.qhana.siku.R
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.appFilterChipBorder
 import com.qhana.siku.ui.theme.appFilterChipColors
 
 /**
@@ -67,6 +68,10 @@ fun SourceFilterChip(
 ) {
     FilterChip(
         colors = appFilterChipColors(),
+        // El borde NO viaja en `ChipColors`: su default resuelve `OutlineVariant` con `.value`, o
+        // sea contra el esquema BASE (wallpaper). Era el único píxel de estos chips que no seguía
+        // a la carátula.
+        border = appFilterChipBorder(selected),
         selected = selected,
         onClick = onClick,
         label = { Text(label) },

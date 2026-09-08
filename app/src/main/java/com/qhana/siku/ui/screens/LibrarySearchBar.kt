@@ -124,9 +124,17 @@ internal class LibrarySearchState(
  * `DisposableEffect { onDispose { onQueryChange("") } }`: eso sí sería la pantalla saliente pisando
  * a la entrante.
  *
- * @param itemColor el color de la PÍLDORA (`AppColors.contentSurface` en las dos pantallas que la
- *   montan). Se pasa desde fuera porque es la constante de la pantalla: quien decide el reparto de
- *   superficies es ella.
+ * @param itemColor color de la PÍLDORA. Se pasa desde fuera para que salga de `AppColors` (el
+ *   esquema teñido por la CARÁTULA) y no del `MaterialTheme` base —del wallpaper— que
+ *   `SearchBarDefaults.containedColors` consultaría por su cuenta. Es lo que mantiene la píldora
+ *   dentro de la app teñida en vez de gris ajeno. Valor: `AppColors.surfaceContainerHigh` (el rol
+ *   canónico del search bar, `SearchBarTokens.ContainerColor`, en los dos temas).
+ * @param fullScreenColor color de la SUPERFICIE del search view expandido (el `Dialog` a pantalla
+ *   completa). Mismo motivo que [itemColor]: `containedColors` lo resolvería contra el
+ *   `MaterialTheme` base. Valor: `AppColors.surfaceContainerLow` — el MISMO rol que M3 usa para el
+ *   fondo del full-screen contained (`fullScreenContainedSearchBarColor`, hoy un hardcode a
+ *   `surfaceContainerLow` con `// TODO` en la librería), solo que seedeado por la carátula. Un
+ *   peldaño por debajo de la píldora, como en el spec.
  * @param onQueryChange se le replica el texto del input; la query sigue siendo dueña del
  *   `LibraryViewModel`, que es quien alimenta el paging LIKE.
  * @param onExpandedChange se avisa al ARRANCAR la animación, no al terminarla.
@@ -135,6 +143,7 @@ internal class LibrarySearchState(
 @Composable
 internal fun rememberLibrarySearch(
     itemColor: Color,
+    fullScreenColor: Color,
     onQueryChange: (String) -> Unit,
     onExpandedChange: (Boolean) -> Unit
 ): LibrarySearchState {
@@ -147,27 +156,28 @@ internal fun rememberLibrarySearch(
         animationSpecForExpand = SearchViewMotionSpec,
         animationSpecForCollapse = SearchViewMotionSpec
     )
-    // El override se queda aunque [itemColor] COINCIDA hoy con el default del componente
-    // (`collapsedContainedSearchBarColor` = `SearchBarTokens.ContainerColor` = `surfaceContainerHigh`):
-    // lo que se pasa es la constante de la PANTALLA, así que el input y el `Surface` que proyecta
-    // su sombra siguen al mismo valor si mañana cambia el reparto. Sin él serían dos fuentes para
-    // el mismo color, que es como se separan en silencio. El resto de la paleta (contenido,
-    // superficie del diálogo expandido) se conserva por defecto.
+    // `SearchBarDefaults.containedColors` resuelve su paleta contra `MaterialTheme.colorScheme` —el
+    // esquema BASE, seedeado del WALLPAPER—, así que sin este override la píldora se sale de la app
+    // teñida por la carátula (regla del rediseño de color: ningún componente M3 cae al
+    // `MaterialTheme`). Se pisan `containerColor` (colapsado) y el contenedor del input con
+    // [itemColor], que la pantalla saca de `AppColors` (esquema teñido por la carátula). Valor y
+    // rol: `surfaceContainerHigh` = `SearchBarTokens.ContainerColor`, así que solo cambia la
+    // FUENTE del color, no el tono.
     val colors = SearchBarDefaults.containedColors(barState).let { base ->
         base.copy(
             // El `containerColor` va TAMBIÉN, no solo el del input: el componente los usa en dos
             // capas —`SearchBar` pinta un `Surface` con él y el `inputField` pinta la suya dentro—,
-            // así que dejarlo en su default (`SearchBarTokens.ContainerColor`, 92) mientras el
-            // input baja a [itemColor] (94) las descuadraría en un peldaño.
+            // así que los dos se atan a un color de `AppColors` para que salgan de la misma fuente.
             //
-            // SOLO en colapsado: este mismo objeto lo consume `ExpandedFullScreenContainedSearchBar`,
-            // y ahí `containedColors` devuelve OTRO valor (`fullScreenContainedSearchBarColor`) que
-            // es el fondo del diálogo a pantalla completa. Pisarlo sin mirar el estado le cambiaría
-            // el color a esa pantalla, que no tiene nada que ver con la píldora de la cabecera.
+            // Los DOS estados se pisan, cada uno con su rol: este mismo objeto lo consume
+            // `ExpandedFullScreenContainedSearchBar`, donde `containedColors` devolvería
+            // `fullScreenContainedSearchBarColor` (`surfaceContainerLow`) — el rol correcto, pero
+            // resuelto contra el `MaterialTheme` BASE, o sea del wallpaper. [fullScreenColor] es ese
+            // MISMO rol tomado de `AppColors`, así que solo cambia la FUENTE del color, no el tono.
             // `currentValue`, no `isExpanded`: esa extensión existe en material3 pero es PRIVADA de
             // su archivo, y es literalmente esta misma comparación.
             containerColor =
-                if (barState.currentValue == SearchBarValue.Expanded) base.containerColor
+                if (barState.currentValue == SearchBarValue.Expanded) fullScreenColor
                 else itemColor,
             inputFieldColors = base.inputFieldColors.copy(
                 focusedContainerColor = itemColor,
@@ -335,7 +345,8 @@ internal fun LibrarySearchHeader(
     ) {
         // SIN `shadowElevation`: se deja el default de Compose (Level0), que se aparta del
         // `SearchBarTokens.ContainerElevation` del spec (Level 3). Se implementó ese Level 3 el
-        // 20 ago y se quitó el mismo día en device — el porqué, junto a `headerItemColor`.
+        // 20 ago y se quitó el mismo día en device: la píldora no flota sobre la página, vive
+        // dentro de la cabecera y ya se separa por tono.
         //
         // **La píldora tiene TOPE de ancho** (27 ago 2026): girado se estiraba a los ~790dp que
         // deja el rail, un campo de texto de una línea ocupando toda la pantalla. El tope es el

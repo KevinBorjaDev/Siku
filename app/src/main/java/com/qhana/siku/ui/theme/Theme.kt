@@ -90,26 +90,49 @@ fun MusicPlayerTheme(
     //  - Content/Fidelity siguen el croma del seed pero dejan los neutros casi grises.
     // `monochrome` gana siempre: sin croma no hay matiz que estilizar.
     paletteStyle: PaletteStyle = PaletteStyle.TonalSpot,
-    // Acento VIVO, SOLO EN TEMA OSCURO: reencuadra `primary` al tono donde el matiz del álbum
-    // alcanza su croma máximo, en vez del 80 fijo que le da el spec (ver [withVividPrimary]). Es lo
-    // que acerca el acento al que System UI pinta en la notificación de media sin cambiar de estilo
-    // de paleta — con Equilibrado, las superficies siguen siendo moderadas.
-    vividAccent: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    // Acento VIVO, SOLO EN TEMA OSCURO: reencuadra `primary`/`secondary` al tono donde el matiz del
+    // álbum alcanza su croma máximo, en vez del 80 fijo que le da el spec (ver [withVividPrimary]).
+    // Es lo que acerca el acento al que System UI pinta en la notificación de media sin cambiar de
+    // estilo de paleta — con Equilibrado, las superficies siguen siendo moderadas.
+    //
+    // NO es un ajuste del usuario — hubo un parámetro `vividAccent: Boolean` para apagarlo (con
+    // default `true`) que nunca se leyó de ninguna preferencia ni se pasó en `false` desde NINGÚN
+    // caller; se quitó el 1 sep 2026 por configurabilidad muerta (visto al auditar el pipeline
+    // completo de color). Si algún día hace falta un toggle de verdad, se reintroduce CON su
+    // control en Ajustes, no como parámetro huérfano.
+    //
     // Post-proceso del esquema ya generado (palanca oficial de MaterialKolor). Se memoriza porque
     // `rememberDynamicColorScheme` mete esta lambda entre las claves de su `remember`: una lambda
     // nueva por recomposición tiraría el caché del esquema en cada frame.
-    // SOLO en tema oscuro. Ahí el problema es real: el spec clava `primary` en tono 80 y a esa
-    // claridad el gamut sRGB no admite croma alto, así que el acento sale pastel hagas lo que
-    // hagas. En claro no hace falta — con el spec 2025 TonalSpot ya coloca `primary` en el tono de
-    // máximo croma y luego DynamicColor le aplica su corrección de contraste, que un color escrito
-    // a mano se salta. Se probó intervenir también en claro (28 jul) y todo lo que salió de ahí
-    // fueron problemas nuevos: el play gris de croma 9.3, el botón oscuro con el glifo oscuro, y
-    // una ventana de tonos que había que recalibrar a ojo. Revertido a propósito.
-    val vividAccents = remember(seedColor, darkTheme, monochrome, vividAccent) {
-        if (seedColor == null || monochrome || !vividAccent || !darkTheme) null
-        else { scheme: ColorScheme -> scheme.withVividPrimary(seedColor).withVividSecondary(seedColor) }
+    //
+    // Dos condiciones DISTINTAS disparan la corrección, cada una por su propio motivo — no es
+    // "siempre" ni "nunca", es "cuando el mecanismo automático de esa combinación no alcanza":
+    //
+    //  1. TEMA OSCURO, con CUALQUIER estilo (el mecanismo original). Ahí el problema es real: el
+    //     spec clava `primary` en tono 80 y a esa claridad el gamut sRGB no admite croma alto, así
+    //     que el acento sale pastel hagas lo que hagas.
+    //  2. Estilo `Content`/`Fidelity` (1 sep 2026), con CUALQUIER tema. Estos dos estilos siguen el
+    //     croma del seed en vez de imponer uno fijo (ver [followsSeedChroma]) — con una carátula de
+    //     croma bajo, MaterialKolor los entrega casi grises, en claro igual que en oscuro. A
+    //     diferencia del caso 1, esto NO es redundante con nada: solo Vibrant/Expressive reciben el
+    //     tono de máximo croma automático del spec 2025, y Content/Fidelity se quedan sin ayuda por
+    //     los dos lados.
+    //
+    // En CLARO con los demás estilos (TonalSpot, Vibrant, Expressive) no hace falta — con el spec
+    // 2025 esos ya colocan `primary` en el tono de máximo croma y luego DynamicColor le aplica su
+    // corrección de contraste, que un color escrito a mano se salta. Se probó intervenir ahí también
+    // (28 jul, con TonalSpot) y todo lo que salió fueron problemas nuevos: el play gris de croma
+    // 9.3, el botón oscuro con el glifo oscuro, y una ventana de tonos que había que recalibrar a
+    // ojo. Revertido a propósito — y es la razón por la que el caso 2 se acota a Content/Fidelity en
+    // vez de aplicarse a cualquier estilo en cualquier tema.
+    val vividAccents = remember(seedColor, darkTheme, monochrome, paletteStyle) {
+        if (seedColor == null || monochrome || (!darkTheme && !paletteStyle.followsSeedChroma())) null
+        else {
+            scheme: ColorScheme ->
+                scheme.withVividPrimary(seedColor).withVividSecondary(seedColor).withVividTertiary(seedColor)
+        }
     }
 
     // EL ESQUEMA BASE: el que recibe `MaterialTheme`, y que a propósito **NO depende de la
@@ -160,8 +183,8 @@ fun MusicPlayerTheme(
         )
     else baseScheme
 
-    val generation = remember(paletteStyle, darkTheme, vividAccent) {
-        ThemeGeneration(paletteStyle, darkTheme, vividAccent)
+    val generation = remember(paletteStyle, darkTheme) {
+        ThemeGeneration(paletteStyle, darkTheme)
     }
 
     // El color del álbum llega a la UI propia por [AppColors] y NO por `MaterialTheme`: ése es el
@@ -201,12 +224,11 @@ fun MusicPlayerTheme(
  */
 data class ThemeGeneration(
     val paletteStyle: PaletteStyle,
-    val isDark: Boolean,
-    val vividAccent: Boolean
+    val isDark: Boolean
 )
 
 val LocalThemeGeneration = staticCompositionLocalOf {
-    ThemeGeneration(PaletteStyle.TonalSpot, isDark = false, vividAccent = true)
+    ThemeGeneration(PaletteStyle.TonalSpot, isDark = false)
 }
 
 /**
@@ -228,8 +250,10 @@ fun rememberAccentPreview(seedArgb: Int): Color {
     val seed = Color(seedArgb)
     // Misma razón que en [MusicPlayerTheme]: la lambda entra en las claves del `remember` interno
     // de MaterialKolor, y una nueva por recomposición tiraría el esquema cacheado en cada frame.
+    // Misma condición que allá también — ver el kdoc largo ahí para las dos razones (tema oscuro
+    // con cualquier estilo, o Content/Fidelity con cualquier tema).
     val vividPrimary = remember(seed, generation) {
-        if (!generation.vividAccent || !generation.isDark) null
+        if (!generation.isDark && !generation.paletteStyle.followsSeedChroma()) null
         else { scheme: ColorScheme -> scheme.withVividPrimary(seed) }
     }
     return rememberDynamicColorScheme(
@@ -300,10 +324,14 @@ fun DetailContentTheme(seedArgb: Int?, content: @Composable () -> Unit) {
 
     // Misma razón que en [MusicPlayerTheme] y [rememberAccentPreview]: la lambda entra en las
     // claves del `remember` interno de MaterialKolor, y una nueva por recomposición tiraría el
-    // esquema cacheado en cada frame.
+    // esquema cacheado en cada frame. Misma condición de las dos también.
     val vividAccents = remember(seed, generation, monochrome) {
-        if (seed == null || monochrome || !generation.vividAccent || !generation.isDark) null
-        else { scheme: ColorScheme -> scheme.withVividPrimary(seed).withVividSecondary(seed) }
+        if (seed == null || monochrome || (!generation.isDark && !generation.paletteStyle.followsSeedChroma())) {
+            null
+        } else {
+            scheme: ColorScheme ->
+                scheme.withVividPrimary(seed).withVividSecondary(seed).withVividTertiary(seed)
+        }
     }
 
     // El estilo, el tema claro/oscuro y el acento vivo salen de [LocalThemeGeneration] — el mismo
@@ -339,7 +367,20 @@ fun DetailContentTheme(seedArgb: Int?, content: @Composable () -> Unit) {
     ProvideAppColors(scheme, animationSpec = AppScreenColorSpec, content = content)
 }
 
-// --- Acento vivo (reencuadre tonal de `primary`) ---
+// --- Acento vivo (reencuadre tonal de `primary`/`secondary`/`tertiary`) ---
+
+/**
+ * ¿Este estilo sigue el croma del SEED en vez de imponer uno propio? Es la condición 2 del acento
+ * vivo (ver el kdoc largo en [MusicPlayerTheme]): `Content` ("Fiel a la carátula" en Ajustes) y
+ * `Fidelity` ("Fidelidad") son los dos únicos estilos que hacen esto —de ahí que sean los únicos
+ * con el defecto de "casi gris" en una carátula apagada—. Los demás NO entran, y cada uno por su
+ * propio motivo: `TonalSpot`/`Vibrant`/`Expressive` imponen su propio croma (fijo o al máximo del
+ * estilo); `Neutral` es deliberadamente casi gris, y corregirlo lo rompería; `Monochrome` no tiene
+ * croma que seguir. Confundir esta lista es el error fácil — no es "todo lo que no es Vibrant", es
+ * específicamente estos dos.
+ */
+private fun PaletteStyle.followsSeedChroma(): Boolean =
+    this == PaletteStyle.Content || this == PaletteStyle.Fidelity
 
 /**
  * Croma de sondeo para preguntarle al gamut "¿cuánto color admite este matiz a este tono?".
@@ -364,19 +405,23 @@ private const val VIVID_TONE_MAX = 90.0
 private const val ON_PRIMARY_MIN_CONTRAST = 4.5f
 
 /**
- * Croma del acento SECUNDARIO respecto al primario. `secondary` colorea artista/álbum del NowPlaying
- * (y el estado activo del aleatorio, el favorito): sin avivar, MaterialKolor lo deja casi gris en
- * carátulas de croma bajo, que es el defecto que motivó esto. Se le da el mismo tono de máximo croma
- * que a `primary` pero con el croma acotado a esta fracción del suyo, para que el rol siga siendo
- * SUBORDINADO —un acento más suave que el título— en vez de un duplicado exacto de `primary`.
+ * Croma de un acento SUBORDINADO respecto al que tiene arriba en la jerarquía: `secondary` frente a
+ * `primary`, y `tertiary` frente a `secondary` (ya avivado) — la MISMA fracción las dos veces, así
+ * que la cadena primary→secondary→tertiary pierde vividez en pasos iguales en vez de uno arbitrario
+ * por escalón. `secondary` colorea artista/álbum del NowPlaying (y el estado activo del aleatorio,
+ * el favorito); `tertiary` son acentos más incidentales (el EQ, letras). Sin avivar, MaterialKolor
+ * los deja casi grises en carátulas de croma bajo, que es el defecto que motivó esto. Se le da el
+ * mismo tono de máximo croma que al rol de arriba pero con el croma acotado a esta fracción del
+ * suyo, para que el rol siga siendo SUBORDINADO —un acento más suave— en vez de un duplicado exacto.
  */
-private const val SECONDARY_CHROMA_FACTOR = 0.75
+private const val SUBORDINATE_CHROMA_FACTOR = 0.75
 
 /**
  * Tono, dentro de la ventana legible [VIVID_TONE_MIN]..[VIVID_TONE_MAX], donde [hue] admite MÁS croma
  * en el gamut sRGB. Se sondea con un croma imposible ([CHROMA_PROBE]) para leer el techo real en cada
- * tono. Compartido por [withVividPrimary] y [withVividSecondary] — el mismo tono para los dos acentos
- * los mantiene coherentes en luminosidad, distinguiéndose solo por el croma.
+ * tono. Compartido por [withVividPrimary], [withVividSecondary] y [withVividTertiary] — el mismo
+ * tono para los tres acentos los mantiene coherentes en luminosidad, distinguiéndose solo por el
+ * croma.
  */
 private fun bestVividTone(hue: Double): Double {
     var bestTone = VIVID_TONE_MIN
@@ -395,7 +440,8 @@ private fun bestVividTone(hue: Double): Double {
 
 /**
  * Reencuadra `primary` (y su `onPrimary`) al tono donde el MATIZ del álbum alcanza su croma
- * máximo. **Solo se llama en tema oscuro** (ver la condición en [MusicPlayerTheme]).
+ * máximo. Se llama en tema oscuro con cualquier estilo, o con `Content`/`Fidelity` en cualquier
+ * tema (ver la condición completa en [MusicPlayerTheme] y [followsSeedChroma]).
  *
  * El problema que resuelve: el tono de cada rol es una CONSTANTE del color spec, no algo que salga
  * de la carátula — `primary` vale 80 en oscuro con Equilibrado, pase lo que pase. Y a tono 80 el
@@ -449,14 +495,14 @@ private fun ColorScheme.withVividPrimary(seed: Color): ColorScheme {
 
 /**
  * Aviva `secondary` (y repone su `onSecondary`) con el mismo criterio que [withVividPrimary]: el tono
- * de máximo croma del matiz del álbum, en vez del que le clava el color spec. **Solo en tema oscuro**
- * (ver la condición en [MusicPlayerTheme]), y **DESPUÉS** de [withVividPrimary] en la cadena, porque
+ * de máximo croma del matiz del álbum, en vez del que le clava el color spec. Misma condición que
+ * [withVividPrimary] (ver [MusicPlayerTheme]), y **DESPUÉS** de él en la cadena, porque
  * lee el `primary` ya avivado para acotarse por debajo de él.
  *
  * El problema es el mismo que el de `primary` pero un escalón más callado: `secondary` colorea el
  * artista y el álbum del NowPlaying, el estado activo del aleatorio de la cola y la píldora de
  * favorito, y en una carátula de croma bajo MaterialKolor lo entregaba casi gris. La diferencia con
- * `primary` es a propósito: el croma se acota a [SECONDARY_CHROMA_FACTOR] del suyo para que estos
+ * `primary` es a propósito: el croma se acota a [SUBORDINATE_CHROMA_FACTOR] del suyo para que estos
  * elementos sigan siendo un acento SUBORDINADO al título, no un segundo `primary`. La jerarquía entre
  * el título (primary) y los labels (secondary) sobrevive; lo que se recupera es que dejen de ser grises.
  *
@@ -474,12 +520,41 @@ private fun ColorScheme.withVividSecondary(seed: Color): ColorScheme {
     val primaryChroma = Hct.fromInt(primary.toArgb()).chroma
     val targetChroma = maxOf(
         Hct.fromInt(secondary.toArgb()).chroma,
-        primaryChroma * SECONDARY_CHROMA_FACTOR
+        primaryChroma * SUBORDINATE_CHROMA_FACTOR
     )
     val vivid = Color(Hct.from(seedHct.hue, targetChroma, bestTone).toInt())
     return copy(
         secondary = vivid,
         onSecondary = ensureContrast(onSecondary, vivid, ON_PRIMARY_MIN_CONTRAST)
+    )
+}
+
+/**
+ * Aviva `tertiary` (y repone su `onTertiary`) con el mismo criterio que [withVividSecondary], un
+ * escalón más callado: [SUBORDINATE_CHROMA_FACTOR] del croma de `secondary` YA avivado, así que
+ * tiene que llamarse **DESPUÉS** de [withVividSecondary] en la cadena. Son pocos consumidores hoy
+ * (el EQ, las letras) pero el mismo defecto de MaterialKolor —casi gris en carátulas de croma
+ * bajo— les llega igual, y no hay motivo para dejarlos afuera de la corrección que sí tienen
+ * `primary`/`secondary`.
+ *
+ * No toca nada si el seed es acromático, igual que los dos anteriores.
+ */
+private fun ColorScheme.withVividTertiary(seed: Color): ColorScheme {
+    if (ArtworkRepository.isAchromatic(seed.toArgb())) return this
+    val seedHct = Hct.fromInt(seed.toArgb())
+    val bestTone = bestVividTone(seedHct.hue)
+
+    // Suelo: el croma que el esquema ya le daba a `tertiary`. Objetivo: una fracción del croma de
+    // `secondary` ya avivado — no del seed crudo — para que la cadena de subordinación sea estable.
+    val secondaryChroma = Hct.fromInt(secondary.toArgb()).chroma
+    val targetChroma = maxOf(
+        Hct.fromInt(tertiary.toArgb()).chroma,
+        secondaryChroma * SUBORDINATE_CHROMA_FACTOR
+    )
+    val vivid = Color(Hct.from(seedHct.hue, targetChroma, bestTone).toInt())
+    return copy(
+        tertiary = vivid,
+        onTertiary = ensureContrast(onTertiary, vivid, ON_PRIMARY_MIN_CONTRAST)
     )
 }
 

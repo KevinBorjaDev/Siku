@@ -82,12 +82,13 @@ import com.qhana.siku.ui.theme.appLibraryToolbarColors
  * (`appNavigationRailItemColors` / `appLibraryToolbarItemColors` / la píldora de `LibraryTabs`):
  * son proyecciones del MISMO `pagerState.currentPage` y usan el mismo lenguaje de color.
  *
- * **La ÚNICA divergencia es el TONO del indicador activo del toolbar, y es obligada** (27 ago 2026):
- * la fila y el rail se apoyan en `surfaceContainerHigh`, doce puntos por encima de
- * `secondaryContainer`, así que ahí el rol crudo se lee. El toolbar FLOTA sobre el fondo de página y
- * por eso su contenedor se derivó de ese fondo —la escala neutra no le daba separación, ver
- * `appLibraryToolbarColors`—, de modo que su indicador tiene que derivarse del mismo sitio o queda
- * fundido en su propia barra. El rol y la forma son los mismos; lo que cambia es contra qué se mide.
+ * **Desde el 7 sep 2026 no divergen en NADA.** El toolbar tuvo su contenedor y su indicador
+ * DERIVADOS del fondo mientras el fondo de página fue `surfaceContainer` —o sea el propio token del
+ * toolbar, con el que la barra desaparecía—; con la página de vuelta en `surface` los dos vuelven a
+ * su rol tabulado y las tres presentaciones usan literalmente los mismos cuatro colores. Ver
+ * `appLibraryToolbarColors` para por qué la derivación tampoco podía funcionar: el toolbar flota
+ * sobre contenido de distinta naturaleza según la pestaña (filas en Canciones, carátulas en Inicio),
+ * así que no existe UN fondo contra el que medir.
  */
 
 /**
@@ -178,14 +179,24 @@ private val ToolbarLabelExtra = ToolbarLabelGap + ToolbarItemPadding
  * Hay que pasarla porque **el default de `HorizontalFloatingToolbar` sin FAB es `Level0`, cero**
  * (`FloatingToolbarDefaults.ContainerExpandedElevation`): tal cual sale de la caja, el toolbar se
  * apoya solo en su color, y acá el color no basta — flota sobre listas cuyo contenido es `surface`
- * y hace falta el despegue. 1dp no es un número al azar: es lo que M3 le da a este mismo componente
- * cuando lleva FAB (`ContainerExpandedElevationWithFab`), o sea el escalón que la propia librería
- * considera suficiente para separarlo del fondo sin convertirlo en una tarjeta.
+ * y hace falta el despegue.
  *
  * Es la MISMA razón por la que el MiniPlayer lleva su sombra: en M3 Expressive las piezas flotantes
  * (FAB, toolbars) SÍ tienen sombra, sutil y poco esparcida.
+ *
+ * **Level2 (3dp) y no el Level1 del componente** (7 sep 2026, visto en device). 1dp es lo máximo
+ * que M3 le da a este toolbar (`ContainerExpandedElevationWithFab`), y ese número está dimensionado
+ * para una pieza que flota sobre contenido PLANO: allí la sombra es un refuerzo y el tono hace el
+ * trabajo. Aquí hay dos casos en los que el tono no puede hacer nada:
+ *
+ *  - en **Inicio** la barra flota sobre CARÁTULAS, donde no existe ninguna relación tonal contra la
+ *    que separarse: la sombra es el único canal que queda;
+ *  - en las listas, el contenido de debajo son tarjetas y no `surface`, así que la distancia tonal
+ *    disponible es mucho menor de la que el componente asume (ver `appLibraryToolbarColors`).
+ *
+ * O sea que la desviación no es de gusto: el token supone un suelo que esta app no tiene.
  */
-private val ToolbarShadowElevation = 1.dp
+private val ToolbarShadowElevation = 3.dp
 
 /**
  * El selector de la biblioteca cuando vive ABAJO: un `HorizontalFloatingToolbar` con los destinos
@@ -218,13 +229,6 @@ internal fun LibraryBottomToolbar(
     pages: List<LibraryPage>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
-    /**
-     * Fondo de PÁGINA sobre el que flota el toolbar, del que se derivan su contenedor y el
-     * indicador del destino activo (ver `appLibraryToolbarColors`). Va como parámetro y no leído
-     * aquí porque el fondo lo decide la pantalla —es el `containerColor` de su `Scaffold`—, y dos
-     * copias de ese color serían dos verdades.
-     */
-    background: Color,
     modifier: Modifier = Modifier
 ) {
     if (pages.isEmpty()) return
@@ -238,7 +242,7 @@ internal fun LibraryBottomToolbar(
         // desplegado. El estado colapsado de este componente esconde esos dos slots, no el
         // contenido — y aquí el contenido son los destinos, que no pueden desaparecer.
         expanded = true,
-        colors = appLibraryToolbarColors(background),
+        colors = appLibraryToolbarColors(),
         // Mismo padding que el toolbar del NowPlaying: es el token del componente
         // (`FloatingToolbarTokens.ContainerLeadingSpace`), y con él los destinos de 48 caben
         // exactos en los 64 de alto.
@@ -313,7 +317,7 @@ internal fun LibraryBottomToolbar(
                             shape = CircleShape,
                             checkedShape = CircleShape
                         ),
-                        colors = appLibraryToolbarItemColors(background),
+                        colors = appLibraryToolbarItemColors(),
                         // Sin sombra propia: ya está dentro de un contenedor elevado, y una segunda
                         // sombra ahí dentro se lee como suciedad.
                         elevation = null,
@@ -368,13 +372,18 @@ internal fun LibraryBottomToolbar(
  * un modo y cero en los otros, o sea dos aritméticas para lo mismo. El alto lo reserva `listInsets`
  * con [LibraryNavBarPillLift].
  *
- * **Su color sale de la HORQUILLA, no del token.** `NavigationBarTokens.ContainerColor` es
- * `surfaceContainer`, que en esta app ES el fondo de página: con él la barra desaparecería contra
- * la pantalla. La regla de la app dice que las barras BAJAN desde el fondo, así que va en
- * `chromeSurface` — el MISMO color que la fila de pestañas de arriba y que el rail, que es lo
- * correcto además por otro lado: las tres son la misma navegación en tres sitios. (El toolbar es la
- * excepción y deriva su color del fondo real, porque FLOTA y necesita leerse como un objeto
- * separado; una barra apoyada al borde no tiene ese problema.)
+ * **Su color es su TOKEN: `NavigationBarTokens.ContainerColor` = `surfaceContainer`** (7 sep 2026).
+ * Estuvo derivado de la "horquilla" mientras el fondo de página era `surfaceContainer` y el token
+ * habría hecho desaparecer la barra; desde que la página volvió a `surface` (4 sep) el token es un
+ * escalón de contenedor limpio y no hay nada que derivar.
+ *
+ * **No es el mismo color que el rail, y eso NO es una incoherencia**: M3 tabula
+ * `NavigationRailCollapsedTokens.ContainerColor` como `Surface`, porque un rail colapsado vive
+ * pegado al borde y forma parte de la página, mientras que esta barra se apoya encima del contenido
+ * que le pasa por debajo. Lo que sí comparten las tres presentaciones son los colores de sus ÍTEMS
+ * (`appShortNavigationBarItemColors` / `appNavigationRailItemColors`, valores idénticos): son
+ * proyecciones del mismo `pagerState` y ahí divergir sí sería un fallo. (El toolbar flotante es
+ * otra cosa y sí deriva del fondo real, porque FLOTA y tiene que leerse como un objeto separado.)
  *
  * **`EqualWeight` y no `Centered`**: con tres destinos en un teléfono, repartir el ancho a partes
  * iguales es lo que M3 recomienda para pantallas estrechas, y da tres blancos táctiles del mismo

@@ -907,7 +907,8 @@
     <!-- ==================== LISTENING STATISTICS ==================== -->
     <string name="stats_title">Statistics</string>
     <string name="stats_home_entry_title">Your month in music</string>
-    <string name="stats_home_entry_empty">Play something and your summary shows up here</string>
+    <string name="stats_home_entry_empty">Play something to see your summary</string>
+    <string name="stats_home_entry_action">View</string>
     <string name="stats_period_day_short">D</string>
     <string name="stats_period_week_short">W</string>
     <string name="stats_period_month_short">M</string>

@@ -104,14 +104,9 @@ fun RecentlyAddedScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.home_section_recently_added)) },
-                // `surfaceContainerHigh` y no el `surface` por defecto del helper: esta pantalla
-                // tiene el fondo en `surfaceContainer` (el nivel MEDIO), y por la horquilla de color
-                // el contenido SUBE y las barras BAJAN. Con el default la barra queda POR ENCIMA
-                // del fondo y se lee como una banda clara pegada arriba.
-                colors = appTopAppBarColors(
-                    containerColor = AppColors.surfaceContainerHigh,
-                    scrolledContainerColor = AppColors.surfaceContainerHigh
-                ),
+                // Default: `surface` en reposo, tinte `surfaceContainer` al scrollear (M3 spec —
+                // 4 sep 2026). Estuvo en `surfaceContainerHigh` fijo por la horquilla.
+                colors = appTopAppBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         MaterialSymbol("arrow_back")
@@ -123,7 +118,9 @@ fun RecentlyAddedScreen(
             )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        containerColor = AppColors.surfaceContainer
+        // Fondo de página: `surface` (M3 spec — 4 sep 2026). Las filas se separan de él porque son
+        // TARJETAS (`AppColors.contentSurface`), igual que en los detalles.
+        containerColor = AppColors.surface
     ) { paddingValues ->
         val listBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
             ComponentConfig.FloatingBarListInset

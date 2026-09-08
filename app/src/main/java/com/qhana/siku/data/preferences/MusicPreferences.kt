@@ -34,6 +34,7 @@ import com.qhana.siku.data.model.ReplayGainMode
 import com.qhana.siku.data.model.ToolbarActionState
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.player.manager.ContextResumeSlot
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
@@ -210,6 +211,14 @@ class MusicPreferences(context: Context) {
      */
     private val session = Store(context.sessionDataStore, "PlaybackSession")
 
+    /**
+     * Slots de reanudación por contexto (una tarjeta de "Seguir escuchando" = un slot). Archivo
+     * aparte por el mismo motivo que [session]: es cola serializada, lo más pesado que se guarda.
+     * A diferencia de [session] solo se escribe al CAMBIAR de contexto o al parar —nunca en cada
+     * tick de posición—, así que su peso no molesta a nadie. Ver [saveContextResume].
+     */
+    private val contextSlots = Store(context.contextSlotsDataStore, "PlaybackContextSlots")
+
     private val cache: Preferences get() = main.cache
 
     init {
@@ -217,11 +226,14 @@ class MusicPreferences(context: Context) {
         // arranque de la app, así que el segundo archivo no puede costar una segunda espera.
         runBlocking {
             val sessionLoad = scope.launch { session.loadInitialSnapshot() }
+            val slotsLoad = scope.launch { contextSlots.loadInitialSnapshot() }
             main.loadInitialSnapshot()
             sessionLoad.join()
+            slotsLoad.join()
         }
         main.startDiskWriter()
         session.startDiskWriter()
+        contextSlots.startDiskWriter()
         migrateSessionKeysFromMain()
     }
 
@@ -602,12 +614,94 @@ class MusicPreferences(context: Context) {
         prefFlow { PlaybackContext.decode(it[KEY_RECENT_CONTEXTS]) }
 
     /** Antepone un contexto al historial (dedup por identidad + tope). Read-modify-write atómico. */
-    fun recordContext(ctx: PlaybackContext) = update {
-        val current = PlaybackContext.decode(it[KEY_RECENT_CONTEXTS])
-        it[KEY_RECENT_CONTEXTS] = PlaybackContext.encode(PlaybackContext.prepend(current, ctx))
+    fun recordContext(ctx: PlaybackContext) {
+        var keptKeys: Set<String> = emptySet()
+        update {
+            val next = PlaybackContext.prepend(PlaybackContext.decode(it[KEY_RECENT_CONTEXTS]), ctx)
+            it[KEY_RECENT_CONTEXTS] = PlaybackContext.encode(next)
+            keptKeys = next.mapTo(HashSet()) { c -> c.key }
+        }
+        // Un contexto que se cae del carrusel no volverá a ser reanudable, así que su slot es peso
+        // muerto: se poda aquí, que es el único sitio que sabe qué contextos siguen vivos.
+        pruneContextResume(keptKeys)
     }
 
-    fun clearRecentContexts() = update { it.remove(KEY_RECENT_CONTEXTS) }
+    fun clearRecentContexts() {
+        update { it.remove(KEY_RECENT_CONTEXTS) }
+        clearContextResume()
+    }
+
+    // --- Reanudación por contexto ("Seguir escuchando"): slots + contexto activo ---
+    // Todos los slots en UN JSON (como KEY_EQ_ROUTE_PROFILES). El contexto ACTIVO no lleva slot:
+    // ese vive en la sesión global, que ya se restaura al reabrir. Un slot es un contexto del que
+    // la reproducción se ALEJÓ (o que se paró), congelado en ese instante.
+
+    /** Clave del contexto cuya cola es la que está viva ahora (`null` = reproducción sin contexto). */
+    fun loadActiveContextKey(): String? = contextSlots.cache[KEY_ACTIVE_CONTEXT]
+
+    fun saveActiveContextKey(key: String?) = contextSlots.update {
+        if (key.isNullOrBlank()) it.remove(KEY_ACTIVE_CONTEXT) else it[KEY_ACTIVE_CONTEXT] = key
+    }
+
+    fun loadContextResume(key: String): ContextResumeSlot? {
+        val raw = contextSlots.cache[KEY_CONTEXT_SLOTS] ?: return null
+        return try {
+            val root = JSONObject(raw)
+            if (!root.has(key)) return null
+            val o = root.getJSONObject(key)
+            ContextResumeSlot(
+                queueIds = splitQueue(o.optString("q")),
+                originalQueueIds = splitQueue(o.optString("o")),
+                shuffleEnabled = o.optBoolean("s", false),
+                index = o.optInt("i", 0),
+                position = o.optLong("p", 0L),
+                songId = o.optString("sid").ifBlank { null }
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Read-modify-write atómico: conserva los slots de los demás contextos. */
+    fun saveContextResume(key: String, slot: ContextResumeSlot) = contextSlots.update { mutable ->
+        val root = try {
+            JSONObject(mutable[KEY_CONTEXT_SLOTS] ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        root.put(
+            key,
+            JSONObject()
+                .put("q", slot.queueIds.joinToString(QUEUE_DELIMITER))
+                .put("o", slot.originalQueueIds.joinToString(QUEUE_DELIMITER))
+                .put("s", slot.shuffleEnabled)
+                .put("i", slot.index)
+                .put("p", slot.position)
+                .apply { slot.songId?.let { put("sid", it) } }
+        )
+        mutable[KEY_CONTEXT_SLOTS] = root.toString()
+    }
+
+    fun pruneContextResume(keepKeys: Set<String>) = contextSlots.update { mutable ->
+        val raw = mutable[KEY_CONTEXT_SLOTS] ?: return@update
+        val root = try {
+            JSONObject(raw)
+        } catch (_: Exception) {
+            mutable.remove(KEY_CONTEXT_SLOTS); return@update
+        }
+        val stale = root.keys().asSequence().filterNot { it in keepKeys }.toList()
+        if (stale.isEmpty()) return@update
+        stale.forEach { root.remove(it) }
+        if (root.length() == 0) mutable.remove(KEY_CONTEXT_SLOTS)
+        else mutable[KEY_CONTEXT_SLOTS] = root.toString()
+    }
+
+    /** Borra los slots congelados. NO toca [KEY_ACTIVE_CONTEXT]: eso es estado vivo, no historial. */
+    fun clearContextResume() = contextSlots.update { it.remove(KEY_CONTEXT_SLOTS) }
+
+    private fun splitQueue(raw: String?): List<String> =
+        if (raw.isNullOrBlank()) emptyList()
+        else raw.split(QUEUE_DELIMITER).filter { it.isNotBlank() }
 
     /** Nº de bandas del EQ propio (5 o 10). */
     fun saveEqBandCount(count: Int) = update { it[KEY_EQ_BAND_COUNT] = count }
@@ -1398,6 +1492,13 @@ class MusicPreferences(context: Context) {
          * en disco de una app publicada: cambiarlo dejaría la sesión huérfana en el archivo viejo.
          */
         private const val SESSION_DATASTORE_NAME = "playback_session"
+
+        /**
+         * Archivo de los slots de reanudación por contexto ("Seguir escuchando"). Aparte del de
+         * sesión porque tiene otro ciclo de vida (no se borra al parar) y otra cadencia de
+         * escritura (solo al cambiar de contexto), aunque su contenido sea igual de pesado.
+         */
+        private const val CONTEXT_SLOTS_DATASTORE_NAME = "playback_context_slots"
         private const val KEY_SORT_ORDER = "sort_order"
         private val KEY_ARTIST_SORT = stringPreferencesKey("artist_sort_order")
         private val KEY_ALBUM_SORT = stringPreferencesKey("album_sort_order")
@@ -1440,6 +1541,10 @@ class MusicPreferences(context: Context) {
         private val KEY_NOW_PLAYING_DETAILED_FORMAT = booleanPreferencesKey("now_playing_detailed_format")
         private val KEY_GENRE_PARTIAL_MATCH = booleanPreferencesKey("genre_partial_match")
         private val KEY_RECENT_CONTEXTS = stringPreferencesKey("recent_playback_contexts")
+        /** JSON `{ "<contextKey>": {q,o,s,i,p,sid}, ... }` — vive en [contextSlotsDataStore]. */
+        private val KEY_CONTEXT_SLOTS = stringPreferencesKey("context_resume_slots")
+        /** Clave del contexto cuya cola está viva — vive en [contextSlotsDataStore]. */
+        private val KEY_ACTIVE_CONTEXT = stringPreferencesKey("active_context_key")
         // Se conserva SOLO para leer: `readNowPlayingBackground` migra desde ella. No se escribe más.
         private val KEY_NOW_PLAYING_SOLID_BG = booleanPreferencesKey("now_playing_solid_bg")
         private val KEY_NOW_PLAYING_BACKGROUND = stringPreferencesKey("now_playing_background")
@@ -1567,6 +1672,15 @@ class MusicPreferences(context: Context) {
          */
         private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(
             name = SESSION_DATASTORE_NAME
+        )
+
+        /**
+         * Archivo de los slots de reanudación por contexto. Sin `produceMigrations`: es estado
+         * nuevo, nunca existió antes. Un usuario que actualiza empieza sin slots y los va ganando
+         * al reproducir.
+         */
+        private val Context.contextSlotsDataStore: DataStore<Preferences> by preferencesDataStore(
+            name = CONTEXT_SLOTS_DATASTORE_NAME
         )
     }
 }

@@ -179,12 +179,11 @@ fun AlbumDetailScreen(
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        // Fondo `surfaceContainer` (94), el nivel MEDIO de la escala: el contenido de la pantalla
-        // —filas y tarjetas— sube desde aquí a `surface` (98) y las barras bajan a
-        // `surfaceContainerHigh` (92). Mismo reparto que la biblioteca; el porqué, en `headerColor`
-        // de LibraryScreen. Si se cambia, hay que mover CON él el degradado del header inmersivo,
-        // que funde la imagen contra este color y dejaría costura.
-        containerColor = AppColors.surfaceContainer
+        // Fondo de página: `surface` (M3 spec — 4 sep 2026). El degradado del header inmersivo funde
+        // la imagen contra este color vía `detailHeaderScrim`, que se cambió a la par. Las filas se
+        // separan de él porque son TARJETAS (`AppColors.contentSurface` = `surfaceContainerHigh`,
+        // el token de card y no el de list item — leer su KDoc antes de tocar esto).
+        containerColor = AppColors.surface
     ) { paddingValues ->
         if (songs.isEmpty()) {
             Box(
