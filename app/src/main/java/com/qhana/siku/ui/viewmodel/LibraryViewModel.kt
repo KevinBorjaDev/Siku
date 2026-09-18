@@ -19,6 +19,7 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import com.qhana.siku.data.preferences.MusicPreferences
 import com.qhana.siku.data.repository.ArtworkRepository
@@ -111,7 +112,17 @@ sealed class LibraryBannerState {
     data class Complete(val newSongs: Int, val downloaded: Int, val failed: Int, val deleted: Int = 0) : LibraryBannerState()
     /** Cola detenida por el entorno (sin WiFi, sin red, batería): informativo, se reanuda sola. */
     data class Paused(val message: String) : LibraryBannerState()
-    data class Error(val message: String, val canRetry: Boolean = true) : LibraryBannerState()
+    /**
+     * @param requiresReauth el error NO se arregla reintentando: la sesión de la fuente de nube
+     *   necesita que el usuario vuelva a entrar (contraseña cambiada, permiso revocado). El banner
+     *   cambia entonces su acción — reintentar volvería a fallar igual, que es el bucle que se
+     *   arregló el 16 sep 2026.
+     */
+    data class Error(
+        val message: String,
+        val canRetry: Boolean = true,
+        val requiresReauth: Boolean = false
+    ) : LibraryBannerState()
     object Hidden : LibraryBannerState()
 }
 
@@ -969,7 +980,13 @@ class LibraryViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             data = it.data.copy(
-                                bannerState = LibraryBannerState.Error(syncFailureMessage(failure))
+                                bannerState = LibraryBannerState.Error(
+                                    syncFailureMessage(failure),
+                                    // Un fallo de auth que sobrevivió al worker tampoco se arregla
+                                    // reintentando: `ScanWorker.classifyFailure` ni siquiera lo
+                                    // reprograma, precisamente porque hace falta el usuario.
+                                    requiresReauth = failure == ScanWorker.FAILURE_AUTH
+                                )
                             )
                         )
                     }
@@ -1133,7 +1150,7 @@ class LibraryViewModel @Inject constructor(
         _uiState.update { it.copy(searchFilter = it.searchFilter.copy(showSearch = show)) }
     }
 
-    fun onSortOrderChanged(order: SortOrder, filter: SongFilter) {
+    fun onSortOrderChanged(order: SortSpec<SortOrder>, filter: SongFilter) {
         when (filter) {
             SongFilter.ALL -> {
                 _uiState.update { it.copy(sorting = it.sorting.copy(sortOrderAll = order)) }
@@ -1149,7 +1166,7 @@ class LibraryViewModel @Inject constructor(
 
     fun toggleFavorite(songId: String) {
         viewModelScope.launch {
-            repository.toggleFavorite(songId)
+            snackbarManager.show(favoriteToggledMessage(context, repository.toggleFavorite(songId)))
         }
     }
 
@@ -1367,12 +1384,23 @@ class LibraryViewModel @Inject constructor(
     // (Eliminado PlaylistUseCase: era pass-through puro al repositorio; ahora se llama directo).
 
     /**
-     * Crea la lista y entrega su id por [onCreated] (en Main): la pestaña Listas lo usa para
-     * navegar directo al detalle recién creado (donde vive "añadir canciones") y la hoja
-     * "agregar a lista" para meter la canción pendiente en la lista nueva.
+     * Crea la lista, mete en ella [songIds] (la canción pendiente de la hoja "agregar a lista") y
+     * lo confirma con UN solo aviso. Entrega el id por [onCreated] (en Main): la pestaña Listas lo
+     * usa para navegar directo al detalle recién creado, donde vive "añadir canciones".
+     *
+     * Las canciones entran AQUÍ y no en un `addSongToPlaylist` desde [onCreated], que es lo que
+     * hacían los siete llamadores: así ese segundo paso habría disparado su propio aviso detrás
+     * del de "lista creada".
      */
-    fun createPlaylist(name: String, onCreated: (Long) -> Unit = {}) = viewModelScope.launch {
-        val id = repository.createPlaylist(name.trim())
+    fun createPlaylist(
+        name: String,
+        songIds: List<String> = emptyList(),
+        onCreated: (Long) -> Unit = {}
+    ) = viewModelScope.launch {
+        val trimmed = name.trim()
+        val id = repository.createPlaylist(trimmed)
+        val added = if (songIds.isEmpty()) 0 else repository.addSongsToPlaylist(id, songIds)
+        snackbarManager.show(playlistCreatedMessage(context, trimmed, added))
         onCreated(id)
     }
     fun deletePlaylist(playlistId: Long) = viewModelScope.launch {
@@ -1381,21 +1409,22 @@ class LibraryViewModel @Inject constructor(
     fun renamePlaylist(playlistId: Long, name: String) = viewModelScope.launch {
         if (name.isNotBlank()) repository.renamePlaylist(playlistId, name.trim())
     }
-    fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch {
-        repository.addSongToPlaylist(playlistId, songId)
-    }
+    /**
+     * Va por el alta en LOTE y no por la individual del repositorio: es la que cuenta cuántas
+     * entraron de verdad, y sin eso el aviso no podría distinguir "añadida" de "ya estaba".
+     */
+    fun addSongToPlaylist(playlistId: Long, songId: String) = addSongsToPlaylist(playlistId, listOf(songId))
     fun addSongsToPlaylist(playlistId: Long, songIds: List<String>) = viewModelScope.launch {
-        notifySongsAdded(repository.addSongsToPlaylist(playlistId, songIds))
+        val added = repository.addSongsToPlaylist(playlistId, songIds)
+        val name = repository.getPlaylistName(playlistId) ?: return@launch
+        snackbarManager.show(songsAddedMessage(context, name, songIds.size, added))
     }
     fun addSongsToFavorites(songIds: List<String>) = viewModelScope.launch {
-        notifySongsAdded(repository.addSongsToFavorites(songIds))
-    }
-    private fun notifySongsAdded(added: Int) {
-        if (added > 0) {
-            snackbarManager.show(
-                context.resources.getQuantityString(R.plurals.playlist_songs_added, added, added)
-            )
-        }
+        val added = repository.addSongsToFavorites(songIds)
+        // El nombre de la fila de Favoritos está fijo en español en la BD: el visible sale del recurso.
+        snackbarManager.show(
+            songsAddedMessage(context, context.getString(R.string.common_favorites), songIds.size, added)
+        )
     }
     fun removeSongFromPlaylist(playlistId: Long, songId: String) = viewModelScope.launch {
         repository.removeSongFromPlaylist(playlistId, songId)
@@ -1495,7 +1524,7 @@ class LibraryViewModel @Inject constructor(
     val songPickerResults: StateFlow<List<Song>> = _songPickerQuery
         .debounce(SONG_PICKER_DEBOUNCE_MS)
         .flatMapLatest { query ->
-            flow { emit(repository.getSongsSnapshot(query, SortOrder.TITLE_ASC)) }
+            flow { emit(repository.getSongsSnapshot(query, SortOrder.DEFAULT)) }
                 // El catch va DENTRO del flatMapLatest: fuera mataría el flow para siempre
                 // tras el primer error y la búsqueda dejaría de responder.
                 .catch { emit(emptyList()) }
@@ -1623,7 +1652,10 @@ class LibraryViewModel @Inject constructor(
         is SyncStatus.Preparing -> LibraryBannerState.Preparing(
             status.current, status.total, status.message
         )
-        is SyncStatus.Error -> LibraryBannerState.Error(status.message)
+        is SyncStatus.Error -> LibraryBannerState.Error(
+            status.message,
+            requiresReauth = status.requiresReauth
+        )
         // Detenido por el entorno: se anuncia igual mientras se espera que
         // como estado final, porque para quien mira es la misma situación.
         // NO lleva acción: reanudar con datos móviles ya se decide en Ajustes,

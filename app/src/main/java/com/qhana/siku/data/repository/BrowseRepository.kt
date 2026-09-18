@@ -8,11 +8,14 @@ import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.local.GenreSummary
 import com.qhana.siku.data.local.RelatedArtist
 import com.qhana.siku.data.model.AlbumSortOrder
+import com.qhana.siku.data.model.ArtistCreditRole
 import com.qhana.siku.data.model.ArtistSortOrder
+import com.qhana.siku.data.model.DetailSongSort
 import com.qhana.siku.data.local.SongDao
 import com.qhana.siku.data.local.SongEntity
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.data.model.SortSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -47,10 +50,11 @@ class BrowseRepository @Inject constructor(
         songDao.hasSongsMatchingFlow(SongDao.buildExistsQuery(setOf(SongSourceFilter.LOCAL)))
 
     fun getArtists(
-        sort: ArtistSortOrder,
+        sort: SortSpec<ArtistSortOrder>,
+        role: ArtistCreditRole,
         sourceFilters: Set<SongSourceFilter> = emptySet()
     ): Flow<List<ArtistSummary>> =
-        artistDao.getArtistsFlow(SongDao.buildArtistsQuery(sort.name, sourceFilters))
+        artistDao.getArtistsFlow(SongDao.buildArtistsQuery(sort, role, sourceFilters))
 
     fun getArtistInfo(name: String): Flow<ArtistEntity?> = artistDao.getArtistFlow(name)
 
@@ -65,19 +69,50 @@ class BrowseRepository @Inject constructor(
         }
 
     fun getAlbums(
-        sort: AlbumSortOrder,
+        sort: SortSpec<AlbumSortOrder>,
         sourceFilters: Set<SongSourceFilter> = emptySet()
     ): Flow<List<AlbumSummary>> =
-        songDao.getAlbumsFlow(SongDao.buildAlbumsQuery(sort.name, sourceFilters))
+        songDao.getAlbumsFlow(SongDao.buildAlbumsQuery(sort, sourceFilters))
 
-    fun getAlbumsByArtist(artist: String): Flow<List<AlbumSummary>> =
-        songDao.getAlbumsByArtistFlow(artist)
+    fun getAlbumsByArtist(artist: String, role: ArtistCreditRole): Flow<List<AlbumSummary>> =
+        songDao.getAlbumsByArtistFlow(SongDao.buildArtistAlbumsQuery(artist, role))
 
-    fun getSongsByArtist(artist: String): Flow<List<Song>> =
-        songDao.getSongsByArtistFlow(artist).map { list -> list.map(SongEntity::toSong) }
+    /**
+     * Canciones de un artista, con el orden que pida el caller.
+     *
+     * **[sort] no tiene default a propósito**: `DetailSongSort.DEFAULT` (el orden del catálogo) es
+     * lo que quiere quien va a REPRODUCIR —la tarjeta de un artista en la biblioteca, el "seguir
+     * escuchando" del inicio—, y el del chip solo lo quiere la pantalla de detalle. Con un default,
+     * un caller nuevo heredaría en silencio el criterio que el usuario eligió en otra pantalla.
+     *
+     * El orden va en SQL y no ordenando la lista en Kotlin porque dos de los criterios
+     * —reproducciones y última escucha— viven en columnas que el modelo de dominio [Song] **no
+     * lleva**: son de `SongEntity`. Meterlas en el modelo para poder ordenar en memoria sería
+     * ensanchar lo que consume media app por una necesidad de tres pantallas.
+     */
+    fun getSongsByArtist(
+        artist: String,
+        role: ArtistCreditRole,
+        sort: SortSpec<DetailSongSort>
+    ): Flow<List<Song>> =
+        songDao.getSongsRawFlow(SongDao.buildArtistSongsQuery(artist, role, sort))
+            .map { list -> list.map(SongEntity::toSong) }
 
-    fun getSongsByAlbum(album: String): Flow<List<Song>> =
-        songDao.getSongsByAlbumFlow(album).map { list -> list.map(SongEntity::toSong) }
+    /** Carátula de un álbum, reactiva. Ver [SongDao.getAlbumArtUriFlow]. */
+    fun getAlbumArt(album: String, albumArtist: String?): Flow<String?> =
+        songDao.getAlbumArtUriFlow(album, albumArtist)
+
+    /**
+     * Canciones de un álbum. Ver [getSongsByArtist] para por qué [sort] es obligatorio, y
+     * [SongDao.albumPredicate] para [albumArtist] (`null` = el álbum por nombre, de cualquier artista).
+     */
+    fun getSongsByAlbum(
+        album: String,
+        albumArtist: String?,
+        sort: SortSpec<DetailSongSort>
+    ): Flow<List<Song>> =
+        songDao.getSongsRawFlow(SongDao.buildAlbumSongsQuery(album, albumArtist, sort))
+            .map { list -> list.map(SongEntity::toSong) }
 
     /**
      * Todos los géneros de la biblioteca (agrupados sin distinguir mayúsculas), con su conteo y
@@ -118,14 +153,13 @@ class BrowseRepository @Inject constructor(
      * Canciones de un género para su pantalla de detalle. [partialMatch] = ajuste "incluir
      * géneros compuestos": "Rock" trae también "Rock/Metal" y "Hard Rock".
      */
-    fun getSongsByGenre(genre: String, partialMatch: Boolean): Flow<List<Song>> {
-        val flow = if (partialMatch) {
-            songDao.getSongsByGenreLikeFlow("%${SongDao.escapeLike(genre)}%")
-        } else {
-            songDao.getSongsByGenreFlow(genre)
-        }
-        return flow.map { list -> list.map(SongEntity::toSong) }
-    }
+    fun getSongsByGenre(
+        genre: String,
+        partialMatch: Boolean,
+        sort: SortSpec<DetailSongSort>
+    ): Flow<List<Song>> =
+        songDao.getSongsRawFlow(SongDao.buildGenreSongsQuery(genre, partialMatch, sort))
+            .map { list -> list.map(SongEntity::toSong) }
 
     /**
      * Álbumes de un género, para la vista "Álbumes" de su detalle. Mismo [partialMatch] que

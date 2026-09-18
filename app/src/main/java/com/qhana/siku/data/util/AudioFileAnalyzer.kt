@@ -6,6 +6,9 @@ import android.net.Uri
 import android.util.Log
 import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.data.model.encodeMultiValue
+import com.qhana.siku.data.util.tags.PartialTagReaders
+import com.qhana.siku.data.util.tags.TagFragment
 import com.qhana.siku.data.repository.IMusicRepository
 import com.qhana.siku.data.util.tags.parseTrackNumber
 import com.qhana.siku.data.util.tags.parseYear
@@ -30,6 +33,13 @@ data class FileAnalysisResult(
     val artist: String?,
     val album: String?,
     val genre: String?,
+    /**
+     * Tag ALBUMARTIST codificado con `encodeMultiValue`: `""` = el archivo se leyó y no lo trae, `null`
+     * = no se leyó (análisis fallido). Es la misma distinción de tres estados que `songs.albumArtist`.
+     */
+    val albumArtist: String? = null,
+    /** Artistas multivalor de la pista codificados, o `null` si el archivo no declara más que [artist]. */
+    val artistCredits: String? = null,
     /** Número de pista; 0 = el archivo no lo declara (ver [parseTrackNumber]). */
     val trackNumber: Int = 0,
     /** Año de publicación; 0 = el archivo no lo declara (ver [parseYear]). */
@@ -50,6 +60,8 @@ data class FileAnalysisResult(
         if (artist != other.artist) return false
         if (album != other.album) return false
         if (genre != other.genre) return false
+        if (albumArtist != other.albumArtist) return false
+        if (artistCredits != other.artistCredits) return false
         if (trackNumber != other.trackNumber) return false
         if (year != other.year) return false
         if (duration != other.duration) return false
@@ -68,6 +80,8 @@ data class FileAnalysisResult(
         result = 31 * result + (artist?.hashCode() ?: 0)
         result = 31 * result + (album?.hashCode() ?: 0)
         result = 31 * result + (genre?.hashCode() ?: 0)
+        result = 31 * result + (albumArtist?.hashCode() ?: 0)
+        result = 31 * result + (artistCredits?.hashCode() ?: 0)
         result = 31 * result + trackNumber
         result = 31 * result + year
         result = 31 * result + duration.hashCode()
@@ -78,7 +92,9 @@ data class FileAnalysisResult(
 
 @Singleton
 class AudioFileAnalyzer @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    // Para los tags de artista MULTIVALOR, que `MediaMetadataRetriever` aplana en un solo string.
+    private val tagReaders: PartialTagReaders
 ) {
     private val retrieverSemaphore = Semaphore(MAX_CONCURRENT_RETRIEVERS)
     private val TAG = "AudioFileAnalyzer"
@@ -116,7 +132,9 @@ class AudioFileAnalyzer @Inject constructor(
                     val retriever = MediaMetadataRetriever()
                     try {
                         retriever.setDataSource(context, uri)
-                        extractMetadataFromRetriever(retriever, fileName)
+                        extractMetadataFromRetriever(retriever, fileName) {
+                            context.contentResolver.openInputStream(uri)
+                        }
                     } finally {
                         safeRelease(retriever)
                     }
@@ -209,7 +227,11 @@ class AudioFileAnalyzer @Inject constructor(
                             // el fd, cerrar el stream tras setDataSource es seguro).
                             java.io.FileInputStream(path).use { retriever.setDataSource(it.fd) }
                         }
-                        extractMetadataFromRetriever(retriever, fileName)
+                        // Remoto: la cabecera costaría otra petición, y esa lectura ya la hace la
+                        // metadata ligera.
+                        extractMetadataFromRetriever(retriever, fileName) {
+                            if (isRemote) null else java.io.FileInputStream(path)
+                        }
                     } finally {
                         safeRelease(retriever)
                     }
@@ -241,7 +263,8 @@ class AudioFileAnalyzer @Inject constructor(
      */
     private fun extractMetadataFromRetriever(
         retriever: MediaMetadataRetriever,
-        fileName: String
+        fileName: String,
+        openHeader: () -> java.io.InputStream?
     ): FileAnalysisResult {
         // 1. Extension / MIME
         val mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
@@ -272,20 +295,59 @@ class AudioFileAnalyzer @Inject constructor(
         )
         val embeddedArt = retriever.embeddedPicture
 
+        // Artistas. El retriever da UN string por clave, así que lo que el archivo declara como varios
+        // valores se lee de la cabecera con los mismos lectores de la metadata ligera. Si el formato no
+        // tiene lector o la cabecera no lo trae, manda el retriever — que es lo que había.
+        val header = readHeaderTags(extension, openHeader)
+        val retrieverAlbumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
+        val albumArtist = encodeMultiValue(
+            header?.albumArtists?.takeIf { it.isNotEmpty() } ?: listOfNotNull(retrieverAlbumArtist)
+        ) ?: ""
+        val artistCredits = header?.artists?.takeIf { it.isNotEmpty() }?.let(::encodeMultiValue)
+        // Con créditos multivalor, el texto a mostrar sale de la misma lectura que los créditos: el
+        // retriever puede haberse quedado con un solo intérprete de los varios.
+        val displayArtist = if (artistCredits != null) header?.artist ?: artist else artist
+
         // Nombrados a propósito: [FileAnalysisResult] tiene campos opcionales intercalados y una
         // llamada posicional se desalinea en silencio al añadir el siguiente.
         return FileAnalysisResult(
             extension = extension,
             isValid = isValid,
             title = title,
-            artist = artist,
+            artist = displayArtist,
             album = album,
             genre = genre,
+            albumArtist = albumArtist,
+            artistCredits = artistCredits,
             trackNumber = trackNumber,
             year = year,
             duration = duration,
             embeddedArt = embeddedArt
         )
+    }
+
+    /**
+     * Los tags de la cabecera del archivo, leídos con el lector de su formato, o `null` si no hay
+     * lector o no se pudo leer. Nunca lanza: los artistas multivalor son un enriquecimiento, y su
+     * fallo no puede costarle a la canción el resto de su metadata.
+     */
+    private fun readHeaderTags(extension: String, open: () -> java.io.InputStream?): TagFragment? {
+        val reader = tagReaders.forExtension(extension) ?: return null
+        return try {
+            open()?.use { input ->
+                val buffer = ByteArray(HEADER_TAG_BYTES)
+                var read = 0
+                while (read < buffer.size) {
+                    val n = input.read(buffer, read, buffer.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+                reader.read(if (read == buffer.size) buffer else buffer.copyOf(read))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo leer la cabecera de tags: ${e.message}")
+            null
+        }
     }
 
     /**
@@ -331,6 +393,8 @@ class AudioFileAnalyzer @Inject constructor(
                 title = analysis.title ?: originalSong.title,
                 artist = analysis.artist ?: originalSong.artist,
                 album = analysis.album ?: originalSong.album,
+                albumArtist = analysis.albumArtist ?: originalSong.albumArtist,
+                artistCredits = if (analysis.albumArtist != null) analysis.artistCredits else originalSong.artistCredits,
                 // Un 0 del análisis significa "el archivo no lo declara": no debe borrar lo que
                 // la fila ya supiera (p. ej. lo que trajo el índice de MediaStore).
                 trackNumber = analysis.trackNumber.takeIf { it > 0 } ?: originalSong.trackNumber,
@@ -345,7 +409,7 @@ class AudioFileAnalyzer @Inject constructor(
             // bajar unas pocas pistas, únicamente esas mostraban carátula: las hermanas se
             // quedaban con el placeholder teniendo el jpg ya en disco.
             if (freshArtUri != null && !AppConfig.isUnknownAlbum(updatedSong.album)) {
-                musicRepository.setAlbumArt(updatedSong.album, freshArtUri)
+                musicRepository.setAlbumArt(updatedSong.album, updatedSong.albumArtist.orEmpty(), freshArtUri)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error updating metadata after download: ${e.message}")
@@ -404,6 +468,14 @@ class AudioFileAnalyzer @Inject constructor(
          * pasa durante un sync masivo), no que el archivo esté roto.
          */
         private const val LOCAL_ANALYSIS_TIMEOUT_MS = 30_000L
+
+        /**
+         * Cuánto de la cabecera se lee para los artistas multivalor. Menos que los 256 KB de la
+         * metadata ligera a propósito: aquí se lee CADA archivo local al indexar, y los frames de texto
+         * van casi siempre antes que la carátula. Si una carátula enorme los empuja fuera, se pierde
+         * solo el multivalor — el retriever sigue dando artista y artista del álbum.
+         */
+        private const val HEADER_TAG_BYTES = 64 * 1024
         private const val REMOTE_ANALYSIS_TIMEOUT_MS = 60_000L
         private const val CONTENT_URI_ANALYSIS_TIMEOUT_MS = 30_000L
     }

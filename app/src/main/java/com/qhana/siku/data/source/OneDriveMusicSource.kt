@@ -3,6 +3,7 @@ package com.qhana.siku.data.source
 import android.content.Context
 import android.util.Log
 import com.qhana.siku.R
+import com.qhana.siku.data.auth.AuthErrorReason
 import com.qhana.siku.data.auth.AuthManager
 import com.qhana.siku.data.auth.AuthResult
 import com.qhana.siku.data.cache.UrlCache
@@ -60,7 +61,12 @@ class OneDriveMusicSource @Inject constructor(
         // devuelva Failed(isAuthError=true) — antes esto lo hacía SyncManager.startSync.
         val token = when (val result = authManager.getAccessToken().firstOrNull()) {
             is AuthResult.Success -> result.token
-            is AuthResult.Error -> throw SourceAuthException("Auth error: ${result.reason}")
+            // El MOTIVO viaja como flag y no como texto: aguas arriba hay que decidir qué acción
+            // ofrecer, y eso no se puede leer de un mensaje.
+            is AuthResult.Error -> throw SourceAuthException(
+                "Auth error: ${result.reason}",
+                requiresInteraction = result.reason == AuthErrorReason.INTERACTION_REQUIRED
+            )
             else -> throw SourceAuthException("Authentication failed")
         }
 
@@ -128,7 +134,8 @@ class OneDriveMusicSource @Inject constructor(
             title = tags.title,
             artist = tags.artist,
             album = tags.album,
-            albumArtist = tags.albumArtist,
+            albumArtists = tags.albumArtists,
+            artists = tags.artists,
             genre = tags.genre,
             trackNumber = tags.trackNumber,
             year = tags.year,

@@ -46,6 +46,9 @@
     <string name="common_albums">Álbumes</string>
     <string name="common_unknown_artist">Artista desconocido</string>
     <string name="common_unknown_album">Álbum desconocido</string>
+    <!-- No debería verse: los rankings excluyen las canciones sin género etiquetado. Existe para
+         que el nombre vacío tenga un texto en vez de una fila muda. -->
+    <string name="common_unknown_genre">Género desconocido</string>
     <string name="common_various_artists">Varios artistas</string>
     <!-- %1$s = detalle del error -->
     <string name="common_error_format">Error: %1$s</string>
@@ -106,9 +109,24 @@
     <string name="playlist_add_songs_no_results">Ningún resultado</string>
     <!-- %1$d = nº de canciones seleccionadas -->
     <string name="playlist_add_songs_confirm">Añadir (%1$d)</string>
+
+    <!-- ==================== Confirmaciones de listas ==================== -->
+    <!-- %1$s = nombre de la lista -->
+    <string name="playlist_created">Lista \"%1$s\" creada</string>
+    <!-- %1$d = canciones que entraron, %2$s = nombre de la lista -->
+    <plurals name="playlist_created_with_songs">
+        <item quantity="one">Lista \"%2$s\" creada con %1$d canción</item>
+        <item quantity="other">Lista \"%2$s\" creada con %1$d canciones</item>
+    </plurals>
+    <!-- %1$s = nombre de la lista -->
+    <string name="playlist_song_added">Añadida a \"%1$s\"</string>
+    <string name="playlist_song_already_in">Ya está en \"%1$s\"</string>
+    <string name="playlist_song_removed">Quitada de \"%1$s\"</string>
+    <string name="playlist_songs_all_already_in">Ya estaban todas en \"%1$s\"</string>
+    <!-- %1$d = canciones que entraron DE VERDAD (sin las repetidas), %2$s = nombre de la lista -->
     <plurals name="playlist_songs_added">
-        <item quantity="one">%d canción añadida</item>
-        <item quantity="other">%d canciones añadidas</item>
+        <item quantity="one">%1$d canción añadida a \"%2$s\"</item>
+        <item quantity="other">%1$d canciones añadidas a \"%2$s\"</item>
     </plurals>
 
     <!-- ==================== Importar/exportar listas en M3U ==================== -->
@@ -811,6 +829,11 @@
     <string name="sleep_timer_then_finish_song">Al vencer, terminará la canción en curso</string>
     <string name="sleep_timer_awaiting_song_end">Se pausará al terminar esta canción</string>
     <string name="sleep_timer_cancel">Cancelar temporizador</string>
+    <string name="sleep_timer_start">Iniciar temporizador</string>
+    <string name="sleep_timer_minutes_label">Minutos</string>
+    <string name="sleep_timer_minutes_suffix">min</string>
+    <string name="sleep_timer_minute_less">Un minuto menos</string>
+    <string name="sleep_timer_minute_more">Un minuto más</string>
 
     <!-- ==================== Selector de artista (Deezer) ==================== -->
     <string name="artist_picker_title">Elegir artista</string>
@@ -825,7 +848,8 @@
     <string name="color_picker_prompt">Toca un color para aplicarlo:</string>
     <string name="color_picker_legend">El círculo es el color de la carátula; la barra, el acento que generaría.</string>
     <string name="color_picker_applied">Aplicado ahora: %1$s</string>
-    <string name="color_picker_seed">Del acento guardado %1$s</string>
+    <string name="color_picker_selected">Seleccionado: %1$s</string>
+    <string name="color_picker_low_contrast">El acento que genera este color apenas contrasta con el fondo del tema. Puedes elegirlo igual.</string>
     <string name="color_picker_current">actual</string>
     <string name="color_picker_hue_source">origen del actual</string>
     <string name="color_picker_no_art">Esta canción todavía no tiene carátula para analizar</string>
@@ -841,7 +865,7 @@
 
     <!-- ==================== Pantalla de inicio (home) ==================== -->
     <!-- Chip de orden (menú desplegable) compartido por Todas/Artistas/Álbumes. %1$s = criterio actual -->
-    <string name="sort_chip_label">Ordenar: %1$s</string>
+    <string name="sort_chip_label">Ordenar: %1$s, %2$s</string>
     <!-- Acciones rápidas (fila de chips arriba de los carruseles) -->
     <string name="home_section_quick_actions">Acciones rápidas</string>
     <string name="home_action_shuffle">Aleatorio</string>
@@ -882,6 +906,7 @@
     <string name="sync_progress">%1$d de %2$d%3$s</string>
     <string name="sync_error">Error de sincronización</string>
     <string name="sync_error_retry">%1$s · Toca para reintentar</string>
+    <string name="sync_error_reauth">%1$s · Toca para volver a iniciar sesión</string>
     <string name="sync_postponed_low_battery">Batería baja: la sincronización se hará cuando cargues el dispositivo</string>
     <!-- Cola detenida por una condición del entorno, NO por un error: se reanuda sola, así que
          el texto dice qué falta y no pide ninguna acción. -->
@@ -909,15 +934,27 @@
     <string name="sync_error_critical">Error crítico: %1$s</string>
     <string name="sync_error_no_details">sin detalles</string>
     <string name="sync_found">%1$d encontradas · %2$s</string>
-    <string name="sort_title_asc">Título (A-Z)</string>
-    <string name="sort_name_asc">Nombre (A-Z)</string>
-    <string name="sort_song_count">Más canciones</string>
+    <!-- Etiquetas del chip de orden. Nombran SOLO el criterio, nunca la dirección: ésa la dice la
+         flecha del chip y se invierte tocando el criterio que ya está activo. Una etiqueta como
+         "Más reproducidas" se contradiría con la flecha en cuanto se ordene al revés. -->
+    <string name="sort_by_title">Título</string>
+    <string name="sort_by_name">Nombre</string>
     <string name="sort_by_artist">Artista</string>
-    <string name="sort_title_desc">Título (Z-A)</string>
-    <string name="sort_recent_first">Recientes primero</string>
-    <string name="sort_oldest_first">Antiguos primero</string>
-    <string name="sort_most_played">Más reproducidas</string>
-    <string name="sort_recently_played">Últimas escuchadas</string>
+    <string name="sort_by_year">Año</string>
+    <string name="sort_by_song_count">Nº de canciones</string>
+    <string name="sort_by_date_added">Fecha de adición</string>
+    <string name="sort_by_play_count">Reproducciones</string>
+    <string name="sort_by_last_played">Última escucha</string>
+    <!-- Solo para lectores de pantalla: lo que en pantalla dice la flecha. -->
+    <string name="sort_direction_ascending">ascendente</string>
+    <string name="sort_direction_descending">descendente</string>
+    <!-- Cabecera de la última sección de la pestaña Álbumes al ordenar por año: los discos cuyos
+         archivos no declaran ninguno (year = 0 en `songs`). -->
+    <string name="album_year_unknown">Sin año</string>
+    <!-- Chip de orden de los detalles: el orden del CATÁLOGO, que es distinto en cada pantalla.
+         En el detalle de género no existe (ahí el catálogo ES el título, y se ofrece esa etiqueta). -->
+    <string name="sort_detail_catalog_artist">Álbum y pista</string>
+    <string name="sort_detail_catalog_album">Nº de pista</string>
 
     <!-- Progreso del escaneo por fuente (banner de sync: "N encontradas · <esto>") -->
     <plurals name="source_local_count">
@@ -1059,6 +1096,19 @@
     <string name="stats_all_time_note">Cuenta todo tu historial. El tiempo es aproximado: se calcula por la duración de cada canción. El medido y la racha se registran desde el %1$s.</string>
     <string name="stats_all_time_note_pending">Cuenta todo tu historial. El tiempo es aproximado: se calcula por la duración de cada canción. El medido y la racha empiezan a registrarse ahora.</string>
 
+    <!-- Estadísticas de UNA entidad: artista, álbum o género (se llega desde los rankings de
+         Estadísticas). La misma pantalla con otro ámbito, de ahí que los textos vayan por ámbito. -->
+    <string name="entity_stats_songs_artist">Lo que más le escuchaste</string>
+    <string name="entity_stats_songs_album">Lo que más escuchaste del disco</string>
+    <string name="entity_stats_songs_genre">Lo que más escuchaste del género</string>
+    <string name="entity_stats_children_albums">Sus álbumes</string>
+    <string name="entity_stats_children_artists">Sus artistas</string>
+    <string name="entity_stats_open_artist">Ver artista</string>
+    <string name="entity_stats_open_album">Ver álbum</string>
+    <string name="entity_stats_open_genre">Ver género</string>
+    <string name="entity_stats_empty_period">No escuchaste esto en este periodo</string>
+    <string name="entity_stats_empty_all">Todavía no escuchaste nada de esto</string>
+
     <!-- Informe de fallo (CrashReporter / CrashReportActivity) -->
     <string name="crash_title">La app se cerró de golpe</string>
     <string name="crash_message">Se guardó un informe con lo que pasó. Compartirlo es lo único que permite corregirlo: la app no manda nada por su cuenta.</string>
@@ -1067,4 +1117,20 @@
     <string name="crash_share_subject">Siku Music: informe de fallo</string>
     <string name="settings_crash_header">Informe de fallo</string>
     <string name="settings_crash_desc">La app se cerró de golpe. Compartir lo que pasó</string>
+    <!-- Artistas (v29) -->
+    <string name="settings_artists_header">Artistas</string>
+    <string name="settings_cat_artists_desc">Agrupación y colaboraciones</string>
+    <string name="settings_artist_grouping">Agrupar artistas</string>
+    <string name="settings_artist_grouping_desc">Decide bajo qué artista aparece cada canción en la biblioteca, en su detalle y en sus estadísticas.</string>
+    <string name="settings_artist_grouping_track">Por pista</string>
+    <string name="settings_artist_grouping_album">Por álbum</string>
+    <string name="settings_artist_grouping_track_desc">Cada canción va con su propio artista. Un álbum con invitados reparte sus canciones entre varios.</string>
+    <string name="settings_artist_grouping_album_desc">Cada canción va con el artista del álbum (ALBUMARTIST). Si el archivo no lo trae, se usa el de la pista.</string>
+    <string name="settings_artist_split">Separar colaboraciones</string>
+    <string name="settings_artist_split_desc">«A feat. B» cuenta para A y para B. Se aplica al salir de esta pantalla.</string>
+    <string name="settings_artist_separators">Separadores</string>
+    <string name="settings_artist_separators_desc">&amp;, coma y / vienen apagados porque forman parte de nombres reales, como «Simon &amp; Garfunkel» o «AC/DC».</string>
+    <string name="settings_artist_exceptions">Nunca separar</string>
+    <string name="settings_artist_exceptions_placeholder">Un artista por línea</string>
+    <string name="settings_artist_exceptions_desc">Estos nombres se respetan aunque contengan un separador activo.</string>
 </resources>

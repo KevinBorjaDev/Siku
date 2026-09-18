@@ -19,6 +19,7 @@ import com.qhana.siku.data.local.SongEntity
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import com.qhana.siku.data.model.AppResult
 import com.qhana.siku.data.model.runCatchingAsAppResult
@@ -43,7 +44,7 @@ class SongRepository @Inject constructor(
     // cualquier escritura en `songs` (sync, descargas, metadata, colores...) vía el
     // InvalidationTracker de Room, así que nunca sirve una lista obsoleta.
     private val snapshotLock = Any()
-    @Volatile private var cachedSnapshotKey: Triple<String, SortOrder, Set<SongSourceFilter>>? = null
+    @Volatile private var cachedSnapshotKey: Triple<String, SortSpec<SortOrder>, Set<SongSourceFilter>>? = null
     @Volatile private var cachedSnapshot: List<Song>? = null
 
     /**
@@ -71,11 +72,12 @@ class SongRepository @Inject constructor(
 
     override fun getSongsPaging(
         query: String,
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter>,
         approximateIds: List<String>
     ): Flow<PagingData<Song>> {
-        val (sortColumn, sortAsc) = sortColumnFor(sortOrder)
+        val sortColumn = columnFor(sortOrder.criterion)
+        val sortAsc = sortOrder.ascending
 
         return Pager(
             config = PagingConfig(pageSize = 20, enablePlaceholders = true),
@@ -120,7 +122,7 @@ class SongRepository @Inject constructor(
 
     override suspend fun getSongsSnapshot(
         query: String,
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter>
     ): List<Song> =
         withContext(Dispatchers.IO) {
@@ -129,8 +131,14 @@ class SongRepository @Inject constructor(
                 if (cachedSnapshotKey == key) cachedSnapshot?.let { return@withContext it }
                 invalidationGeneration
             }
-            val (sortColumn, sortAsc) = sortColumnFor(sortOrder)
-            val result = songDao.getSongsList(SongDao.buildPagingQuery(query, sortColumn, sortAsc, sourceFilters)).map { it.toSong() }
+            val result = songDao.getSongsList(
+                SongDao.buildPagingQuery(
+                    query,
+                    columnFor(sortOrder.criterion),
+                    sortOrder.ascending,
+                    sourceFilters
+                )
+            ).map { it.toSong() }
             synchronized(snapshotLock) {
                 // Solo se cachea si nadie tocó `songs` mientras corría la query. Si alguien lo
                 // hizo, el observer ya limpió el caché pero esta lectura es ANTERIOR a ese cambio,
@@ -186,15 +194,14 @@ class SongRepository @Inject constructor(
 
     override fun getLibrarySize(): Flow<Int> = songDao.getSongCountFlow()
 
-    // Mapea el SortOrder al (columna, asc) del builder de queries. Compartido entre el
-    // paging y el snapshot para que la cola use exactamente el mismo orden que la UI.
-    private fun sortColumnFor(sortOrder: SortOrder): Pair<String, Boolean> = when (sortOrder) {
-        SortOrder.TITLE_ASC -> "title" to true
-        SortOrder.TITLE_DESC -> "title" to false
-        SortOrder.DATE_ADDED_ASC -> "dateAdded" to true
-        SortOrder.DATE_ADDED_DESC -> "dateAdded" to false
-        SortOrder.MOST_PLAYED -> "playCount" to false
-        SortOrder.RECENTLY_PLAYED -> "lastPlayedAt" to false
+    // Qué COLUMNA es cada criterio. La dirección ya no se traduce: viaja en el propio
+    // `SortSpec` desde el chip hasta el `ORDER BY`. Compartido entre el paging y el snapshot
+    // para que la cola use exactamente el mismo orden que la UI.
+    private fun columnFor(criterion: SortOrder): String = when (criterion) {
+        SortOrder.TITLE -> "title"
+        SortOrder.DATE_ADDED -> "dateAdded"
+        SortOrder.PLAY_COUNT -> "playCount"
+        SortOrder.LAST_PLAYED -> "lastPlayedAt"
     }
 
     override fun getSongByIdFlow(songId: String): Flow<Song?> = songDao.getSongByIdFlow(songId).map { entity ->
@@ -445,9 +452,21 @@ class SongRepository @Inject constructor(
             duration = song.duration,
             albumArtUri = song.albumArtUri?.toString(),
             trackNumber = song.trackNumber,
-            year = song.year
+            year = song.year,
+            albumArtist = song.albumArtist,
+            artistCredits = song.artistCredits
         )
     }
+
+    override suspend fun getSongsNeedingArtistTags(localOnly: Boolean): List<Song> =
+        withContext(Dispatchers.IO) {
+            songDao.getSongsNeedingArtistTags(localOnly).map { it.toSong() }
+        }
+
+    override suspend fun updateArtistTags(songId: String, albumArtist: String, artistCredits: String?) =
+        withContext(Dispatchers.IO) {
+            songDao.updateArtistTags(songId, albumArtist, artistCredits)
+        }
 
     override suspend fun getSongsNeedingTrackInfo(localOnly: Boolean): List<Song> =
         withContext(Dispatchers.IO) {
@@ -465,17 +484,19 @@ class SongRepository @Inject constructor(
 
     override suspend fun updateLightMetadata(
         songId: String, title: String, artist: String, album: String, genre: String?,
-        trackNumber: Int, year: Int, durationMs: Long
+        trackNumber: Int, year: Int, durationMs: Long, albumArtist: String, artistCredits: String?
     ) = withContext(Dispatchers.IO) {
-        songDao.updateLightMetadata(songId, title, artist, album, genre, trackNumber, year, durationMs)
+        songDao.updateLightMetadata(
+            songId, title, artist, album, genre, trackNumber, year, durationMs, albumArtist, artistCredits
+        )
     }
 
-    override suspend fun getAlbumArtUri(album: String): String? = withContext(Dispatchers.IO) {
-        songDao.getAlbumArtUri(album)
+    override suspend fun getAlbumArtUri(album: String, albumArtist: String): String? = withContext(Dispatchers.IO) {
+        songDao.getAlbumArtUri(album, albumArtist)
     }
 
-    override suspend fun setAlbumArt(album: String, uri: String) = withContext(Dispatchers.IO) {
-        songDao.setAlbumArt(album, uri)
+    override suspend fun setAlbumArt(album: String, albumArtist: String, uri: String) = withContext(Dispatchers.IO) {
+        songDao.setAlbumArt(album, albumArtist, uri)
     }
 
     override suspend fun updateAlbumArtUri(songId: String, uri: String?) = withContext(Dispatchers.IO) {

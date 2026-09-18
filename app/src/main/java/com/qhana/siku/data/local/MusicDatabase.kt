@@ -13,8 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * v27: `songs.lightTagsAttemptedAt` (sello de la metadata ligera sin tags).
  * v28: tabla `play_events` (log de escuchas con fecha; ver [PlayEventEntity]).
+ * v29: `songs.albumArtist`/`songs.artistCredits` y la tabla derivada `song_artists` con su cola
+ *      (ver [ArtistCreditEntity]).
  */
-const val MUSIC_DB_VERSION = 28
+const val MUSIC_DB_VERSION = 29
 
 /**
  * Base de datos Room para cache local de canciones y colores.
@@ -39,7 +41,9 @@ const val MUSIC_DB_VERSION = 28
         PlaylistEntity::class,
         PlaylistSongCrossRef::class,
         ArtistEntity::class,
-        PlayEventEntity::class
+        PlayEventEntity::class,
+        ArtistCreditEntity::class,
+        ArtistCreditQueueEntity::class
     ],
     version = MUSIC_DB_VERSION,
     exportSchema = true
@@ -50,6 +54,7 @@ abstract class MusicDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun artistDao(): ArtistDao
     abstract fun playEventDao(): PlayEventDao
+    abstract fun artistCreditDao(): ArtistCreditDao
 
     companion object {
         @Volatile
@@ -158,6 +163,39 @@ abstract class MusicDatabase : RoomDatabase() {
             }
         }
 
+        // v28 -> v29: artista del álbum, artistas multivalor y la tabla derivada de créditos.
+        //
+        // Las dos columnas nacen NULL, que en las dos significa "aún no leído": las rellena
+        // `ArtistTagsBackfiller` releyendo los tags (sin red para lo que está en el dispositivo, con
+        // WiFi para la nube). Un backfill en SQL no es posible — el dato está en los archivos.
+        //
+        // La tabla de créditos SÍ se siembra aquí, y no esperando a que cambie algo: se encola la
+        // biblioteca ENTERA para que el indexador la calcule en el primer arranque. Mientras tanto la
+        // lectura cae al `artist` de siempre (ver `ArtistCreditSql.ROWS`), así que la pestaña Artistas
+        // nunca aparece vacía. Los triggers se crean aquí y en el `onCreate` de la base; ver
+        // [ArtistCreditTriggers] para por qué hacen falta los dos sitios.
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE songs ADD COLUMN albumArtist TEXT")
+                db.execSQL("ALTER TABLE songs ADD COLUMN artistCredits TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `song_artists` (" +
+                        "`songId` TEXT NOT NULL, `role` INTEGER NOT NULL, `name` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`songId`, `role`, `name`))"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_song_artists_role_name` " +
+                        "ON `song_artists` (`role`, `name`)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `artist_credit_queue` (" +
+                        "`songId` TEXT NOT NULL, `seq` INTEGER NOT NULL, PRIMARY KEY(`songId`))"
+                )
+                ArtistCreditTriggers.create(db)
+                db.execSQL("INSERT OR REPLACE INTO artist_credit_queue (songId, seq) SELECT id, 1 FROM songs")
+            }
+        }
+
         /**
          * Todas las migraciones, en una sola lista. La consumen el builder y
          * `MusicDatabaseMigrationTest`: si el test declarara la suya, una migración nueva podría
@@ -170,7 +208,8 @@ abstract class MusicDatabase : RoomDatabase() {
             MIGRATION_24_25,
             MIGRATION_25_26,
             MIGRATION_26_27,
-            MIGRATION_27_28
+            MIGRATION_27_28,
+            MIGRATION_28_29
         )
 
         fun getInstance(context: Context): MusicDatabase {
@@ -181,6 +220,13 @@ abstract class MusicDatabase : RoomDatabase() {
                     "music_cache.db"
                 )
                     .addMigrations(*ALL_MIGRATIONS)
+                    // Quien instala de cero no pasa por ninguna migración: los triggers de la cola de
+                    // créditos se crean aquí para esa población. Ver [ArtistCreditTriggers].
+                    .addCallback(object : Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            ArtistCreditTriggers.create(db)
+                        }
+                    })
                     // SIN fallbackToDestructiveMigration a propósito: ver el KDoc de la clase.
                     .build()
                     .also { INSTANCE = it }

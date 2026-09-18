@@ -1,5 +1,6 @@
 package com.qhana.siku.ui.screens
 
+import com.qhana.siku.data.local.AlbumSummary
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -49,7 +50,7 @@ import com.qhana.siku.ui.components.bleedHorizontally
 import com.qhana.siku.ui.components.rememberDetailHeaderMetrics
 import com.qhana.siku.ui.components.CreatePlaylistDialog
 import com.qhana.siku.ui.components.DetailPlayButtons
-import com.qhana.siku.ui.components.DetailPlayOrder
+import com.qhana.siku.ui.components.DetailSortChip
 import com.qhana.siku.ui.components.sort
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.entityImageSharedBounds
@@ -98,7 +99,7 @@ fun GenreDetailScreen(
     favorites: Set<String>,
     playlists: List<Playlist>,
     onBackClick: () -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (String, String?) -> Unit,
     onPlayAll: (List<Song>, Int) -> Unit,
     onShufflePlay: (List<Song>) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -113,15 +114,24 @@ fun GenreDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: BrowseViewModel = hiltViewModel()
 ) {
-    val songs by remember(genreName) { viewModel.getGenreSongs(genreName) }
+    val songs by remember(genreName) { viewModel.getGenreDetailSongs(genreName) }
         .collectAsStateWithLifecycle(emptyList())
     val albums by remember(genreName) { viewModel.getGenreAlbums(genreName) }
         .collectAsStateWithLifecycle(emptyList())
+    val songSort by viewModel.detailSongSort.collectAsStateWithLifecycle()
 
     // Hasta ARTS_PER_GENRE portadas distintas para el collage del header, derivadas de las
     // canciones que ya están en pantalla (no hace falta volver a la BD).
+    //
+    // **Se ordenan por título antes de recortar, y eso es lo que las hace estables**: desde que el
+    // chip reordena esta pantalla, "las cuatro primeras" dependerían del criterio elegido y el
+    // collage del header —la identidad de la pantalla— cambiaría al ordenar por más reproducidas.
+    // Es el mismo criterio con el que el detalle de álbum elige su portada por número de pista.
     val arts = remember(songs) {
-        songs.mapNotNull { it.albumArtUriString }.distinct().take(HEADER_ARTS)
+        songs.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            .mapNotNull { it.albumArtUriString }
+            .distinct()
+            .take(HEADER_ARTS)
     }
     val artistCount = remember(songs) { songs.map { it.artist }.distinct().size }
 
@@ -136,14 +146,14 @@ fun GenreDetailScreen(
     // Quick-play de un álbum de una fila: pide sus canciones y reproduce (misma resolución
     // perezosa que ArtistDetailScreen — la tarjeta solo conoce el NOMBRE del álbum).
     val scope = rememberCoroutineScope()
-    val playAlbum: (String) -> Unit = { albumName ->
+    val playAlbum: (AlbumSummary) -> Unit = { album ->
         scope.launch {
-            val albumSongs = viewModel.getAlbumSongs(albumName).first()
+            val albumSongs = viewModel.getAlbumSongs(album.name, album.albumArtist).first()
             if (albumSongs.isNotEmpty()) onPlayAll(albumSongs, 0)
         }
     }
-    val queueAlbum: (String) -> Unit = { albumName ->
-        scope.launch { onAddAllToQueue(viewModel.getAlbumSongs(albumName).first()) }
+    val queueAlbum: (AlbumSummary) -> Unit = { album ->
+        scope.launch { onAddAllToQueue(viewModel.getAlbumSongs(album.name, album.albumArtist).first()) }
     }
 
     // Título viajero: mismas anclas y mismo criterio de snap que el detalle de álbum. UN solo
@@ -293,10 +303,13 @@ fun GenreDetailScreen(
                         DetailPlayButtons(
                             onPlayAll = { onPlayAll(songs, 0) },
                             onShuffle = { onShufflePlay(songs) },
-                            // Mismas opciones que el detalle de lista: invertir/A-Z/Z-A. Ver el
-                            // kdoc de DetailPlayOrder para el porqué (aquí el orden de partida
-                            // ya es alfabético, pero invertirlo o rehacerlo sigue siendo útil).
-                            onPlayInOrder = { order -> onPlayAll(order.sort(songs), 0) },
+                            // **SIN `onPlayInOrder`**: lo sustituyó el chip de orden de la lista
+                            // (7 sep 2026). Aquellas tres variantes cambiaban solo lo que SONABA y
+                            // dejaban la pantalla como estaba; el chip reordena la lista y la
+                            // reproducción sale de ella, así que tener las dos sería dos controles
+                            // para lo mismo con resultados distintos en la vista. Sobrevive en el
+                            // detalle de LISTA, donde el orden lo puso el usuario y una vista
+                            // reordenada pelearía con el arrastre.
                             onAddToQueue = { onAddAllToQueue(songs) },
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                         )
@@ -308,45 +321,65 @@ fun GenreDetailScreen(
                     // `animateItem()` (ya en cada fila/tarjeta) anima la transición: lo que sale
                     // hace fade-out, lo que entra fade-in.
                     when (viewMode) {
-                        GenreDetailView.SONGS -> itemsIndexed(
-                            items = songs,
-                            key = { _, song -> song.id }
-                        ) { index, song ->
-                            // La canción actual, esté sonando o en PAUSA: mismo criterio que la cola y
-                            // la lista de canciones (el resaltado marca "cargada", no "sonando ahora").
-                            val isPlaying = currentSong?.id == song.id
-                            val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
-                            // Punta ORIGEN del container transform hacia el reproductor: la fila crece
-                            // hasta ser el player. Fuera del envoltorio va lo que la coloca en la lista;
-                            // dentro, la superficie que morfa (ver [SongRowContainer]).
-                            SongRowContainer(
-                                songId = song.id,
-                                modifier = Modifier
-                                    .animateItem()
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 1.dp)
-                            ) {
-                                AppSurface(
-                                    color = AppColors.contentSurface,
-                                    // isActive: el ítem en reproducción usa la forma redondeada (16 dp),
-                                    // igual que en la cola y la lista de canciones.
-                                    shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
-                                    modifier = Modifier.fillMaxWidth()
+                        GenreDetailView.SONGS -> {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
                                 ) {
-                                    SongItem(
-                                        song = song,
-                                        isPlaying = isPlaying,
-                                        modifier = Modifier.clickable { onPlayAll(songs, index) },
-                                        trailingContent = {
-                                            SongOverflowButton(
-                                                isFavorite = song.id in favorites,
-                                                onToggleFavorite = { onToggleFavorite(song.id) },
-                                                onAddToPlaylist = { songIdForPlaylist = song.id },
-                                                onAddToQueue = { onAddToQueue(song) },
-                                                rowBackground = rowBackground
-                                            )
-                                        }
+                                    // Solo el chip: en esta vista no hay más de una sección de la que
+                                    // distinguirla —el toggle de la topbar ya dice qué se está
+                                    // mirando— y el conteo lo lleva el header.
+                                    DetailSortChip(
+                                        current = songSort,
+                                        catalogLabel = R.string.sort_by_title,
+                                        onChange = viewModel::setDetailSongSort
                                     )
+                                }
+                            }
+                            itemsIndexed(
+                                items = songs,
+                                key = { _, song -> song.id }
+                            ) { index, song ->
+                                // La canción actual, esté sonando o en PAUSA: mismo criterio que la cola y
+                                // la lista de canciones (el resaltado marca "cargada", no "sonando ahora").
+                                val isPlaying = currentSong?.id == song.id
+                                val rowBackground = songRowBackground(AppColors.contentSurface, isPlaying)
+                                // Punta ORIGEN del container transform hacia el reproductor: la fila crece
+                                // hasta ser el player. Fuera del envoltorio va lo que la coloca en la lista;
+                                // dentro, la superficie que morfa (ver [SongRowContainer]).
+                                SongRowContainer(
+                                    songId = song.id,
+                                    modifier = Modifier
+                                        .animateItem()
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 1.dp)
+                                ) {
+                                    AppSurface(
+                                        color = AppColors.contentSurface,
+                                        // isActive: el ítem en reproducción usa la forma redondeada (16 dp),
+                                        // igual que en la cola y la lista de canciones.
+                                        shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        SongItem(
+                                            song = song,
+                                            isPlaying = isPlaying,
+                                            modifier = Modifier.clickable { onPlayAll(songs, index) },
+                                            trailingContent = {
+                                                SongOverflowButton(
+                                                    isFavorite = song.id in favorites,
+                                                    onToggleFavorite = { onToggleFavorite(song.id) },
+                                                    onAddToPlaylist = { songIdForPlaylist = song.id },
+                                                    onAddToQueue = { onAddToQueue(song) },
+                                                    rowBackground = rowBackground
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -377,9 +410,9 @@ fun GenreDetailScreen(
                                 rowAlbums.forEach { album ->
                                     AlbumTileCard(
                                         album = album,
-                                        onClick = { onAlbumClick(album.name) },
-                                        onPlayClick = { playAlbum(album.name) },
-                                        onAddToQueue = { queueAlbum(album.name) },
+                                        onClick = { onAlbumClick(album.name, album.albumArtist) },
+                                        onPlayClick = { playAlbum(album) },
+                                        onAddToQueue = { queueAlbum(album) },
                                         modifier = Modifier.weight(1f)
                                     )
                                 }

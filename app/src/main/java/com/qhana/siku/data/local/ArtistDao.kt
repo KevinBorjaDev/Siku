@@ -34,7 +34,7 @@ interface ArtistDao {
      * RawQuery para inyectar el WHERE de origen antes del GROUP BY; `observedEntities`
      * cubre AMBAS tablas del SQL → reactivo tanto al scan como a la selección manual de foto.
      */
-    @RawQuery(observedEntities = [SongEntity::class, ArtistEntity::class])
+    @RawQuery(observedEntities = [SongEntity::class, ArtistEntity::class, ArtistCreditEntity::class])
     fun getArtistsFlow(query: SupportSQLiteQuery): Flow<List<ArtistSummary>>
 
     @Query("SELECT * FROM artists WHERE name = :name")
@@ -53,6 +53,11 @@ interface ArtistDao {
     fun getArtistsByNameFlow(names: List<String>): Flow<List<ArtistEntity>>
 
     /**
+     * Los nombres salen de los CRÉDITOS (v29, ambos roles) y no de `songs.artist`: con la separación
+     * de colaboraciones activa, "A feat. B" ya no es el nombre de ningún artista de la pestaña, y
+     * buscarle foto sería una petición a Deezer para nadie. Las canciones aún sin créditos calculados
+     * aportan su `artist`, igual que en `ArtistCreditSql.ROWS`.
+     *
      * Artistas de la biblioteca con foto pendiente de resolver: sin fila en `artists`, o sin
      * imageUrl y con el not-found ya expirado. Alimenta el backfill en background; las
      * selecciones manuales y los not-found dentro de su espera quedan fuera.
@@ -70,9 +75,13 @@ interface ArtistDao {
      */
     @Query(
         """
-        SELECT DISTINCT s.artist FROM songs s
-        LEFT JOIN artists a ON a.name = s.artist
-        WHERE TRIM(s.artist) != '' AND s.artist != :unknownArtist
+        SELECT DISTINCT c.name FROM (
+            SELECT name FROM song_artists
+            UNION SELECT artist AS name FROM songs WHERE id NOT IN (SELECT songId FROM song_artists)
+        ) c
+        LEFT JOIN artists a ON a.name = c.name
+        WHERE TRIM(c.name) != '' AND c.name != :unknownArtist
+          AND LOWER(TRIM(c.name)) NOT IN (:variousArtists)
           AND (a.name IS NULL
                OR (a.imageUrl IS NULL AND a.manuallySet = 0
                    AND (a.fetchedAt IS NULL
@@ -84,7 +93,8 @@ interface ArtistDao {
         now: Long,
         baseTtlMs: Long,
         maxBackoffShift: Int,
-        unknownArtist: String
+        unknownArtist: String,
+        variousArtists: List<String>
     ): List<String>
 
     /**
@@ -99,13 +109,17 @@ interface ArtistDao {
      */
     @Query(
         """
-        SELECT COUNT(DISTINCT s.artist) FROM songs s
-        LEFT JOIN artists a ON a.name = s.artist
-        WHERE TRIM(s.artist) != '' AND s.artist != :unknownArtist
+        SELECT COUNT(DISTINCT c.name) FROM (
+            SELECT name FROM song_artists
+            UNION SELECT artist AS name FROM songs WHERE id NOT IN (SELECT songId FROM song_artists)
+        ) c
+        LEFT JOIN artists a ON a.name = c.name
+        WHERE TRIM(c.name) != '' AND c.name != :unknownArtist
+          AND LOWER(TRIM(c.name)) NOT IN (:variousArtists)
           AND (a.name IS NULL OR a.fetchedAt IS NULL)
         """
     )
-    suspend fun countArtistsNeverAttempted(unknownArtist: String): Int
+    suspend fun countArtistsNeverAttempted(unknownArtist: String, variousArtists: List<String>): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertArtist(artist: ArtistEntity)

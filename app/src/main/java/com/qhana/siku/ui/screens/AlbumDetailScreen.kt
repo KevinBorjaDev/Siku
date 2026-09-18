@@ -1,5 +1,6 @@
 package com.qhana.siku.ui.screens
 
+import com.qhana.siku.data.local.albumIdentityKey
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -51,6 +52,7 @@ import com.qhana.siku.ui.components.DetailPlayButtons
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.CountChip
+import com.qhana.siku.ui.components.DetailSortChip
 import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
@@ -82,6 +84,11 @@ import com.qhana.siku.ui.theme.DetailContentTheme
 @Composable
 fun AlbumDetailScreen(
     albumName: String,
+    /**
+     * Segunda mitad de la identidad del álbum (v29): `null` = por nombre, de cualquier artista del
+     * álbum; `""` = las pistas sin ese tag. Ver `Screen.AlbumDetail`.
+     */
+    albumArtist: String?,
     currentSong: Song?,
     favorites: Set<String>,
     playlists: List<Playlist>,
@@ -101,14 +108,24 @@ fun AlbumDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: BrowseViewModel = hiltViewModel()
 ) {
-    val songs by remember(albumName) { viewModel.getAlbumSongs(albumName) }
+    val songs by remember(albumName, albumArtist) { viewModel.getAlbumDetailSongs(albumName, albumArtist) }
         .collectAsStateWithLifecycle(emptyList())
+    val songSort by viewModel.detailSongSort.collectAsStateWithLifecycle()
 
     // La pista de la que sale la CARÁTULA del header. Se calcula una vez y se usa para las dos
     // cosas —la imagen y el seed del tema— justamente para que no puedan discrepar: el color de
     // esta pantalla tiene que ser el de la portada que se está viendo, no el de otra pista del
     // álbum que quizá tenga una portada distinta.
-    val headerSong = remember(songs) { songs.firstOrNull { it.albumArtUriString != null } }
+    //
+    // **Se elige por número de PISTA y no por posición en la lista**: desde que el chip reordena
+    // esta pantalla, "la primera" depende del criterio elegido, así que con dos portadas distintas
+    // en el mismo álbum el header —y con él el tema de la pantalla entera— cambiaría al ordenar por
+    // más reproducidas. El desempate por título deja la elección determinista incluso sin tags de
+    // pista, donde todas valen 0.
+    val headerSong = remember(songs) {
+        songs.filter { it.albumArtUriString != null }
+            .minWithOrNull(compareBy({ it.trackNumber }, { it.title }))
+    }
 
     // Seed del tema local. Sale de los colores YA persistidos en `songs` (extraídos en su día por
     // ArtworkRepository), así que no cuesta ni una consulta ni una extracción: viajan en el propio
@@ -172,7 +189,7 @@ fun AlbumDetailScreen(
     // o sea si venimos de un tile — ver `overSharedElementsModifier`). Uno solo, dos lectores: crear
     // un segundo con la misma key sería un target duplicado.
     val headerImageSharedState = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-        with(sharedTransitionScope) { rememberSharedContentState(key = "album_image_$albumName") }
+        with(sharedTransitionScope) { rememberSharedContentState(key = "album_image_${albumIdentityKey(albumName, albumArtist)}") }
     } else null
 
     DetailContentTheme(albumSeed) {
@@ -268,6 +285,35 @@ fun AlbumDetailScreen(
                         onAddToQueue = { onAddAllToQueue(songs) },
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                     )
+                }
+
+                // Cabecera de la lista, que aquí existe SOLO para colgar de ella el chip de orden:
+                // sin el chip no haría falta —el header ya dice cuántas canciones tiene el álbum, y
+                // debajo no hay otra sección de la que distinguirla, al revés que en un artista—.
+                // Por eso tampoco lleva el contador: repetiría el del header a diez dp de él.
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.songs_header),
+                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // El título cede el ancho y el chip conserva el suyo; por qué es
+                            // `weight` a secas, en la fila gemela de `ArtistDetailScreen`.
+                            modifier = Modifier.weight(1f)
+                        )
+                        DetailSortChip(
+                            current = songSort,
+                            catalogLabel = R.string.sort_detail_catalog_album,
+                            onChange = viewModel::setDetailSongSort
+                        )
+                    }
                 }
 
                 itemsIndexed(

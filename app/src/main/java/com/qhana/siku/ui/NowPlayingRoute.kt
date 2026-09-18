@@ -281,10 +281,8 @@ fun NowPlayingLayer(
             onDismissLyricsSearch = { playbackViewModel.dismissLyricsSearch() },
             onUpdatePosition = { playbackViewModel.updatePosition() },
             onAddToPlaylist = { playlistId, songId -> libraryViewModel.addSongToPlaylist(playlistId, songId) },
-            onCreatePlaylist = { name ->
-                libraryViewModel.createPlaylist(name) { id ->
-                    currentSong?.id?.let { songId -> libraryViewModel.addSongToPlaylist(id, songId) }
-                }
+            onCreatePlaylist = { name, songId ->
+                libraryViewModel.createPlaylist(name, listOfNotNull(songId))
             },
             onStartSleepTimer = { minutes, finishSong -> playbackViewModel.startSleepTimer(minutes, finishSong) },
             onCancelSleepTimer = { playbackViewModel.cancelSleepTimer() }
@@ -306,7 +304,7 @@ fun NowPlayingLayer(
             // `navigateFromPlayer`: colapsan el player recordando volver a él, así que "atrás" del
             // detalle devuelve al reproductor (no a la biblioteca).
             onArtistClick = { name -> appState.navigateToArtist(name) },
-            onAlbumClick = { name -> appState.navigateToAlbum(name) }
+            onAlbumClick = { name, albumArtist -> appState.navigateToAlbum(name, albumArtist) }
         )
     }
 

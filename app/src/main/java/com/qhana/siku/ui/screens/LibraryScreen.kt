@@ -67,6 +67,7 @@ import com.qhana.siku.ui.theme.appFastEffectsSpec
 import com.qhana.siku.ui.theme.appFadeThrough
 import com.qhana.siku.ui.theme.appBannerEnter
 import com.qhana.siku.ui.theme.appBannerExit
+import android.app.Activity
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -191,11 +192,16 @@ fun LibraryScreen(
     accountPhotoPath: String? = null,
     accountInitial: String? = null,
     onLogoutClick: () -> Unit,
+    /**
+     * Volver a entrar en la cuenta de nube ya conectada. Lo pide el banner de error cuando el fallo
+     * de sync NO se puede reintentar (ver [LibraryBannerState.Error.requiresReauth]).
+     */
+    onReconnectOneDrive: (Activity) -> Unit,
     onDownloadManagerClick: () -> Unit,
     onPlaylistClick: (Long, String) -> Unit,
     onFavoritesClick: () -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (String, String?) -> Unit,
     onGenreClick: (String) -> Unit,
     /** Estadísticas de escucha; se llega solo desde la tarjeta del inicio. */
     onStatsClick: () -> Unit,
@@ -324,6 +330,25 @@ fun LibraryScreen(
     val homeTabHidden by libraryViewModel.homeTabHidden.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState(pageCount = { pages.size })
 
+    // **El destino ACTIVO de las CUATRO presentaciones del selector se lee de `targetPage`, NUNCA
+    // de `currentPage`** (10 sep 2026, reportado en device en el toolbar de abajo).
+    //
+    // `animateScrollToPage` NO recorre las páginas intermedias: cuando el destino está a más de
+    // `MaxPagesForAnimateScroll` (3) del primero visible, `PagerState` **SALTA** a un viewport del
+    // destino y anima solo ese último tramo. Con 6 pestañas, tocar la última y luego la primera
+    // salta a `targetPage + visiblePages` = **la SEGUNDA**, y ahí `currentPage` vale 1 durante toda
+    // la animación: el indicador se encendía en la segunda pestaña antes de aterrizar en la primera.
+    // Simétrico en el otro sentido (de la primera a la última parpadea la quinta).
+    //
+    // `targetPage` es el destino declarado (`programmaticScrollTargetPage`, que el pager fija ANTES
+    // del salto), así que no puede pasar por ninguna intermedia. Y no cuesta recomposiciones de
+    // más: es un `derivedStateOf` con `structuralEqualityPolicy`, o sea que solo invalida cuando
+    // cambia el ENTERO, aunque por dentro lea `currentPageOffsetFraction`.
+    //
+    // Se lee EN CADA SITIO y no se iza a un `val` aquí arriba a propósito: los cuatro selectores
+    // viven dentro de lambdas de contenido, que son scopes de recomposición propios; subir la
+    // lectura a este cuerpo invalidaría `LibraryScreen` entera en cada cambio de pestaña.
+
     // Ocultar la página activa (o reordenar) deja al pager apuntando a una que ya no existe o que
     // ahora es otra: se lleva el foco a un índice válido en cuanto cambia la lista.
     LaunchedEffect(pages.size) {
@@ -413,7 +438,8 @@ fun LibraryScreen(
 
     // --- CROMO DE NAVEGACIÓN: dónde se dibuja el selector de pestañas ---
     // Las tres presentaciones (fila arriba, barra abajo, rail al lado) son proyecciones del MISMO
-    // `pagerState.currentPage`; esto solo decide cuál se pinta. La regla vive en `libraryChrome` y
+    // destino del pager (`targetPage`, ver la nota junto a `rememberPagerState`); esto solo decide
+    // cuál se pinta. La regla vive en `libraryChrome` y
     // no aquí porque la CAPA del reproductor tiene que leer exactamente la misma para saber cuánto
     // apartarse: dos copias de esta condición serían dos verdades, y la píldora acabaría flotando
     // por encima o por debajo de la barra según qué composición ganara el frame.
@@ -648,7 +674,19 @@ fun LibraryScreen(
             // Del holder y NO de `uiState` directamente: ver [LastBannerContent].
             when (val state = bannerContent.state) {
                 is LibraryBannerState.Error -> {
-                    ErrorBanner(state.message) { libraryViewModel.onRefresh() }
+                    // **El mismo banner con DOS acciones, y la diferencia no es cosmética**: con la
+                    // sesión caducada (contraseña cambiada), "reintentar" vuelve a pedir el token
+                    // en silencio, que es justo lo que acaba de fallar y fallará siempre. Ahí la
+                    // única salida es la pantalla de Microsoft.
+                    if (state.requiresReauth) {
+                        ErrorBanner(
+                            actionText = stringResource(R.string.sync_error_reauth, state.message)
+                        ) { (context as? Activity)?.let(onReconnectOneDrive) }
+                    } else {
+                        ErrorBanner(
+                            actionText = stringResource(R.string.sync_error_retry, state.message)
+                        ) { libraryViewModel.onRefresh() }
+                    }
                 }
                 is LibraryBannerState.Scanning -> {
                     ScanProgressBanner(state.progress, state.message)
@@ -709,6 +747,23 @@ fun LibraryScreen(
         )
     }
 
+    // El chrome es PERSISTENTE: existe antes y después de navegar a un detalle, así que no puede
+    // quedar tapado por la carátula que viaja hasta allá. Un shared element se dibuja en el OVERLAY
+    // del scope, o sea sobre el árbol entero, y desde el árbol no hay z que le gane: la única forma
+    // de ordenarse frente a él es subir al mismo overlay por encima ([CHROME_OVERLAY_Z]).
+    //
+    // Se aplica a TODO el chrome que el contenido cruza por debajo, arriba Y abajo: las tres
+    // presentaciones del selector (son el mismo control en tres sitios) y la cabecera —búsqueda y,
+    // en el modo clásico, la fila de pestañas—. La cabecera se había dejado fuera razonando que
+    // "queda fuera del camino de la portada", y era falso (17 sep 2026, visto en device): un tile
+    // a medio esconder bajo la búsqueda despega ENTERO por encima de ella, y al volver aterriza
+    // tapándola.
+    val chromeOverOverlay = overSharedElementsModifier(
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
+        zIndexInOverlay = CHROME_OVERLAY_Z
+    )
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -741,7 +796,7 @@ fun LibraryScreen(
                 // Aparta la cabecera del rail. Va en el modifier EXTERNO, o sea antes de su
                 // `background`, para que el tinte del bloque empiece donde acaba el rail y no
                 // por debajo de él.
-                modifier = Modifier.padding(start = railInset)
+                modifier = Modifier.padding(start = railInset).then(chromeOverOverlay)
             )
 
             LibrarySearchOverlay(search, searchInputField) {
@@ -1125,11 +1180,14 @@ fun LibraryScreen(
             // HEADER como capa SOBRE el contenido: tabs (+ banner) con fondo opaco. La
             // TopBar la dibuja el Scaffold, también por encima del body y del mismo color.
             Column(
-                modifier = Modifier.padding(
-                    top = topBarInset,
-                    start = railInset,
-                    end = safeEndInset
-                )
+                modifier = Modifier
+                    .padding(
+                        top = topBarInset,
+                        start = railInset,
+                        end = safeEndInset
+                    )
+                    // Chrome como la búsqueda: ver [chromeOverOverlay].
+                    .then(chromeOverOverlay)
             ) {
                 // La fila solo se pinta si el selector vive ARRIBA. Con la barra abajo o el rail
                 // al lado, el bloque de cabecera se queda en la búsqueda y el banner sube a
@@ -1137,7 +1195,7 @@ fun LibraryScreen(
                 if (chrome == LibraryChrome.None) {
                     LibraryTabsRow(
                         pages = pages,
-                        selectedIndex = pagerState.currentPage,
+                        selectedIndex = pagerState.targetPage,
                         onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                         containerColor = headerColor
                     )
@@ -1147,20 +1205,6 @@ fun LibraryScreen(
                 if (!modernNav) syncBannerSlot { bannerHeightPx = it }
             }
 
-            // El selector es chrome PERSISTENTE: existe antes y después de navegar a un detalle,
-            // así que no puede quedar tapado por la carátula que viaja hasta allá. Un shared element
-            // se dibuja en el OVERLAY del scope, o sea sobre el árbol entero, y desde el árbol no
-            // hay z que le gane: la única forma de ordenarse frente a él es subir al mismo overlay
-            // por encima ([CHROME_OVERLAY_Z]). Se aplica a las TRES presentaciones flotantes —son
-            // el mismo control en tres sitios, y arreglar una sola dejaría el bug vivo en las otras
-            // dos según el ajuste que tenga cada usuario. La fila de pestañas de la cabecera no lo
-            // necesita: queda bajo el header, fuera del camino de la portada.
-            val chromeOverOverlay = overSharedElementsModifier(
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                zIndexInOverlay = CHROME_OVERLAY_Z
-            )
-
             // El rail va DESPUÉS de la cabecera, o sea por encima de todo lo demás, y ocupa la
             // columna que `railInset` acaba de dejar libre. Puede llenar la pantalla de alto sin
             // pelearse con la barra de estado por dos motivos: el body del Scaffold llega hasta
@@ -1169,7 +1213,7 @@ fun LibraryScreen(
             if (chrome == LibraryChrome.Rail) {
                 LibraryNavRail(
                     pages = pages,
-                    selectedIndex = pagerState.currentPage,
+                    selectedIndex = pagerState.targetPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                     // `NavigationRailCollapsedTokens.ContainerColor` = `Surface`, o sea el mismo
                     // color que la página: un rail colapsado es parte del borde, no una capa
@@ -1189,7 +1233,7 @@ fun LibraryScreen(
             if (chrome == LibraryChrome.BottomBar) {
                 LibraryBottomToolbar(
                     pages = pages,
-                    selectedIndex = pagerState.currentPage,
+                    selectedIndex = pagerState.targetPage,
                     onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                     // Sin `background`: sus colores son roles tabulados y ya no se derivan de la
                     // página (7 sep 2026, ver `appLibraryToolbarColors`).
@@ -1210,7 +1254,7 @@ fun LibraryScreen(
             if (chrome == LibraryChrome.NavBar) {
                 LibraryNavigationBar(
                     pages = pages,
-                    selectedIndex = pagerState.currentPage,
+                    selectedIndex = pagerState.targetPage,
                     // **`scrollToPage` y no `animateScrollToPage`**, al revés que las otras tres
                     // presentaciones (29 ago 2026, visto en device). Ahí el pager ES el mecanismo y
                     // se puede deslizar con el dedo, así que animar el desplazamiento al tocar es
@@ -1237,11 +1281,9 @@ fun LibraryScreen(
                 onConfirm = { name ->
                     val pendingSong = pendingSongForNewPlaylist
                     val trimmed = name.trim()
-                    libraryViewModel.createPlaylist(trimmed) { id ->
-                        if (pendingSong != null) {
-                            // Venimos de "agregar a lista": la lista nueva nace con la canción.
-                            libraryViewModel.addSongToPlaylist(id, pendingSong)
-                        } else {
+                    // Venimos de "agregar a lista": la lista nueva nace con la canción.
+                    libraryViewModel.createPlaylist(trimmed, listOfNotNull(pendingSong)) { id ->
+                        if (pendingSong == null) {
                             // Venimos de la pestaña Listas: directo al detalle recién creado,
                             // que tiene el botón "añadir canciones" (antes quedaba una lista
                             // vacía sin ningún camino evidente para llenarla).
@@ -1320,7 +1362,7 @@ private fun resumeContext(
     }
     when (ctx) {
         is PlaybackContext.Album -> scope.launch {
-            resumeWith(ctx, browseViewModel.getAlbumSongs(ctx.name).first())
+            resumeWith(ctx, browseViewModel.getAlbumSongs(ctx.name, null).first())
         }
         is PlaybackContext.Artist -> scope.launch {
             resumeWith(ctx, browseViewModel.getArtistSongs(ctx.name).first())
@@ -1662,7 +1704,7 @@ private fun LibraryTabs(
         // se desvanece.
         val pillColor by animateColorAsState(
             // El MISMO rol que el indicador del toolbar, el rail y la barra moderna: son cuatro
-            // proyecciones del mismo `pagerState.currentPage`. Ver `activeDestinationContainer`.
+            // proyecciones del mismo destino del pager. Ver `activeDestinationContainer`.
             targetValue = activeDestinationContainer.copy(alpha = if (selected) 1f else 0f),
             animationSpec = appEffectsSpec(),
             label = "tabPill"
@@ -1898,21 +1940,26 @@ private fun DownloadSummaryBanner(active: Int, completed: Int, total: Int, faile
     }
 }
 
+/**
+ * @param actionText la segunda línea YA COMPUESTA (mensaje + qué hacer al tocar). La compone el
+ *   caller porque la acción depende de si el error se puede reintentar: con la sesión caducada,
+ *   invitar a reintentar sería mandar al usuario a un bucle.
+ */
 @Composable
-private fun ErrorBanner(message: String, onRetry: () -> Unit) {
+private fun ErrorBanner(actionText: String, onClick: () -> Unit) {
     val palette = BannerRed
     BannerCard(
         icon = "error",
         containerColor = palette.container,
         contentColor = palette.onContainer,
-        onClick = onRetry
+        onClick = onClick
     ) {
         Text(
             stringResource(R.string.sync_error),
             style = MaterialTheme.typography.titleSmallEmphasized
         )
         Text(
-            stringResource(R.string.sync_error_retry, message),
+            actionText,
             style = MaterialTheme.typography.bodySmall,
             color = palette.secondary,
             maxLines = 2
@@ -2161,7 +2208,7 @@ private fun SearchResults(
     onCollapseAnd: (() -> Unit) -> Unit,
     onNavigateToNowPlaying: (PlayerArtOrigin) -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit
+    onAlbumClick: (String, String?) -> Unit
 ) {
     if (searchQuery.isBlank()) return
 
@@ -2183,7 +2230,7 @@ private fun SearchResults(
         searchArtists = searchArtists,
         searchAlbums = searchAlbums,
         onSearchArtistClick = { name -> onCollapseAnd { onArtistClick(name) } },
-        onSearchAlbumClick = { name -> onCollapseAnd { onAlbumClick(name) } }
+        onSearchAlbumClick = { name, albumArtist -> onCollapseAnd { onAlbumClick(name, albumArtist) } }
     )
 }
 

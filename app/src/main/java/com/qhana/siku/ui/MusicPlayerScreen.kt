@@ -608,6 +608,13 @@ fun MusicPlayerScreen(
                     authLoading = authLoading,
                     authError = authError,
                     onConnectOneDrive = { activity -> authViewModel.signIn(activity) },
+                    // Conectar una cuenta NUEVA y volver a entrar en la que ya hay son dos APIs
+                    // distintas de MSAL, no la misma con otro nombre: ver `AuthManager.reauthenticate`.
+                    onReconnectOneDrive = { activity ->
+                        authViewModel.reauthenticate(activity) {
+                            syncViewModel.refreshSongs(force = false)
+                        }
+                    },
                     onDisconnectOneDrive = { authViewModel.logout() },
                     onRequestSync = { syncViewModel.refreshSongs(force = false) },
                     playbackViewModel = playbackViewModel,

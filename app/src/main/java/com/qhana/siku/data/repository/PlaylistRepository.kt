@@ -12,6 +12,7 @@ import com.qhana.siku.data.local.SongDao
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -52,6 +53,10 @@ class PlaylistRepository @Inject constructor(
                 dateCreated = System.currentTimeMillis()
             )
         )
+    }
+
+    override suspend fun getPlaylistName(playlistId: Long): String? = withContext(Dispatchers.IO) {
+        playlistDao.getPlaylistById(playlistId)?.name
     }
 
     override suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
@@ -112,13 +117,15 @@ class PlaylistRepository @Inject constructor(
         Unit
     }
 
-    override suspend fun toggleFavorite(songId: String) = withContext(Dispatchers.IO) {
+    override suspend fun toggleFavorite(songId: String): Boolean = withContext(Dispatchers.IO) {
         val playlistId = favoritesPlaylistIdOrCreate()
         if (playlistDao.isSongInPlaylist(playlistId, songId)) {
             playlistDao.removeSongFromPlaylist(playlistId, songId)
+            false
         } else {
             val currentMax = playlistDao.getMaxOrderIndex(playlistId) ?: -1
             playlistDao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId, currentMax + 1))
+            true
         }
     }
 
@@ -133,7 +140,7 @@ class PlaylistRepository @Inject constructor(
             entities.map { it.toSong() }
         }
 
-    override fun getFavoritesPaging(query: String, sortOrder: SortOrder): Flow<PagingData<Song>> {
+    override fun getFavoritesPaging(query: String, sortOrder: SortSpec<SortOrder>): Flow<PagingData<Song>> {
         // sortOrder no se aplica aún en favoritos paging — pendiente si el usuario lo pide.
         return Pager(
             config = PagingConfig(pageSize = 20, enablePlaceholders = true),

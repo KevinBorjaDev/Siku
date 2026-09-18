@@ -55,6 +55,11 @@ class Id3v2TagReader @Inject constructor() : PartialTagReader {
             pos += extendedHeaderBytes(fragment, majorVersion) ?: return null
         }
         val text = HashMap<String, String>()
+        // Los frames que pueden llevar VARIOS valores (ver [decodeValues]) se guardan aparte, en lista.
+        var artistValues: List<String> = emptyList()
+        var albumArtistValues: List<String> = emptyList()
+        var dedicatedArtists: List<String> = emptyList()
+        var dedicatedAlbumArtists: List<String> = emptyList()
         var pictureData: ByteArray? = null
 
         while (pos + frameHeaderBytes <= tagEnd) {
@@ -73,9 +78,17 @@ class Id3v2TagReader @Inject constructor() : PartialTagReader {
 
             when (id) {
                 "TIT2", "TT2" -> text["TITLE"] = decodeText(fragment, bodyStart, size)
-                "TPE1", "TP1" -> text["ARTIST"] = decodeText(fragment, bodyStart, size)
+                "TPE1", "TP1" -> artistValues = decodeValues(fragment, bodyStart, size, majorVersion)
                 "TALB", "TAL" -> text["ALBUM"] = decodeText(fragment, bodyStart, size)
-                "TPE2", "TP2" -> text["ALBUMARTIST"] = decodeText(fragment, bodyStart, size)
+                "TPE2", "TP2" -> albumArtistValues = decodeValues(fragment, bodyStart, size, majorVersion)
+                // Texto libre con descripción: es donde Picard escribe ARTISTS (los créditos uno a uno).
+                "TXXX", "TXX" -> extractUserText(fragment, bodyStart, size)?.let { (description, values) ->
+                    when (description.uppercase()) {
+                        "ARTISTS" -> dedicatedArtists = values
+                        "ALBUMARTISTS", "ALBUM ARTISTS" -> dedicatedAlbumArtists = values
+                        else -> Unit
+                    }
+                }
                 "TCON", "TCO" -> text["GENRE"] = normalizeGenre(decodeText(fragment, bodyStart, size))
                 "TRCK", "TRK" -> text["TRACK"] = decodeText(fragment, bodyStart, size)
                 // El año cambió de frame entre versiones: `TYER` (v2.3, 4 dígitos) y `TDRC`
@@ -97,9 +110,11 @@ class Id3v2TagReader @Inject constructor() : PartialTagReader {
 
         return TagFragment(
             title = text["TITLE"],
-            artist = text["ARTIST"],
+            // Lo que se MUESTRA: todos los intérpretes del frame, no solo el primero.
+            artist = artistValues.takeIf { it.isNotEmpty() }?.joinToString(", "),
             album = text["ALBUM"],
-            albumArtist = text["ALBUMARTIST"],
+            albumArtists = dedicatedAlbumArtists.ifEmpty { albumArtistValues },
+            artists = artistCreditsFrom(dedicatedArtists, artistValues),
             genre = text["GENRE"],
             trackNumber = parseTrackNumber(text["TRACK"]),
             year = parseYear(text["YEAR"]),
@@ -120,6 +135,49 @@ class Id3v2TagReader @Inject constructor() : PartialTagReader {
         if (size <= 1) return ""
         val charset = charsetFor(buf[start].toInt())
         return String(buf, start + 1, size - 1, charset).substringBefore('\u0000').trim()
+    }
+
+    /**
+     * Como [decodeText], pero conservando TODOS los valores del frame.
+     *
+     * **Solo en v2.4**, que es la versión que define el NUL como separador de valores. En v2.3 un NUL
+     * es relleno (muchos taggers lo dejan al final), y su "separador" oficial para intérpretes es la
+     * barra `/` —que parte "AC/DC"—, así que ahí se toma un único valor y partirlo queda en manos del
+     * ajuste de separadores del usuario.
+     *
+     * En UTF-16 cada valor puede traer su propio BOM; el decodificador solo consume el primero, y los
+     * siguientes llegan como U+FEFF dentro del texto — de ahí el `replace`.
+     */
+    private fun decodeValues(buf: ByteArray, start: Int, size: Int, majorVersion: Int): List<String> {
+        if (size <= 1) return emptyList()
+        val raw = String(buf, start + 1, size - 1, charsetFor(buf[start].toInt()))
+        return splitValues(raw, multiValue = majorVersion >= 4)
+    }
+
+    private fun splitValues(raw: String, multiValue: Boolean): List<String> =
+        (if (multiValue) raw.split('\u0000') else listOf(raw.substringBefore('\u0000')))
+            .map { it.replace("\uFEFF", "").trim() }
+            .filter { it.isNotEmpty() }
+
+    /**
+     * `TXXX`: codificación, una descripción terminada en NUL (con el ancho de la codificación) y el
+     * valor, que en v2.4 también puede ser multivalor. `null` si el frame está truncado.
+     */
+    private fun extractUserText(buf: ByteArray, start: Int, size: Int): Pair<String, List<String>>? {
+        val end = start + size
+        if (size <= 1) return null
+        val encoding = buf[start].toInt()
+        val wide = encoding == ENCODING_UTF16_BOM || encoding == ENCODING_UTF16_BE
+        val descriptionStart = start + 1
+        val valueStart = skipPastNul(buf, descriptionStart, end, wide)
+        if (valueStart > end) return null
+        val nulWidth = if (wide) 2 else 1
+        val charset = charsetFor(encoding)
+        val description = String(buf, descriptionStart, (valueStart - nulWidth - descriptionStart).coerceAtLeast(0), charset)
+            .replace("\uFEFF", "").trim()
+        val values = if (valueStart >= end) emptyList()
+        else splitValues(String(buf, valueStart, end - valueStart, charset), multiValue = true)
+        return description to values
     }
 
     private fun charsetFor(encoding: Int) = when (encoding) {

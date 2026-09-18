@@ -30,12 +30,38 @@ class FlacTagReaderTest {
     }
 
     @Test
-    fun `claves case-insensitive y primera gana`() {
+    fun `claves case-insensitive y ARTIST repetido son varios interpretes`() {
         val flac = buildFlac(
             streamInfo = streamInfo(44100, 0),
             comments = listOf("artist=Primero", "ARTIST=Segundo")
         )
-        assertEquals("Primero", reader.read(flac)!!.artist)
+        val tags = reader.read(flac)!!
+        assertEquals("Primero, Segundo", tags.artist)
+        assertEquals(listOf("Primero", "Segundo"), tags.artists)
+    }
+
+    @Test
+    fun `ARTISTS de Picard manda sobre ARTIST y un solo ARTIST no es multivalor`() {
+        val conPicard = buildFlac(
+            streamInfo = streamInfo(44100, 0),
+            comments = listOf("ARTIST=A feat. B", "ARTISTS=A", "ARTISTS=B", "ALBUMARTIST=A")
+        )
+        val tags = reader.read(conPicard)!!
+        assertEquals("A feat. B", tags.artist)
+        assertEquals(listOf("A", "B"), tags.artists)
+        assertEquals(listOf("A"), tags.albumArtists)
+
+        val simple = buildFlac(streamInfo = streamInfo(44100, 0), comments = listOf("ARTIST=Solo"))
+        assertEquals(emptyList<String>(), reader.read(simple)!!.artists)
+    }
+
+    @Test
+    fun `ALBUM ARTIST con espacio de foobar tambien cuenta`() {
+        val flac = buildFlac(
+            streamInfo = streamInfo(44100, 0),
+            comments = listOf("ARTIST=X", "ALBUM ARTIST=Varios")
+        )
+        assertEquals(listOf("Varios"), reader.read(flac)!!.albumArtists)
     }
 
     @Test

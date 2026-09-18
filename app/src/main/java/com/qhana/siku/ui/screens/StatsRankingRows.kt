@@ -48,13 +48,9 @@ import com.qhana.siku.ui.components.ArtCarouselCard
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.SongItem
 import com.qhana.siku.ui.components.SongRowContainer
-import com.qhana.siku.ui.components.rememberActiveRowContentColor
 import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.components.rememberRowAccentColor
-import com.qhana.siku.ui.components.rememberTonalLayerColors
-import com.qhana.siku.ui.components.TONAL_LAYER_DELTA
 import com.qhana.siku.ui.components.songRowBackground
-import com.qhana.siku.ui.components.tonalLayerContainer
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 
@@ -81,6 +77,21 @@ import com.qhana.siku.ui.theme.AppSurface
  * las carátulas dejarían de estar alineadas justo en la última.
  */
 private val RankNumberWidth = 24.dp
+
+/**
+ * Aire entre el número y la carátula, y por qué existe la constante.
+ *
+ * El número quedaba pegado al borde de la fila con todo el aire a su derecha (device, 16 sep 2026).
+ * La causa era ESTRUCTURAL: iba en una columna hermana del `ListItem` de [SongItem], o sea por fuera
+ * del margen de contenido que ese componente aplica por dentro. Ahora viaja en su slot leading, así
+ * que **el margen izquierdo lo pone el propio `ListItem`** y aquí solo queda igualarlo por el otro
+ * lado — que es lo que deja el número centrado en su hueco.
+ *
+ * Se repone a mano el valor, no el criterio: `ListItemStartPadding` es `internal` en M3, así que
+ * copiarlo para compensar por fuera habría quedado desincronizado en silencio si cambiara. Como gap
+ * entre dos piezas de contenido, un desajuste solo correría el número unos dp.
+ */
+private val RankNumberGap = 16.dp
 
 /**
  * Lado de la tarjeta de un carrusel: **132dp, no los 196 del inicio**.
@@ -130,45 +141,38 @@ internal fun LazyListScope.songRankingRows(
                 shape = rememberListItemShape(index, songs.size, isActive = isPlaying),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // El número va FUERA de `SongItem` y no como un slot suyo: ese componente lo
-                // comparten media docena de pantallas y ninguna otra numera sus filas. El
-                // `clickable` envuelve la fila ENTERA para que tocar el número también reproduzca.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                // El número va por el slot LEADING de [SongItem], delante de la carátula, y no en
+                // una columna hermana cosida por fuera: así su margen de inicio lo pone el
+                // `ListItem` que hay dentro, que es quien sabe cuánto mide (ver [RankNumberGap]).
+                // Lo que se le pasa a ese componente compartido es una POSICIÓN, no el concepto de
+                // ranking — el slot es genérico y simétrico a `trailingContent`, que esta misma
+                // fila ya usaba.
+                //
+                // El `clickable` va en la fila ENTERA para que tocar el número también reproduzca.
+                SongItem(
+                    song = entry.song,
+                    isPlaying = isPlaying,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onPlay(songs.map { it.song }, index) }
-                ) {
-                    RankNumber(position = index + 1, rowBackground = rowBackground)
-                    SongItem(
-                        song = entry.song,
-                        isPlaying = isPlaying,
-                        modifier = Modifier.weight(1f),
-                        // **Sin indicador de origen** (device, 30 ago 2026). Ese icono dice si la
-                        // canción está en el dispositivo, descargada o en streaming, y es útil en la
-                        // biblioteca —donde se decide qué reproducir sin datos— pero aquí no: esto
-                        // es un resumen de lo que YA se escuchó, y de dónde salieron los bytes no
-                        // cambia nada de lo que la pantalla cuenta. En una biblioteca de pura nube
-                        // además sale el mismo glifo en las diez filas, o sea una columna que no
-                        // distingue nada mientras roba ancho al título.
-                        showStatusIcon = false,
-                        trailingContent = {
-                            PlaysBadge(
-                                plays = entry.plays,
-                                background = rowBackground,
-                                style = MaterialTheme.typography.labelLarge,
-                                // En la fila que suena manda el color derivado del relleno de
-                                // acento; en una normal, el par tonal de siempre.
-                                // `rememberActiveRowContentColor` devuelve `Unspecified` fuera de
-                                // ese caso, que es justo lo que `contentOverride` espera.
-                                contentOverride = rememberActiveRowContentColor(
-                                    rowBackground,
-                                    isPlaying
-                                )
-                            )
-                        }
-                    )
-                }
+                        .clickable { onPlay(songs.map { it.song }, index) },
+                    // **Sin indicador de origen** (device, 30 ago 2026). Ese icono dice si la
+                    // canción está en el dispositivo, descargada o en streaming, y es útil en la
+                    // biblioteca —donde se decide qué reproducir sin datos— pero aquí no: esto
+                    // es un resumen de lo que YA se escuchó, y de dónde salieron los bytes no
+                    // cambia nada de lo que la pantalla cuenta. En una biblioteca de pura nube
+                    // además sale el mismo glifo en las diez filas, o sea una columna que no
+                    // distingue nada mientras roba ancho al título.
+                    showStatusIcon = false,
+                    leadingContent = {
+                        RankNumber(position = index + 1, rowBackground = rowBackground)
+                    },
+                    trailingContent = {
+                        PlaysBadge(
+                            plays = entry.plays,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                )
             }
         }
     }
@@ -190,7 +194,12 @@ private fun RankNumber(position: Int, rowBackground: Color) {
         color = if (position <= RANK_ACCENT_POSITIONS) accent else AppColors.onSurfaceVariant,
         textAlign = TextAlign.Center,
         maxLines = 1,
-        modifier = Modifier.width(RankNumberWidth)
+        // El padding va FUERA del ancho: el número sigue midiendo [RankNumberWidth] —que es lo que
+        // mantiene las carátulas alineadas entre una fila de una cifra y otra de dos— y el gap se
+        // suma por detrás. Al revés, el aire se comería la columna.
+        modifier = Modifier
+            .padding(end = RankNumberGap)
+            .width(RankNumberWidth)
     )
 }
 
@@ -233,14 +242,14 @@ private const val RANK_ACCENT_POSITIONS = 3
 internal fun RankCarousel(
     entries: List<StatsNameEntry>,
     fallbackIcon: String,
-    onClick: (String) -> Unit
+    onClick: (StatsNameEntry) -> Unit
 ) {
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(CarouselSpacing),
         contentPadding = PaddingValues(horizontal = 16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        items(items = entries, key = { entry -> entry.name }) { entry ->
+        items(items = entries, key = { entry -> entry.key }) { entry ->
             ArtCarouselCard(
                 art = entry.artUri,
                 title = entry.name,
@@ -253,15 +262,15 @@ internal fun RankCarousel(
                     entry.plays
                 ),
                 placeholderIcon = fallbackIcon,
-                onClick = { onClick(entry.name) },
+                onClick = { onClick(entry) },
                 modifier = Modifier
                     // Con `key` puesta, la convención de la app es acompañarla de `animateItem`:
                     // cambiar de periodo reordena el ranking entero, que es justo lo que este
                     // modificador existe para que no salte de golpe.
                     .animateItem()
                     .size(CarouselCardSize)
-                    // La tarjeta se recorta a sí misma: aquí no hay `maskClip` de carrusel que se lo
-                    // haga, al revés que en el inicio.
+                    // La tarjeta se recorta a sí misma, igual que en los carruseles del inicio: ni
+                    // este `LazyRow` ni `KeylineCarousel` enmascaran nada desde fuera.
                     .clip(CarouselCardShape)
             )
         }
@@ -326,16 +335,19 @@ private fun GenreShareRow(
         // y `fillMaxWidth` no pueden gobernar la misma medida. Dibujándolo, el relleno no participa
         // en el layout — que es justo lo que es: pintura detrás del texto.
         //
-        // **Se DERIVA del fondo de la fila y no es `secondaryContainer` crudo** (device, 30 ago
-        // 2026: *"no tiene contraste"*). Aquí el texto cruza la frontera del relleno —el nombre
-        // empieza dentro y el conteo suele caer fuera—, así que hay DOS fondos bajo una sola tinta y
-        // ningún rol puede prometer contraste con los dos: la distancia entre `contentSurface` y
-        // `secondaryContainer` la decide el estilo de paleta y con un estilo vívido son treinta
-        // puntos de tono. Con `tonalLayerContainer` el relleno queda a [TONAL_LAYER_DELTA] del fondo
-        // real, hereda su hue y su croma, y esa distancia es la misma en cualquier paleta y en los
-        // dos temas — que es lo que permite teñir la barra sin partir la legibilidad del texto.
-        // Misma regla que el resaltado de la fila que suena.
-        val fillColor = tonalLayerContainer(AppColors.contentSurface, AppColors.secondaryContainer)
+        // **`secondaryContainer` CRUDO**, el mismo relleno que la fila que suena: las dos son "esta
+        // fila está marcada", una por estado y otra por magnitud.
+        //
+        // El texto cruza la frontera del relleno —el nombre empieza dentro y el porcentaje suele
+        // caer fuera—, así que la tinta tiene que leerse sobre DOS fondos. Medido sobre los cuatro
+        // esquemas y los dos temas: `onSurface` da **7,02:1 en el peor caso** sobre el relleno y
+        // 12,6 fuera, contra el 4,5 que pide un texto.
+        //
+        // **Estuvo DERIVADO** con `tonalLayerContainer` (device, 30 ago 2026: *"no tiene
+        // contraste"*), y era correcto entonces: las filas vivían en `surfaceContainerHigh` y la
+        // distancia hasta `secondaryContainer` la decidía el estilo de paleta. Al bajar las filas un
+        // escalón (11 sep, ver `songRowBackground`) el par tabulado ya se apoya.
+        val fillColor = AppColors.secondaryContainer
         val fraction = share.coerceIn(0f, 1f)
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -355,13 +367,11 @@ private fun GenreShareRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            // La misma píldora que en las canciones y los carruseles, con su propia separación:
-            // ver [GenreBadgeDelta].
+            // La misma píldora que en las filas de canción, y ahora también el mismo color: el par
+            // lleno se ve igual sobre el relleno de la barra que sobre el hueco.
             PlaysBadge(
                 plays = entry.plays,
-                background = AppColors.contentSurface,
-                style = MaterialTheme.typography.labelMedium,
-                delta = GenreBadgeDelta
+                style = MaterialTheme.typography.labelMedium
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
@@ -459,25 +469,33 @@ private const val PLAYS_GLYPH_BUMP = 1f
  * La píldora resuelve las dos a la vez: es una superficie con su par contenedor/contenido, así que
  * el contraste está garantizado por construcción y el conjunto se lee como una unidad.
  *
- * @param background el fondo REAL sobre el que cae, del que se deriva la píldora. No es un rol fijo
- *   porque los tres sitios tienen fondos distintos — y en la fila que suena, además, cambia.
- * @param delta cuánto se separa del fondo. Lo elige el caller: ver [GenreBadgeDelta].
- * @param contentOverride color de contenido impuesto. Solo la fila que SUENA lo usa, para ir en el
- *   `on-` del relleno de acento; `Unspecified` deja el par tonal de siempre.
+ * **El color es el par lleno `secondary`/`onSecondary`, y no se deriva del fondo** (12 sep 2026).
+ *
+ * La píldora cae sobre DOS fondos y tiene que verse en los dos: en el ranking, `surfaceContainer` en
+ * una fila normal y `secondaryContainer` en la que suena; en la fila de género, el hueco y el relleno
+ * de la barra de proporción, que son esos mismos dos roles. Medido sobre los cuatro esquemas y los
+ * dos temas, **la familia neutra entera está apilada en esa banda** —`surfaceContainerHighest` cae
+ * en T90, exactamente donde `secondaryContainer`— así que ningún contenedor de superficie se separa
+ * de ambos. Los únicos que lo consiguen son los de ACENTO, y de ellos `secondary` es el
+ * subordinado: `primary` es el color de la acción en toda la app y aquí esto es un dato. Peor caso
+ * medido: 37 puntos de tono.
+ *
+ * Estuvo DERIVADO con `rememberTonalLayerColors` desde el fondo real, con un delta por caller. Eso
+ * resolvía el contraste pero dejaba la píldora a un escalón del fondo: **es un dato dentro de una
+ * fila, no una capa apoyada en ella**, y el par lleno lo dice mejor.
+ *
+ * Con un par tabulado desaparecen los tres parámetros que hacían falta para derivar: el fondo, el
+ * delta y el `contentOverride` con el que la fila que suena reponía su contenido.
  */
 @Composable
 private fun PlaysBadge(
     plays: Int,
-    background: Color,
     style: TextStyle,
-    modifier: Modifier = Modifier,
-    delta: Double = TONAL_LAYER_DELTA,
-    contentOverride: Color = Color.Unspecified
+    modifier: Modifier = Modifier
 ) {
-    val colors = rememberTonalLayerColors(background = background, delta = delta)
     Box(
         modifier = modifier
-            .background(colors.container, CircleShape)
+            .background(AppColors.secondary, CircleShape)
             // Horizontal más justo que los 10dp de una píldora de texto: el glifo ya da presencia, y
             // con más aire el conjunto le quitaba al título el ancho que ganó al retirarse el
             // indicador de origen.
@@ -486,24 +504,10 @@ private fun PlaysBadge(
     ) {
         PlaysLabel(
             plays = plays,
-            color = if (contentOverride.isSpecified) contentOverride else colors.content,
+            color = AppColors.onSecondary,
             style = style,
             glyphSize = (style.fontSize.value + PLAYS_GLYPH_BUMP).sp
         )
     }
 }
 
-/**
- * Cuánto se separa del fondo la píldora de una fila de GÉNERO: el doble que las demás.
- *
- * Es el único sitio donde la píldora cae sobre DOS fondos —el relleno de proporción y el hueco que
- * queda a su derecha—, y el relleno ya está a [TONAL_LAYER_DELTA] del mismo fondo y en la misma
- * dirección. Con el delta normal la píldora aterrizaría exactamente en el color del relleno y
- * desaparecería sobre él; al doble queda a esa misma distancia del relleno que el relleno del fondo,
- * así que se ve sobre los dos.
- *
- * No es encadenar dos derivaciones —lo que el KDoc de `rememberTonalLayerColors` desaconseja— sino
- * dos saltos distintos desde el MISMO fondo: la dirección la decide una sola vez y no puede
- * invertirse a mitad.
- */
-private const val GenreBadgeDelta = TONAL_LAYER_DELTA * 2

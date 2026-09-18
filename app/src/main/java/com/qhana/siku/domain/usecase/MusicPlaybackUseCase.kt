@@ -6,6 +6,7 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.repository.IMusicRepository
 import com.qhana.siku.player.MusicController
 import com.qhana.siku.player.PlaybackCoordinator
@@ -54,7 +55,7 @@ class MusicPlaybackUseCase @Inject constructor(
         clickedSong: Song,
         filter: SongFilter,
         query: String,
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter> = emptySet()
     ): PlayResult {
         // UI optimista en el frame del tap, antes de la consulta (lenta a propósito, ver abajo) y

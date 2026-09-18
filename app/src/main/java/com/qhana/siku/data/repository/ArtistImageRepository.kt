@@ -105,7 +105,10 @@ class ArtistImageRepository @Inject constructor(
     suspend fun ensureArtistImage(artistName: String) {
         // El placeholder de "sin tag de artista" NO es un artista: buscarlo en Deezer
         // devuelve un primer match arbitrario que quedaba persistido como su foto.
+        // "Various Artists" tampoco: es el artista de una recopilación, no alguien con cara. El mismo
+        // criterio va en el SQL de pendientes (`ArtistDao`) — si uno cambia, cambia el otro.
         if (artistName.isBlank() || artistName == AppConfig.UNKNOWN_ARTIST) return
+        if (AppConfig.isVariousArtists(artistName)) return
         if (!attemptedThisSession.add(artistName)) return
 
         val existing = artistDao.getArtist(artistName)
@@ -229,7 +232,8 @@ class ArtistImageRepository @Inject constructor(
             now = System.currentTimeMillis(),
             baseTtlMs = NOT_FOUND_BASE_TTL_MS,
             maxBackoffShift = MAX_BACKOFF_SHIFT,
-            unknownArtist = AppConfig.UNKNOWN_ARTIST
+            unknownArtist = AppConfig.UNKNOWN_ARTIST,
+            variousArtists = AppConfig.VARIOUS_ARTISTS_NAMES
         )
         if (pending.isEmpty()) {
             _meteredBackfillPending.value = false
@@ -265,7 +269,7 @@ class ArtistImageRepository @Inject constructor(
      */
     private suspend fun shouldOfferMeteredBackfill(): Boolean {
         if (meteredBannerDismissed || !musicPreferences.loadArtistPhotosBannerEnabled()) return false
-        return artistDao.countArtistsNeverAttempted(AppConfig.UNKNOWN_ARTIST) > 0
+        return artistDao.countArtistsNeverAttempted(AppConfig.UNKNOWN_ARTIST, AppConfig.VARIOUS_ARTISTS_NAMES) > 0
     }
 
     /** "Descargar" del banner: habilita la red medida para esta sesión y corre el backfill. */

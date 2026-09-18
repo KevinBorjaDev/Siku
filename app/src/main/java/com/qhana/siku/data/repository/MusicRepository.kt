@@ -6,6 +6,7 @@ import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import androidx.paging.PagingData
 import kotlinx.coroutines.flow.Flow
@@ -25,7 +26,7 @@ class MusicRepository @Inject constructor(
     // --- Song ---
     override fun getSongsPaging(
         query: String,
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter>,
         approximateIds: List<String>
     ): Flow<PagingData<Song>> =
@@ -34,7 +35,7 @@ class MusicRepository @Inject constructor(
         songRepository.findApproximateSongIds(query)
     override suspend fun countSongsMatching(query: String, sourceFilters: Set<SongSourceFilter>): Int =
         songRepository.countSongsMatching(query, sourceFilters)
-    override suspend fun getSongsSnapshot(query: String, sortOrder: SortOrder, sourceFilters: Set<SongSourceFilter>): List<Song> =
+    override suspend fun getSongsSnapshot(query: String, sortOrder: SortSpec<SortOrder>, sourceFilters: Set<SongSourceFilter>): List<Song> =
         songRepository.getSongsSnapshot(query, sortOrder, sourceFilters)
     override fun getRecentlyPlayed(limit: Int): Flow<List<Song>> = songRepository.getRecentlyPlayed(limit)
     override fun getRecentlyAdded(limit: Int): Flow<List<Song>> = songRepository.getRecentlyAdded(limit)
@@ -95,12 +96,18 @@ class MusicRepository @Inject constructor(
     override suspend fun getSongsNeedingLightMetadata(): List<Song> = songRepository.getSongsNeedingLightMetadata()
     override suspend fun updateLightMetadata(
         songId: String, title: String, artist: String, album: String, genre: String?,
-        trackNumber: Int, year: Int, durationMs: Long
+        trackNumber: Int, year: Int, durationMs: Long, albumArtist: String, artistCredits: String?
     ) = songRepository.updateLightMetadata(
-        songId, title, artist, album, genre, trackNumber, year, durationMs
+        songId, title, artist, album, genre, trackNumber, year, durationMs, albumArtist, artistCredits
     )
-    override suspend fun getAlbumArtUri(album: String): String? = songRepository.getAlbumArtUri(album)
-    override suspend fun setAlbumArt(album: String, uri: String) = songRepository.setAlbumArt(album, uri)
+    override suspend fun getSongsNeedingArtistTags(localOnly: Boolean): List<Song> =
+        songRepository.getSongsNeedingArtistTags(localOnly)
+    override suspend fun updateArtistTags(songId: String, albumArtist: String, artistCredits: String?) =
+        songRepository.updateArtistTags(songId, albumArtist, artistCredits)
+    override suspend fun getAlbumArtUri(album: String, albumArtist: String): String? =
+        songRepository.getAlbumArtUri(album, albumArtist)
+    override suspend fun setAlbumArt(album: String, albumArtist: String, uri: String) =
+        songRepository.setAlbumArt(album, albumArtist, uri)
     override suspend fun updateAlbumArtUri(songId: String, uri: String?) = songRepository.updateAlbumArtUri(songId, uri)
     override suspend fun getSongsWithLocalArt(): List<Song> = songRepository.getSongsWithLocalArt()
     override suspend fun getSongsWithPendingArtwork(localOnly: Boolean): List<Song> =
@@ -126,6 +133,7 @@ class MusicRepository @Inject constructor(
     override fun getUserPlaylists(): Flow<List<Playlist>> = playlistRepository.getUserPlaylists()
     override fun getPlaylistsCoverMeta(): Flow<Map<Long, PlaylistCoverMeta>> = playlistRepository.getPlaylistsCoverMeta()
     override suspend fun createPlaylist(name: String): Long = playlistRepository.createPlaylist(name)
+    override suspend fun getPlaylistName(playlistId: Long): String? = playlistRepository.getPlaylistName(playlistId)
     override suspend fun deletePlaylist(playlistId: Long) = playlistRepository.deletePlaylist(playlistId)
     override suspend fun renamePlaylist(playlistId: Long, name: String) = playlistRepository.renamePlaylist(playlistId, name)
     override suspend fun addSongToPlaylist(playlistId: Long, songId: String) = playlistRepository.addSongToPlaylist(playlistId, songId)
@@ -134,11 +142,11 @@ class MusicRepository @Inject constructor(
     override fun getSongsForPlaylist(playlistId: Long): Flow<List<Song>> = playlistRepository.getSongsForPlaylist(playlistId)
     override suspend fun reorderPlaylistSongs(playlistId: Long, songIds: List<String>) = playlistRepository.reorderPlaylistSongs(playlistId, songIds)
     override suspend fun ensureFavoritesPlaylist() = playlistRepository.ensureFavoritesPlaylist()
-    override suspend fun toggleFavorite(songId: String) = playlistRepository.toggleFavorite(songId)
+    override suspend fun toggleFavorite(songId: String): Boolean = playlistRepository.toggleFavorite(songId)
     override suspend fun addSongsToFavorites(songIds: List<String>): Int = playlistRepository.addSongsToFavorites(songIds)
     override fun getFavoritesIds(): Flow<Set<String>> = playlistRepository.getFavoritesIds()
     override fun getFavoritesSongs(): Flow<List<Song>> = playlistRepository.getFavoritesSongs()
-    override fun getFavoritesPaging(query: String, sortOrder: SortOrder): Flow<PagingData<Song>> = playlistRepository.getFavoritesPaging(query, sortOrder)
+    override fun getFavoritesPaging(query: String, sortOrder: SortSpec<SortOrder>): Flow<PagingData<Song>> = playlistRepository.getFavoritesPaging(query, sortOrder)
     override suspend fun getFavoritesSnapshot(query: String): List<Song> = playlistRepository.getFavoritesSnapshot(query)
     override suspend fun deleteAllPlaylists() = playlistRepository.deleteAllPlaylists()
 

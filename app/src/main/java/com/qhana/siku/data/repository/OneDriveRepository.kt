@@ -303,6 +303,8 @@ class OneDriveRepository @Inject constructor(
                 artist = analysis.artist ?: song.artist,
                 album = analysis.album ?: song.album,
                 genre = analysis.genre ?: song.genre,
+                albumArtist = analysis.albumArtist ?: song.albumArtist,
+                artistCredits = if (analysis.albumArtist != null) analysis.artistCredits else song.artistCredits,
                 trackNumber = analysis.trackNumber.takeIf { it > 0 } ?: song.trackNumber,
                 year = analysis.year.takeIf { it > 0 } ?: song.year,
                 duration = if (song.duration == 0L) analysis.duration else song.duration,

@@ -9,10 +9,15 @@ import com.qhana.siku.data.local.AlbumSummary
 import com.qhana.siku.data.local.ArtistEntity
 import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.local.GenreSummary
+import com.qhana.siku.data.model.AlbumColors
 import com.qhana.siku.data.model.AlbumSortOrder
+import com.qhana.siku.data.model.ArtistCreditRole
 import com.qhana.siku.data.model.ArtistSortOrder
+import com.qhana.siku.data.model.ArtistSplitConfig
+import com.qhana.siku.data.model.DetailSongSort
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.preferences.MusicPreferences
 import com.qhana.siku.data.repository.ArtistImageRepository
 import com.qhana.siku.data.repository.ArtworkRepository
@@ -103,19 +108,38 @@ class BrowseViewModel @Inject constructor(
     // --- Orden de las pestañas de browse (persistido, como el de canciones) ---
 
     private val _artistSortOrder = MutableStateFlow(musicPreferences.loadArtistSortOrder())
-    val artistSortOrder: StateFlow<ArtistSortOrder> = _artistSortOrder.asStateFlow()
+    val artistSortOrder: StateFlow<SortSpec<ArtistSortOrder>> = _artistSortOrder.asStateFlow()
 
-    fun setArtistSortOrder(order: ArtistSortOrder) {
+    fun setArtistSortOrder(order: SortSpec<ArtistSortOrder>) {
         musicPreferences.saveArtistSortOrder(order)
         _artistSortOrder.value = order
     }
 
     private val _albumSortOrder = MutableStateFlow(musicPreferences.loadAlbumSortOrder())
-    val albumSortOrder: StateFlow<AlbumSortOrder> = _albumSortOrder.asStateFlow()
+    val albumSortOrder: StateFlow<SortSpec<AlbumSortOrder>> = _albumSortOrder.asStateFlow()
 
-    fun setAlbumSortOrder(order: AlbumSortOrder) {
+    fun setAlbumSortOrder(order: SortSpec<AlbumSortOrder>) {
         musicPreferences.saveAlbumSortOrder(order)
         _albumSortOrder.value = order
+    }
+
+    // --- Orden de las canciones DENTRO de un detalle (artista/álbum/género) ---
+
+    /**
+     * El criterio del chip de orden de las tres pantallas de detalle. **Es uno solo y persistido**:
+     * ver [DetailSongSort] y `MusicPreferences.saveDetailSongSort`.
+     *
+     * Vive aquí y no en cada pantalla porque las tres lo comparten y este ViewModel es el que ya
+     * sirve sus listas. Que se resuelva por `NavBackStackEntry` (convención 9) no rompe nada: el
+     * valor arranca leyéndose del disco, así que una instancia nueva nace con el que dejó la
+     * anterior.
+     */
+    private val _detailSongSort = MutableStateFlow(musicPreferences.loadDetailSongSort())
+    val detailSongSort: StateFlow<SortSpec<DetailSongSort>> = _detailSongSort.asStateFlow()
+
+    fun setDetailSongSort(order: SortSpec<DetailSongSort>) {
+        musicPreferences.saveDetailSongSort(order)
+        _detailSongSort.value = order
     }
 
     // --- Filtros de origen de las pestañas Artistas/Álbumes (unión, igual que en Todas) ---
@@ -191,6 +215,30 @@ class BrowseViewModel @Inject constructor(
         }
     }
 
+    // --- Agrupación de artistas (v29) ---
+
+    /**
+     * Con qué rol se agrupan los artistas: el de la pista o el del álbum. Preferencia VIVA —se lee
+     * en cada emisión—, y compartida por la pestaña, los detalles y las estadísticas de un artista:
+     * si no la siguieran todos, el número de la tarjeta dejaría de ser el de la lista que se abre.
+     *
+     * Va declarada ANTES que [artists], que la combina: las propiedades se inicializan en orden, y
+     * leerla desde una declarada antes sería leer `null`.
+     */
+    val artistCreditRole: StateFlow<ArtistCreditRole> = musicPreferences.artistCreditRoleFlow
+        .stateIn(viewModelScope, WhileUiSubscribed, musicPreferences.loadArtistCreditRole())
+
+    fun setArtistCreditRole(role: ArtistCreditRole) = musicPreferences.saveArtistCreditRole(role)
+
+    /**
+     * La separación de colaboraciones. Guardarla basta: el re-cálculo de la biblioteca lo dispara
+     * `ArtistCreditIndexer`, que observa la preferencia — no esta pantalla.
+     */
+    val artistSplitConfig: StateFlow<ArtistSplitConfig> = musicPreferences.artistSplitConfigFlow
+        .stateIn(viewModelScope, WhileUiSubscribed, musicPreferences.loadArtistSplitConfig())
+
+    fun setArtistSplitConfig(config: ArtistSplitConfig) = musicPreferences.saveArtistSplitConfig(config)
+
     // distinctUntilChanged: Room re-emite en CADA invalidación de las tablas del SQL aunque
     // el resultado sea idéntico. En Artistas eso pasa constantemente durante el fetch Deezer:
     // cada not-found persiste su intento en `artists` → requery → lista IGUAL (thumbUrl sigue
@@ -201,8 +249,10 @@ class BrowseViewModel @Inject constructor(
     // RESULTADO repetido, pero la consulta —un GROUP BY sobre la tabla entera— ya se ejecutó. Son
     // las dos agregaciones más caras de la app y la biblioteca las tiene colectadas siempre.
     val artists: StateFlow<List<ArtistSummary>> =
-        combine(_artistSortOrder, _artistSourceFilters) { sort, filters -> sort to filters }
-            .flatMapLatest { (sort, filters) -> browseRepository.getArtists(sort, filters) }
+        combine(_artistSortOrder, _artistSourceFilters, artistCreditRole) { sort, filters, role ->
+            Triple(sort, filters, role)
+        }
+            .flatMapLatest { (sort, filters, role) -> browseRepository.getArtists(sort, role, filters) }
             .sampledDuringSync(libraryIsSettling)
             .distinctUntilChanged()
             .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
@@ -249,9 +299,26 @@ class BrowseViewModel @Inject constructor(
             .distinctUntilChanged()
             .stateIn(viewModelScope, WhileUiSubscribed, emptyList())
 
-    /** Canciones de un género para su detalle; sigue en vivo el ajuste de coincidencia parcial. */
+    /**
+     * Canciones de un género en el orden del CATÁLOGO (título), siguiendo en vivo el ajuste de
+     * coincidencia parcial. Es lo que se REPRODUCE desde una tarjeta de género o al restaurar el
+     * contexto de "seguir escuchando"; para la lista del detalle está [getGenreDetailSongs].
+     *
+     * **La separación entre estos dos pares es la regla de esta pantalla**: el chip gobierna la
+     * lista que se VE —y, por tanto, lo que suena al tocar una fila de ella— y no la reproducción
+     * que arranca desde otro sitio. Quien toca el ▶ de una tarjeta no ha visto ningún chip.
+     */
     fun getGenreSongs(genre: String): Flow<List<Song>> =
-        genrePartialMatch.flatMapLatest { partial -> browseRepository.getSongsByGenre(genre, partial) }
+        genrePartialMatch.flatMapLatest { partial ->
+            browseRepository.getSongsByGenre(genre, partial, DetailSongSort.DEFAULT)
+        }
+
+    /** Canciones de un género para su detalle: coincidencia parcial Y chip de orden, en vivo. */
+    fun getGenreDetailSongs(genre: String): Flow<List<Song>> =
+        combine(genrePartialMatch, _detailSongSort) { partial, sort -> partial to sort }
+            .flatMapLatest { (partial, sort) ->
+                browseRepository.getSongsByGenre(genre, partial, sort)
+            }
 
     /** Álbumes de un género para la vista "Álbumes" de su detalle; mismo ajuste en vivo que [getGenreSongs]. */
     fun getGenreAlbums(genre: String): Flow<List<AlbumSummary>> =
@@ -259,14 +326,39 @@ class BrowseViewModel @Inject constructor(
 
     // --- Detalle (coleccionar con collectAsStateWithLifecycle en la pantalla) ---
 
-    fun getArtistSongs(artist: String): Flow<List<Song>> = browseRepository.getSongsByArtist(artist)
+    /**
+     * Canciones de un artista en el orden del CATÁLOGO (álbum + pista). Ver [getGenreSongs] para la
+     * regla; para la lista de su detalle está [getArtistDetailSongs].
+     */
+    fun getArtistSongs(artist: String): Flow<List<Song>> =
+        artistCreditRole.flatMapLatest { role ->
+            browseRepository.getSongsByArtist(artist, role, DetailSongSort.DEFAULT)
+        }
+
+    /** Canciones de un artista para su detalle, siguiendo en vivo el chip de orden y la agrupación. */
+    fun getArtistDetailSongs(artist: String): Flow<List<Song>> =
+        combine(artistCreditRole, _detailSongSort) { role, sort -> role to sort }
+            .flatMapLatest { (role, sort) -> browseRepository.getSongsByArtist(artist, role, sort) }
 
     fun getArtistAlbums(artist: String): Flow<List<AlbumSummary>> =
-        browseRepository.getAlbumsByArtist(artist)
+        artistCreditRole.flatMapLatest { role -> browseRepository.getAlbumsByArtist(artist, role) }
 
     fun getArtistInfo(artist: String): Flow<ArtistEntity?> = browseRepository.getArtistInfo(artist)
 
-    fun getAlbumSongs(album: String): Flow<List<Song>> = browseRepository.getSongsByAlbum(album)
+    /**
+     * Canciones de un álbum en el orden del CATÁLOGO (número de pista). Es lo que suena al tocar el
+     * ▶ de una tarjeta de álbum, esté donde esté. Ver [getGenreSongs] para la regla.
+     */
+    fun getAlbumSongs(album: String, albumArtist: String?): Flow<List<Song>> =
+        browseRepository.getSongsByAlbum(album, albumArtist, DetailSongSort.DEFAULT)
+
+    /**
+     * Canciones de un álbum para su detalle, siguiendo en vivo el chip de orden. [albumArtist] es la
+     * segunda mitad de su identidad (`AlbumSummary.albumArtist`); `null` si quien navega solo sabe el
+     * nombre.
+     */
+    fun getAlbumDetailSongs(album: String, albumArtist: String?): Flow<List<Song>> =
+        _detailSongSort.flatMapLatest { sort -> browseRepository.getSongsByAlbum(album, albumArtist, sort) }
 
     // --- Seed del tema local del detalle de artista ---
 
@@ -279,8 +371,8 @@ class BrowseViewModel @Inject constructor(
      * Es un `StateFlow` y no un valor porque la foto puede **llegar tarde**: la baja el backfill de
      * Deezer y puede aparecer con la pantalla ya abierta.
      */
-    private val _artistSeed = MutableStateFlow<Int?>(null)
-    val artistSeed: StateFlow<Int?> = _artistSeed.asStateFlow()
+    private val _artistSeed = MutableStateFlow<AlbumColors?>(null)
+    val artistSeed: StateFlow<AlbumColors?> = _artistSeed.asStateFlow()
 
     private var artistSeedJob: Job? = null
 

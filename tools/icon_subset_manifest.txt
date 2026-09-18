@@ -1,8 +1,10 @@
 add
 album
 arrow_back
+arrow_downward
 arrow_drop_down
 arrow_forward
+arrow_upward
 artist
 bar_chart
 bluetooth
@@ -79,6 +81,7 @@ playlist_play
 playlist_remove
 queue_music
 refresh
+remove
 repeat
 repeat_one
 replay_10
@@ -99,7 +102,6 @@ skip_next
 skip_previous
 smartphone
 snooze
-sort
 sort_by_alpha
 speaker
 stop

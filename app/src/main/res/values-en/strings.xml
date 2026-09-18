@@ -44,6 +44,7 @@
     <string name="common_albums">Albums</string>
     <string name="common_unknown_artist">Unknown artist</string>
     <string name="common_unknown_album">Unknown album</string>
+    <string name="common_unknown_genre">Unknown genre</string>
     <string name="common_various_artists">Various artists</string>
     <string name="common_error_format">Error: %1$s</string>
 
@@ -91,9 +92,20 @@
     <string name="playlist_add_songs_none">There are no songs to add</string>
     <string name="playlist_add_songs_no_results">No results</string>
     <string name="playlist_add_songs_confirm">Add (%1$d)</string>
+
+    <!-- ==================== Playlist confirmations ==================== -->
+    <string name="playlist_created">Playlist \"%1$s\" created</string>
+    <plurals name="playlist_created_with_songs">
+        <item quantity="one">Playlist \"%2$s\" created with %1$d song</item>
+        <item quantity="other">Playlist \"%2$s\" created with %1$d songs</item>
+    </plurals>
+    <string name="playlist_song_added">Added to \"%1$s\"</string>
+    <string name="playlist_song_already_in">Already in \"%1$s\"</string>
+    <string name="playlist_song_removed">Removed from \"%1$s\"</string>
+    <string name="playlist_songs_all_already_in">They were all already in \"%1$s\"</string>
     <plurals name="playlist_songs_added">
-        <item quantity="one">%d song added</item>
-        <item quantity="other">%d songs added</item>
+        <item quantity="one">%1$d song added to \"%2$s\"</item>
+        <item quantity="other">%1$d songs added to \"%2$s\"</item>
     </plurals>
 
     <!-- ==================== Import/export playlists as M3U ==================== -->
@@ -737,6 +749,11 @@
     <string name="sleep_timer_remaining">until the music pauses</string>
     <string name="sleep_timer_then_finish_song">When it ends, the current song will finish</string>
     <string name="sleep_timer_awaiting_song_end">It will pause when this song ends</string>
+    <string name="sleep_timer_start">Start timer</string>
+    <string name="sleep_timer_minutes_label">Minutes</string>
+    <string name="sleep_timer_minutes_suffix">min</string>
+    <string name="sleep_timer_minute_less">One minute less</string>
+    <string name="sleep_timer_minute_more">One minute more</string>
     <string name="sleep_timer_cancel">Cancel timer</string>
 
     <!-- ==================== Artist picker (Deezer) ==================== -->
@@ -751,7 +768,8 @@
     <string name="color_picker_prompt">Tap a color to apply it:</string>
     <string name="color_picker_legend">The circle is the color in the artwork; the bar is the accent it would generate.</string>
     <string name="color_picker_applied">Applied now: %1$s</string>
-    <string name="color_picker_seed">From saved accent %1$s</string>
+    <string name="color_picker_selected">Selected: %1$s</string>
+    <string name="color_picker_low_contrast">This color barely contrasts with the theme background. You can still pick it.</string>
     <string name="color_picker_current">current</string>
     <string name="color_picker_hue_source">source of the current one</string>
     <string name="color_picker_no_art">This song doesn\'t have album art to analyze yet</string>
@@ -763,7 +781,7 @@
     <string name="tab_playlists">Playlists</string>
 
     <!-- ==================== Home screen ==================== -->
-    <string name="sort_chip_label">Sort: %1$s</string>
+    <string name="sort_chip_label">Sort: %1$s, %2$s</string>
     <string name="home_section_quick_actions">Quick actions</string>
     <string name="home_action_shuffle">Shuffle</string>
     <string name="home_action_play_order">In order</string>
@@ -824,15 +842,22 @@
     <string name="sync_error_critical">Critical error: %1$s</string>
     <string name="sync_error_no_details">no details</string>
     <string name="sync_found">%1$d found · %2$s</string>
-    <string name="sort_title_asc">Title (A-Z)</string>
-    <string name="sort_name_asc">Name (A-Z)</string>
-    <string name="sort_song_count">Most songs</string>
+    <!-- Sort chip labels: the CRITERION only, never the direction (the chip's arrow says that). -->
+    <string name="sort_by_title">Title</string>
+    <string name="sort_by_name">Name</string>
     <string name="sort_by_artist">Artist</string>
-    <string name="sort_title_desc">Title (Z-A)</string>
-    <string name="sort_recent_first">Newest first</string>
-    <string name="sort_oldest_first">Oldest first</string>
-    <string name="sort_most_played">Most played</string>
-    <string name="sort_recently_played">Recently played</string>
+    <string name="sort_by_year">Year</string>
+    <string name="sort_by_song_count">Songs</string>
+    <string name="sort_by_date_added">Date added</string>
+    <string name="sort_by_play_count">Play count</string>
+    <string name="sort_by_last_played">Last played</string>
+    <string name="sort_direction_ascending">ascending</string>
+    <string name="sort_direction_descending">descending</string>
+    <!-- Last section of the Albums tab when sorting by year: albums whose files declare none. -->
+    <string name="album_year_unknown">No year</string>
+    <!-- Detail sort chip: the CATALOG order, which differs per screen. -->
+    <string name="sort_detail_catalog_artist">Album and track</string>
+    <string name="sort_detail_catalog_album">Track no.</string>
 
     <plurals name="source_local_count">
         <item quantity="one">%1$d folder</item>
@@ -952,6 +977,18 @@
     <string name="stats_all_time_note">Covers your whole history. Time is approximate — it is worked out from each song\'s length. Measured time and your streak start from %1$s.</string>
     <string name="stats_all_time_note_pending">Covers your whole history. Time is approximate — it is worked out from each song\'s length. Measured time and your streak start being recorded now.</string>
 
+    <!-- Stats for ONE entity: artist, album or genre (reached from the rankings in Stats) -->
+    <string name="entity_stats_songs_artist">Most played by them</string>
+    <string name="entity_stats_songs_album">Most played from this album</string>
+    <string name="entity_stats_songs_genre">Most played from this genre</string>
+    <string name="entity_stats_children_albums">Their albums</string>
+    <string name="entity_stats_children_artists">Their artists</string>
+    <string name="entity_stats_open_artist">Open artist</string>
+    <string name="entity_stats_open_album">Open album</string>
+    <string name="entity_stats_open_genre">Open genre</string>
+    <string name="entity_stats_empty_period">You did not listen to this in this period</string>
+    <string name="entity_stats_empty_all">You have not listened to this yet</string>
+
     <!-- Crash report (CrashReporter / CrashReportActivity) -->
     <string name="crash_title">The app crashed</string>
     <string name="crash_message">A report was saved with the details. Sharing it is the only way this can be fixed — the app never sends anything on its own.</string>
@@ -960,4 +997,20 @@
     <string name="crash_share_subject">Siku Music: crash report</string>
     <string name="settings_crash_header">Crash report</string>
     <string name="settings_crash_desc">The app crashed. Share what happened</string>
+    <!-- Artists (v29) -->
+    <string name="settings_artists_header">Artists</string>
+    <string name="settings_cat_artists_desc">Grouping and collaborations</string>
+    <string name="settings_artist_grouping">Group artists</string>
+    <string name="settings_artist_grouping_desc">Decides which artist each song shows up under in the library, in the artist page and in its stats.</string>
+    <string name="settings_artist_grouping_track">By track</string>
+    <string name="settings_artist_grouping_album">By album</string>
+    <string name="settings_artist_grouping_track_desc">Each song goes under its own artist. An album with guests spreads its songs across several.</string>
+    <string name="settings_artist_grouping_album_desc">Each song goes under the album artist (ALBUMARTIST). If the file lacks it, the track artist is used.</string>
+    <string name="settings_artist_split">Split collaborations</string>
+    <string name="settings_artist_split_desc">\"A feat. B\" counts for both A and B. Applied when you leave this screen.</string>
+    <string name="settings_artist_separators">Separators</string>
+    <string name="settings_artist_separators_desc">&amp;, comma and / are off because they are part of real names, like \"Simon &amp; Garfunkel\" or \"AC/DC\".</string>
+    <string name="settings_artist_exceptions">Never split</string>
+    <string name="settings_artist_exceptions_placeholder">One artist per line</string>
+    <string name="settings_artist_exceptions_desc">These names are kept whole even if they contain an active separator.</string>
 </resources>

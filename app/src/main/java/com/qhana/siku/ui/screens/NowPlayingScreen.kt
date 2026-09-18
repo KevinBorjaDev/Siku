@@ -12,6 +12,7 @@ import androidx.compose.ui.res.stringResource
 import com.qhana.siku.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
@@ -38,8 +39,7 @@ import com.qhana.siku.ui.components.*
 import com.qhana.siku.ui.LocalPlayerOnScreen
 import com.qhana.siku.ui.model.toUiModel
 import com.qhana.siku.ui.theme.AppColors
-import com.qhana.siku.ui.theme.tonalVerticalGradient
-import com.qhana.siku.ui.theme.tonalGradientColorAt
+import com.qhana.siku.ui.theme.playButtonRoles
 import com.qhana.siku.ui.theme.appTextButtonColors
 import com.qhana.siku.ui.util.shareSong
 import com.qhana.siku.ui.state.NowPlayingUiState
@@ -152,8 +152,11 @@ data class PlayerActions(
     val onDismissLyricsSearch: () -> Unit,
     val onUpdatePosition: () -> Unit,
     val onAddToPlaylist: (playlistId: Long, songId: String) -> Unit,
-    /** Crear lista desde la hoja "agregar a lista": la lista nace CON la canción en curso. */
-    val onCreatePlaylist: (name: String) -> Unit,
+    /**
+     * Crear lista desde la hoja "agregar a lista": la lista nace CON la canción que la abrió — la que
+     * suena, o la fila de la cola sobre la que se hizo la pulsación larga.
+     */
+    val onCreatePlaylist: (name: String, songId: String?) -> Unit,
     val onStartSleepTimer: (minutes: Int, finishSong: Boolean) -> Unit,
     val onCancelSleepTimer: () -> Unit
 )
@@ -166,7 +169,8 @@ data class NavigationActions(
     val onClearDebugInfo: () -> Unit,
     val onSelectColor: (Int) -> Unit,
     val onArtistClick: (String) -> Unit,
-    val onAlbumClick: (String) -> Unit
+    /** Nombre y artista del álbum (ver `Screen.AlbumDetail`). */
+    val onAlbumClick: (String, String?) -> Unit
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -257,7 +261,13 @@ fun NowPlayingScreen(
     var queueCovering by remember { mutableStateOf(false) }
     var lyricsCovering by remember { mutableStateOf(false) }
     var showAmbientModeDialog by remember { mutableStateOf(false) }
-    var showAddToPlaylist by remember { mutableStateOf(false) }
+    // La canción para la que está abierta la hoja "añadir a lista" (`null` = cerrada). Un id y no un
+    // booleano porque hay dos puertas: el botón del reproductor (la que suena) y la pulsación larga
+    // en la cola (cualquier fila).
+    var addToPlaylistSongId by remember { mutableStateOf<String?>(null) }
+    // La canción con la que nace una lista creada desde esa hoja: sobrevive al cierre de la hoja,
+    // que ocurre ANTES de que se confirme el diálogo.
+    var pendingSongForNewPlaylist by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
@@ -330,67 +340,32 @@ fun NowPlayingScreen(
     // 1:1 — eso causaba las inconsistencias/parches (ensureContrast, onAccentContentColor y el viejo
     // `albumAccent`, ya eliminados). El tema funde primary al cambiar de canción (ver `ProvideAppColors`),
     // así que no hace falta el animateColorAsState local.
-    val playButtonColor = AppColors.primary
-    // Glifo del play: `onPrimary` SI cumple, y `maxContrastOn` solo como último recurso. El par
-    // `primary`/`onPrimary` es el que M3 tabula y es lo que hay que usar mientras funcione; el
-    // motivo por el que aquí había un blanco/negro incondicional es que en Fidelity ese par puede
-    // salir de bajo contraste (gris azulado sobre un primary casi negro) y el triángulo se apagaba
-    // — pero eso es el caso raro, no el normal, y resolverlo siempre a blanco o negro tiraba el rol
-    // también cuando servía.
-    val playButtonContentColor = if (
-        contrastRatio(AppColors.onPrimary, playButtonColor) >= PLAY_GLYPH_MIN_CONTRAST
-    ) AppColors.onPrimary else maxContrastOn(playButtonColor)
+    // Desde el 13 sep 2026 sale de [playButtonRoles], la misma tabla que el play del MiniPlayer:
+    // `primary`/`onPrimary` salvo Fiel a la carátula y Fidelidad en oscuro.
+    val playRoles = playButtonRoles()
+    val playButtonColor = playRoles.container
+    // Glifo del play: `onPrimary` CRUDO. Es el par que M3 tabula y el play se apoya en `surface`,
+    // que es la superficie para la que ese par está calculado — no hay nada que rescatar. El
+    // `maxContrastOn` que había aquí existía porque el play se apoyaba en el degradado.
+    val playButtonContentColor = playRoles.content
 
+    // FONDO: vuelta a la forma de la v1.2.0 (13 sep 2026, decisión del usuario en device). Con
+    // degradado, un `Brush.verticalGradient` de PANTALLA COMPLETA de `secondaryContainer` a `surface`;
+    // con color sólido, `surfaceContainer` liso.
+    //
+    // Entre el 11 y el 13 sep el fondo fue en TRES BANDAS (barra superior sólida, degradado solo
+    // detrás de la carátula, `surface` desde la información) para que cada pieza se apoyara en un
+    // rol. Se retiró porque en device la pantalla se leía partida: "la mitad de color y la otra
+    // mitad no". Las piezas NO volvieron a derivar su color del degradado; siguen en sus roles.
     val surfaceColor = AppColors.surface
     val solidBackgroundColor = AppColors.surfaceContainer
-
-    // Fondo según el ajuste del usuario: color SÓLIDO tonal M3 Expressive (surfaceContainer,
-    // que ya viene teñido por el seed del álbum vía theme) o el degradado vertical clásico
-    // (Color Profundo -> Fondo Neutro).
-    val backgroundBrush = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
-        if (background == NowPlayingBackground.GRADIENT) {
-            // Por `tonalVerticalGradient` y NO por `Brush.verticalGradient` con los dos extremos: ese
-            // interpola en sRGB y el tramo del medio -el que ocupa media pantalla- se lava. Los
-            // extremos son los mismos de siempre, así que el contraste de lo que va encima no cambia.
-            tonalVerticalGradient(from = albumPrimary, to = surfaceColor)
-        } else {
-            SolidColor(solidBackgroundColor)
-        }
-    }
-
-    // Color que hay REALMENTE bajo la barra superior, sea cual sea el modo de fondo: en degradado es
-    // su primera parada (arriba es justo donde vive la barra). Lo consume el chip de origen, que
-    // deriva de él su relleno. Se calcula AQUÍ, pegado al brush, porque son la misma decisión: si
-    // algún día el degradado arranca en otro color, el chip lo sigue solo.
-    val topBackgroundColor = when (background) {
-        NowPlayingBackground.GRADIENT -> albumPrimary
-        NowPlayingBackground.SOLID -> solidBackgroundColor
-    }
-
-    // El gemelo de [topBackgroundColor], pero como FUNCIÓN de la altura: la barra de progreso y sus
-    // chips eligen su rol contra el fondo que tienen debajo, y a diferencia de la barra superior
-    // ellos no están pegados a un extremo del degradado — flotan donde el layout los deje, que
-    // depende de la carátula (es `weight(1f)`), de la orientación y del alto del teléfono.
-    //
-    // Se resolvió primero con `AppColors.surface` —el extremo de abajo— y era mentira: `COLOR_BIAS`
-    // está por debajo de 1, o sea que el color se estira HACIA ABAJO, y a la altura de la barra el
-    // degradado todavía tiene color. La píldora salía más oscura que lo que la rodeaba y se leía
-    // como un hueco (visto en device). Va aquí, junto al brush, por lo mismo que el de arriba: son
-    // la misma decisión.
-    val groundAt: (Float) -> Color = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
+    val pageBackground: Brush = remember(albumPrimary, surfaceColor, solidBackgroundColor, background) {
         when (background) {
-            NowPlayingBackground.GRADIENT -> { fraction ->
-                tonalGradientColorAt(albumPrimary, surfaceColor, fraction)
-            }
-            NowPlayingBackground.SOLID -> { _ -> solidBackgroundColor }
+            NowPlayingBackground.GRADIENT -> Brush.verticalGradient(colors = listOf(albumPrimary, surfaceColor))
+            NowPlayingBackground.SOLID -> SolidColor(solidBackgroundColor)
         }
     }
-
-    // El gemelo de [topBackgroundColor] para el EXTREMO DE ABAJO, que es donde vive el toolbar de
-    // acciones en las dos orientaciones (en horizontal, al pie de la columna de la carátula). Sale
-    // del mismo oráculo que la barra de progreso en vez de un rol fijo por el mismo motivo: en modo
-    // sólido el fondo ES `surfaceContainer`, o sea el token que M3 tabula para el toolbar standard.
-    val bottomBackgroundColor = remember(groundAt) { groundAt(1f) }
+    val topBarOnGradient = background == NowPlayingBackground.GRADIENT
 
     val contentColor = AppColors.onSurface
     val variantColor = AppColors.onSurfaceVariant
@@ -420,7 +395,7 @@ fun NowPlayingScreen(
     val onLyricsToggle = { showLyrics = !showLyrics }
     val onShowQueue = { showQueueSheet = true }
     val onAmbientMode = { showAmbientModeDialog = true }
-    val onAddToPlaylistClick = { showAddToPlaylist = true }
+    val onAddToPlaylistClick = { addToPlaylistSongId = song.id }
     val onSleepTimerClick = { showSleepTimerSheet = true }
 
     // Arrastre hacia abajo para cerrar. El estado se crea SIEMPRE (crearlo dentro de un `if`
@@ -441,7 +416,8 @@ fun NowPlayingScreen(
         showLyrics = false
         showQueueSheet = false
         showAmbientModeDialog = false
-        showAddToPlaylist = false
+        addToPlaylistSongId = null
+        pendingSongForNewPlaylist = null
         showCreatePlaylistDialog = false
         showSleepTimerSheet = false
         dismissState.reset()
@@ -622,7 +598,7 @@ fun NowPlayingScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundBrush)
+                .background(pageBackground)
         )
 
         // Capa 2 (CONTENIDO): layout normal, encima del fondo y transparente. El alpha del morph va
@@ -665,9 +641,8 @@ fun NowPlayingScreen(
                 if (!isLandscape) {
                     NowPlayingTopBar(
                         onBackClick = navigationActions.onBackClick,
-                        accentColor = playButtonColor,
                         origin = origin,
-                        backgroundColor = topBackgroundColor,
+                        onGradient = topBarOnGradient,
                         onAmbientMode = onAmbientMode
                     )
                 }
@@ -701,10 +676,8 @@ fun NowPlayingScreen(
                         durationFlow = durationFlow,
                         bufferedPositionFlow = bufferedPositionFlow,
                         showBuffer = isStreaming,
-                        groundAt = groundAt,
-                        bottomBackgroundColor = bottomBackgroundColor,
+                        topBarOnGradient = topBarOnGradient,
                         origin = origin,
-                        backgroundColor = topBackgroundColor,
                         gesturesEnabled = gesturesEnabled,
                         dismiss = activeDismiss,
                         format = formatInfo,
@@ -750,8 +723,6 @@ fun NowPlayingScreen(
                         durationFlow = durationFlow,
                         bufferedPositionFlow = bufferedPositionFlow,
                         showBuffer = isStreaming,
-                        groundAt = groundAt,
-                        bottomBackgroundColor = bottomBackgroundColor,
                         gesturesEnabled = gesturesEnabled,
                         dismiss = activeDismiss,
                         format = formatInfo,
@@ -833,6 +804,9 @@ fun NowPlayingScreen(
                 isShuffleEnabled = isShuffleEnabled,
                 onShuffleToggle = playerActions.onShuffleToggle,
                 onRemoveSong = playerActions.onRemoveFromQueue,
+                // La hoja de elegir lista es una ventana modal y se abre ENCIMA de la cola, que se
+                // queda puesta debajo: al elegir, el usuario sigue donde estaba.
+                onAddToPlaylist = { songId -> addToPlaylistSongId = songId },
                 onSaveAsPlaylist = playerActions.onSaveQueueAsPlaylist,
                 // Vaciar CIERRA la hoja en el mismo gesto, antes de que la cola quede vacía. Sin esto
                 // la hoja se quedaba puesta enseñando su estado "La cola está vacía" durante todo el
@@ -890,7 +864,11 @@ fun NowPlayingScreen(
                                         // lee como una superficie neutra estable. Contraste = onSurface.
                                         backgroundColor = solidBackgroundColor,
                                         contentColor = AppColors.onSurface,
-                                        accentColor = playButtonColor
+                                        accentColor = playButtonColor,
+                                        // El acento de las letras ES el color del play, así que su
+                                        // contenido tiene que ser el MISMO que el del glifo: son dos
+                                        // rellenos del mismo color en la misma pantalla.
+                                        accentContentColor = playButtonContentColor
                                     )
     }
 
@@ -905,18 +883,19 @@ fun NowPlayingScreen(
     }
 
     // Añadir la canción actual a una lista de reproducción (desde el overflow de la barra).
-    if (showAddToPlaylist) {
+    addToPlaylistSongId?.let { targetSongId ->
         AddToPlaylistBottomSheet(
             playlists = playlists,
             onPlaylistSelected = { playlistId ->
-                playerActions.onAddToPlaylist(playlistId, song.id)
-                showAddToPlaylist = false
+                playerActions.onAddToPlaylist(playlistId, targetSongId)
+                addToPlaylistSongId = null
             },
             onCreateNewPlaylist = {
-                showAddToPlaylist = false
+                pendingSongForNewPlaylist = targetSongId
+                addToPlaylistSongId = null
                 showCreatePlaylistDialog = true
             },
-            onDismiss = { showAddToPlaylist = false }
+            onDismiss = { addToPlaylistSongId = null }
         )
     }
 
@@ -931,10 +910,14 @@ fun NowPlayingScreen(
 
     if (showCreatePlaylistDialog) {
         CreatePlaylistDialog(
-            onDismiss = { showCreatePlaylistDialog = false },
-            onConfirm = { name ->
-                playerActions.onCreatePlaylist(name)
+            onDismiss = {
                 showCreatePlaylistDialog = false
+                pendingSongForNewPlaylist = null
+            },
+            onConfirm = { name ->
+                playerActions.onCreatePlaylist(name, pendingSongForNewPlaylist)
+                showCreatePlaylistDialog = false
+                pendingSongForNewPlaylist = null
             }
         )
     }
@@ -1083,15 +1066,6 @@ private fun MediaMetadataRetriever.readFormatInfo(): AudioFormatInfo {
 }
 
 /** Etiqueta cuando no se pudo determinar el contenedor. */
-/**
- * Contraste que le exigimos al par `primary`/`onPrimary` antes de aceptarlo para el glifo del play.
- * Es el mínimo WCAG de un ICONO (no el 4.5 de texto): el triángulo es una forma grande y maciza.
- *
- * `internal` porque `PlaybackControls` lo REPONE: si el contenedor del play tuvo que moverse de tono
- * para verse sobre el fondo, el par deja de estar garantizado y el glifo se recalcula contra el
- * contenedor REAL. Es el mismo listón, y escribirlo dos veces sería poder cambiar solo uno.
- */
-internal const val PLAY_GLYPH_MIN_CONTRAST = 3f
 
 private const val UNKNOWN_FORMAT = "AUDIO"
 

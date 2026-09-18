@@ -10,6 +10,7 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
+import com.materialkolor.contrast.Contrast
 import com.materialkolor.hct.Hct
 import com.materialkolor.quantize.QuantizerCelebi
 import com.materialkolor.score.Score
@@ -53,7 +54,7 @@ class ArtworkRepository @Inject constructor(
      * bajarla, no cuantizarla), así que tras un reinicio la re-extracción son unos milisegundos
      * sobre un bitmap de 256 px. Si algún día se nota, la columna es un cambio aditivo.
      */
-    private val imageSeedCache = LruCache<String, Int>(IMAGE_SEED_CACHE_ENTRIES)
+    private val imageSeedCache = LruCache<String, AlbumColors>(IMAGE_SEED_CACHE_ENTRIES)
 
     /**
      * Tope de análisis de color SIMULTÁNEOS (decodificar la carátula a 256 px + cuantizarla).
@@ -299,11 +300,10 @@ class ArtworkRepository @Inject constructor(
         // Paso 2: Procesamiento de Color (CPU Bound)
         return@withPermit withContext(Dispatchers.Default) {
             try {
-                // El MISMO seed crudo en los dos slots: la extracción automática no distingue por
-                // tema (nunca lo hizo — guardaba un color con dos tonos). Los slots siguen siendo
-                // por tema para que el override manual pueda diferenciarlos (ver [applyManualColor]).
-                val seed = extractSeedColor(bitmap, logId = id)
-                AlbumColors(seed, seed)
+                // El MISMO seed en los dos slots: la extracción no distingue por tema, porque no
+                // hay nada del seed que dependa del tema (ver [extractSeeds]). Los slots siguen
+                // separados por el override MANUAL, que sí es por tema (ver [applyManualColor]).
+                extractSeeds(bitmap, logId = id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -314,8 +314,8 @@ class ArtworkRepository @Inject constructor(
     }
 
     /**
-     * Seed de una imagen SUELTA, identificada por su URI y no por una canción: la foto de artista
-     * con la que el detalle de artista seedea su tema local.
+     * Seeds de una imagen SUELTA, identificada por su URI y no por una canción: la foto de artista
+     * con la que el detalle de artista seedea su tema local. Uno por tema, como una carátula.
      *
      * Misma extracción que la de una carátula ([extractColorsOptimized] → Celebi + Score), así que
      * una foto y una portada dan colores comparables y las dos pantallas de detalle se ven
@@ -325,11 +325,11 @@ class ArtworkRepository @Inject constructor(
      * Los fallos NO se cachean: una foto que no cargó por falta de red tiene que poder reintentarse
      * al volver a entrar, igual que en [getAlbumColors].
      */
-    suspend fun seedForImage(uri: String): Int? {
+    suspend fun seedForImage(uri: String): AlbumColors? {
         imageSeedCache.get(uri)?.let { return it }
-        val seed = extractColorsOptimized(uri, uri)?.primary ?: return null
-        imageSeedCache.put(uri, seed)
-        return seed
+        val seeds = extractColorsOptimized(uri, uri) ?: return null
+        imageSeedCache.put(uri, seeds)
+        return seeds
     }
 
     // --- DEBUGGING ---
@@ -525,15 +525,11 @@ class ArtworkRepository @Inject constructor(
         isDarkTheme: Boolean = false,
         savedColors: AlbumColors? = null
     ): DebugColorInfo {
-        // Debug: Ejecutar la lógica REAL de producción para ver qué sale
-        val extractedSeed = extractSeedColor(bitmap)
-
-        // El seed guardado para el tema en curso. Los dos slots solo difieren si el usuario eligió
-        // un color a mano en uno de los dos temas (el automático escribe el mismo en ambos), así
-        // que sin `savedColors` el tema no interviene: el seed extraído es uno y el mismo.
+        // La lógica REAL de producción, para el tema en curso: sin `savedColors`, lo que la
+        // extracción automática elegiría ahora.
         val winnerColor = savedColors
             ?.let { if (isDarkTheme) it.secondary else it.primary }
-            ?: extractedSeed
+            ?: extractSeeds(bitmap).let { if (isDarkTheme) it.secondary else it.primary }
 
         // La lista NO se toca: los candidatos salen siempre en su orden de ranking, ni se
         // reordena ni se añaden filas. Lo único que cambia es cuál va resaltado — que el color
@@ -562,46 +558,37 @@ class ArtworkRepository @Inject constructor(
         return DebugColorInfo(
             bitmap,
             candidates.mapIndexed { index, candidate ->
-                candidate.copy(isWinner = index == highlighted, isExact = index == exactIndex)
+                candidate.copy(
+                    isWinner = index == highlighted,
+                    isExact = index == exactIndex
+                )
             },
             winnerColor
         )
     }
 
     /**
-     * El **seed** de la carátula: el color ganador de [Score] TAL CUAL está en la imagen, sin
-     * re-tonalizar. Es lo que se persiste en las columnas de color y de lo que sale todo lo demás.
+     * El **seed** de la carátula: el candidato mejor puntuado por [Score], TAL CUAL está en la
+     * imagen. Sin re-tonalizar —la proyección perdía croma de forma irreversible (medido: 80.1 →
+     * 29.4)— y sin más filtros. Va en los dos slots de [AlbumColors] (`primary` para el tema claro,
+     * `secondary` para el oscuro), que siguen existiendo porque el override MANUAL sí es por tema.
      *
-     * De él solo viajan hue y croma: el `ColorScheme` lo genera MaterialKolor, que reencuadra el
-     * TONO por rol (primary = T40 en claro, T80 en oscuro). Por eso no se buscan dos colores
-     * distintos con dos objetivos de luminancia y dos rescates de contraste, como hacía la versión
-     * anterior: era trabajo que el consumidor descartaba y que además SESGABA la elección del
-     * matiz — descartaba por rango el color más representativo del álbum si resultaba muy oscuro o
-     * muy claro, aunque su tono fuese perfecto.
+     * **Aquí no se elige por tema, y el motivo es que el TONO del seed no llega al esquema**
+     * (17 sep 2026). Del seed, MaterialKolor solo toma el HUE para construir la paleta primaria —y
+     * además el CROMA con Fidelidad y Fiel a la carátula—; el tono de cada rol lo pone el spec 2021
+     * como constante (`primary` T40 en claro, T80 en oscuro). Así que un seed claro y uno oscuro
+     * del mismo matiz producen EL MISMO acento, y filtrarlos por su contraste en bruto solo servía
+     * para acabar pintando otro matiz de la portada sin ganar un punto de contraste.
      *
-     * **Devuelve UN color, no un par, y esa es la corrección de fondo** (29 jul 2026). Hasta esta
-     * fecha se persistía el seed ya proyectado a T40/T80, y esa proyección PIERDE CROMA contra el
-     * gamut sRGB de forma irreversible: medido sobre una portada real, un rojo de croma 80.1
-     * guardado a T80 baja a 29.4 y de ahí no vuelve. Como el tema se seedea justamente de esa
-     * columna, el acento de toda la app nacía de un color ya aplastado — un rojo intenso acababa
-     * en un terroso, y `withVividPrimary` no podía recuperarlo porque su techo es el croma del
-     * seed que recibe. El tono es una propiedad del TEMA, no del álbum, así que quien pinta el
-     * acento 1:1 lo calcula al pintar con [accentForTheme]; guardar la proyección en vez del
-     * original era guardar menos información de la que ya se tenía en la mano.
-     *
-     * Las dos columnas siguen existiendo y siguen siendo por tema, porque el override manual es
-     * granular (ver [applyManualColor]): ahí SÍ puede haber dos seeds distintos, uno elegido en
-     * claro y otro en oscuro. Lo que desaparece es el par derivado, que nunca fueron dos colores
-     * sino uno con dos tonos.
+     * Eso es lo que hacía el filtro que vivió aquí del 11 al 17 sep 2026: con una carátula de
+     * colores claros en tema claro descartaba el color más representativo —"no contrasta"— cuando
+     * el acento que habría generado era T40, perfectamente legible. **No reintroducirlo.** Lo que
+     * sí depende del tono del seed es el `primaryContainer` de Fidelidad y Fiel a la carátula, que
+     * recibe el color crudo; eso se avisa en el punto de uso, donde el acento final ya se conoce
+     * (ver `accentHasContrast`), y no se arregla eligiendo otro color para todos los estilos.
      */
-    private fun extractSeedColor(bitmap: Bitmap, logId: String? = null): Int {
+    private fun extractSeeds(bitmap: Bitmap, logId: String? = null): AlbumColors {
         val populationByColor = quantizeOpaquePixels(bitmap)
-        // Seed neutro para carátulas sin color: GRIS PURO (croma 0), no negro/blanco. Negro puro se
-        // veía como "#000000" en el selector —parecía un fallo, no una decisión— y como acento 1:1
-        // es ilegible. El croma 0 sigue disparando el esquema Monochrome del tema igual de bien, y
-        // el tono da igual porque este color se re-tonaliza al pintarlo (ver [NEUTRAL_SEED_TONE]).
-        val neutral = NEUTRAL_SEED_ARGB
-
         val candidates = rankCandidates(populationByColor)
 
         // Única condición de "sin color": que NINGÚN matiz pase el filtro de Score (croma ≥ 5 y
@@ -612,8 +599,6 @@ class ArtworkRepository @Inject constructor(
         // verdoso de Parasomnia, cuyos candidatos el algoritmo extrae correctamente. No
         // reintroducirlo sin un caso real que lo justifique.
         if (candidates.isEmpty()) {
-            // El caso "sin matiz" era el único que no dejaba rastro, y es justo el que hay que
-            // poder distinguir de "sí tenía color pero el tema lo descartó" (ver [isAchromatic]).
             // El croma máximo dice a qué distancia quedó del corte de Score (5.0): un 4.8 es una
             // carátula EN EL FILO; un 0.3 es blanco y negro de verdad.
             val maxChroma = populationByColor.keys.maxOfOrNull { Hct.fromInt(it).chroma } ?: 0.0
@@ -622,30 +607,25 @@ class ArtworkRepository @Inject constructor(
                 "${logId ?: "debug"}: sin matiz — croma máx ${"%.1f".format(maxChroma)} " +
                     "en ${populationByColor.size} colores → gris neutro"
             )
-            return neutral
+            // GRIS PURO (croma 0), no negro/blanco: dispara el esquema Monochrome del tema igual de
+            // bien, y como acento 1:1 se re-tonaliza al pintarlo (ver [NEUTRAL_SEED_TONE]).
+            return AlbumColors(NEUTRAL_SEED_ARGB, NEUTRAL_SEED_ARGB)
         }
 
-        val seed = Hct.fromInt(candidates.first().color)
-        // El croma del seed es el otro número que hace falta para calibrar: es lo que decide si
-        // el PaletteStyle del tema tiene material con el que trabajar o va a inventarse el color.
+        val chosen = candidates.first().color
+        val seed = Hct.fromInt(chosen)
         // El hex se formatea APARTE: el id puede traer un '%' (rutas locales) y aplicar format()
         // sobre la cadena ya interpolada reventaría con IllegalFormatException.
-        val seedHex = "#%06X".format(0xFFFFFF and candidates.first().color)
+        val seedHex = "#%06X".format(0xFFFFFF and chosen)
         appLogger.log(
             COLOR_LOG_CATEGORY,
-            // Con decimal: el corte de Score está en 5.0 y un seed de 5.4 (carátula sepia apenas
-            // teñida) se lee igual que uno de 5.9 si se trunca, justo donde hay que discriminar.
-            //
-            // El TONO va en la línea porque su ausencia fue lo que escondió el caso de Scenes from
-            // a Memory: el log decía "croma 5.3" —que parece un sepia apagado normal— cuando el
-            // seed era un negro de tono 2.0. Con las dos cifras, un fondo colándose como acento se
-            // reconoce de un vistazo.
+            // Croma con decimal porque el corte de Score está en 5.0, justo donde hay que
+            // discriminar. El tono se sigue registrando aunque ya no decida nada: es lo que
+            // distingue dos candidatos del mismo matiz al mirar un caso real en el log.
             "${logId ?: "debug"}: seed $seedHex croma ${"%.1f".format(seed.chroma)} " +
-                "tono ${"%.1f".format(seed.tone)}"
+                "tono ${"%.1f".format(seed.tone)} de ${candidates.size} candidatos"
         )
-        // CRUDO, sin `withTone`: ver el KDoc. La proyección a T40/T80 la hace [accentForTheme] en
-        // el punto de uso, que es el único que sabe en qué tema se está pintando.
-        return candidates.first().color
+        return AlbumColors(chosen, chosen)
     }
 
     companion object {
@@ -662,7 +642,7 @@ class ArtworkRepository @Inject constructor(
          * pipeline había extraído bien. Es el mismo error de fondo que ya se corrigió en la
          * extracción: umbrales de claridad que no son comparables entre sí.
          *
-         * El neutro de una carátula sin matiz ([extractSeedColor]) se construye con croma 0
+         * El neutro de una carátula sin matiz ([extractSeeds]) se construye con croma 0
          * EXACTO, así que el caso B&N real sigue detectándose por construcción.
          *
          * Desde el 29 jul 2026 juzga el seed CRUDO, que es lo correcto: es el mismo color sobre el
@@ -673,10 +653,32 @@ class ArtworkRepository @Inject constructor(
         fun isAchromatic(argb: Int): Boolean = Hct.fromInt(argb).chroma < MIN_ACCENT_CHROMA
 
         /**
+         * ¿Se distingue [accentArgb] sobre [surfaceArgb]? La ÚNICA medición de contraste que queda
+         * en el sistema de color, y mide **colores ya derivados** —el `primary` y el `surface` de un
+         * esquema concreto—, nunca un color de la portada.
+         *
+         * Esa es toda la lección de esta parte: el color crudo no se pinta en ningún sitio. Del
+         * seed, MaterialKolor solo se lleva el matiz (y el croma con Fidelidad y Fiel a la
+         * carátula); el tono lo pone el spec. Medir el crudo era medir un color que nadie ve —ver
+         * [extractSeeds], donde ese error hacía que una portada clara perdiera su color en tema
+         * claro—, así que la pregunta se hace donde el acento final ya existe: en la UI, que es
+         * quien conoce el tema y el estilo de paleta.
+         *
+         * Se mide por TONO, que en HCT es el L* de CIELAB y de donde sale la luminancia. El umbral
+         * es el de un componente NO textual de WCAG (1.4.11): un acento acaba como relleno, y el
+         * texto que caiga encima lo garantiza M3 con su propio par.
+         */
+        fun accentHasContrast(accentArgb: Int, surfaceArgb: Int): Boolean =
+            Contrast.ratioOfTones(
+                Hct.fromInt(accentArgb).tone,
+                Hct.fromInt(surfaceArgb).tone
+            ) >= ACCENT_MIN_CONTRAST
+
+        /**
          * El acento LISTO PARA PINTAR que le toca a [seedArgb] en el tema en curso.
          *
          * Las columnas de color guardan el **seed CRUDO** de la carátula, no un color de rol (ver
-         * [extractSeedColor]). El tono es una propiedad del tema y no del álbum, así que la
+         * [extractSeeds]). El tono es una propiedad del tema y no del álbum, así que la
          * proyección a T40/T80 se hace aquí, en el punto de uso. Este es el ÚNICO sitio que la
          * hace: tenerla en dos lados es la forma más fácil de que dos superficies pinten acentos
          * distintos para la misma canción.
@@ -778,6 +780,11 @@ class ArtworkRepository @Inject constructor(
         private const val LIGHT_THEME_ACCENT_TONE = 40.0
         private const val DARK_THEME_ACCENT_TONE = 80.0
 
+        // Contraste mínimo de un acento contra la superficie donde se pinta ([accentHasContrast]).
+        // No hay constantes de tono de superficie que lo acompañen: la superficie se PASA, porque
+        // quien mide tiene delante el esquema entero y no tiene por qué suponer en cuál cae.
+        private const val ACCENT_MIN_CONTRAST = 3.0
+
         // Tono del gris que representa una carátula SIN matiz. Da igual cuál sea —lo que importa
         // es el croma 0, que es lo que dispara el esquema Monochrome, y quien lo pinta lo
         // re-tonaliza igual—, así que se elige el centro de la escala: no sugiere ningún tema, a
@@ -786,7 +793,7 @@ class ArtworkRepository @Inject constructor(
 
         /**
          * Gris PURO (croma 0) que representa una carátula SIN color. Dispara el esquema Monochrome
-         * del tema igual que un neutro extraído. Lo usa la extracción ([extractSeedColor]) y el
+         * del tema igual que un neutro extraído. Lo usa la extracción ([extractSeeds]) y el
          * tema global para una canción sin carátula (seed fijo en vez de heredar el color anterior).
          */
         val NEUTRAL_SEED_ARGB: Int = Hct.from(0.0, 0.0, NEUTRAL_SEED_TONE).toInt()

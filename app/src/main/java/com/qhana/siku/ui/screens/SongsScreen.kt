@@ -1,5 +1,6 @@
 package com.qhana.siku.ui.screens
 
+import com.qhana.siku.data.local.identityKey
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -35,6 +36,7 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import com.qhana.siku.data.util.JankProbe
 import com.qhana.siku.ui.components.*
@@ -56,8 +58,8 @@ fun SongsScreen(
     playbackViewModel: PlaybackViewModel,
     // Chip "N canciones" + chip de orden + chips de origen (solo pestaña Todas, fuera de la búsqueda).
     songCount: Int = 0,
-    sortOrder: SortOrder = SortOrder.TITLE_ASC,
-    onSortOrderChange: (SortOrder) -> Unit = {},
+    sortOrder: SortSpec<SortOrder> = SortOrder.DEFAULT,
+    onSortOrderChange: (SortSpec<SortOrder>) -> Unit = {},
     onToggleSourceFilter: (SongSourceFilter) -> Unit = {},
     // Reproducir la lista ENTERA, en orden o al azar (solo pestaña Todas, fuera de la búsqueda).
     // Los defaults vacíos son para el overlay de búsqueda, donde la botonera no se pinta.
@@ -70,7 +72,7 @@ fun SongsScreen(
     searchArtists: List<ArtistSummary> = emptyList(),
     searchAlbums: List<AlbumSummary> = emptyList(),
     onSearchArtistClick: (String) -> Unit = {},
-    onSearchAlbumClick: (String) -> Unit = {}
+    onSearchAlbumClick: (String, String?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
 
@@ -267,9 +269,9 @@ fun SongsScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(searchAlbums, key = { it.name }) { album ->
+                            items(searchAlbums, key = { it.identityKey }) { album ->
                                 SearchAlbumCard(album, Modifier.animateItem()) {
-                                    onSearchAlbumClick(album.name)
+                                    onSearchAlbumClick(album.name, album.albumArtist)
                                 }
                             }
                         }
@@ -571,8 +573,8 @@ private fun SongItemMenu(
 @Composable
 private fun SourceFilterRow(
     songCount: Int,
-    sortOrder: SortOrder,
-    onSortOrderChange: (SortOrder) -> Unit,
+    sortOrder: SortSpec<SortOrder>,
+    onSortOrderChange: (SortSpec<SortOrder>) -> Unit,
     sourceFilters: Set<SongSourceFilter>,
     showLocalChip: Boolean,
     showCloudChips: Boolean,
@@ -625,12 +627,10 @@ private fun SourceFilterRow(
         SortChip(
             current = sortOrder,
             options = listOf(
-                R.string.sort_title_asc to SortOrder.TITLE_ASC,
-                R.string.sort_title_desc to SortOrder.TITLE_DESC,
-                R.string.sort_recent_first to SortOrder.DATE_ADDED_DESC,
-                R.string.sort_oldest_first to SortOrder.DATE_ADDED_ASC,
-                R.string.sort_most_played to SortOrder.MOST_PLAYED,
-                R.string.sort_recently_played to SortOrder.RECENTLY_PLAYED
+                R.string.sort_by_title to SortOrder.TITLE,
+                R.string.sort_by_date_added to SortOrder.DATE_ADDED,
+                R.string.sort_by_play_count to SortOrder.PLAY_COUNT,
+                R.string.sort_by_last_played to SortOrder.LAST_PLAYED
             ),
             onChange = onSortOrderChange
         )

@@ -5,15 +5,22 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import androidx.navigation.NavController
 import com.qhana.siku.data.model.PlaybackContext
+import com.qhana.siku.data.model.StatsScopeKind
+import com.qhana.siku.data.model.StatsSelection
 import com.qhana.siku.data.util.SnackbarManager
 import com.qhana.siku.ui.MusicAppState
 import com.qhana.siku.ui.PlayerArtOrigin
 import com.qhana.siku.ui.screens.AlbumDetailScreen
 import com.qhana.siku.ui.screens.ArtistDetailScreen
+import com.qhana.siku.ui.screens.EntityStatsScreen
 import com.qhana.siku.ui.screens.DownloadManagerScreen
 import com.qhana.siku.ui.screens.GenreDetailScreen
 import com.qhana.siku.ui.screens.LibraryScreen
@@ -32,6 +39,7 @@ import com.qhana.siku.ui.screens.SettingsProgressBarScreen
 import com.qhana.siku.ui.screens.SettingsScreen
 import com.qhana.siku.ui.screens.SettingsSourcesScreen
 import com.qhana.siku.ui.screens.SettingsTabsScreen
+import com.qhana.siku.ui.screens.SettingsArtistsScreen
 import com.qhana.siku.ui.screens.StatsScreen
 import com.qhana.siku.ui.theme.appNavBackEnter
 import com.qhana.siku.ui.theme.appNavBackExit
@@ -41,7 +49,9 @@ import com.qhana.siku.ui.theme.appNavForwardEnter
 import com.qhana.siku.ui.theme.appNavForwardExit
 import com.qhana.siku.ui.viewmodel.LibraryViewModel
 import com.qhana.siku.ui.viewmodel.PlaybackViewModel
+import com.qhana.siku.ui.viewmodel.EntityStatsViewModel
 import com.qhana.siku.ui.viewmodel.SourcesViewModel
+import com.qhana.siku.ui.viewmodel.StatsViewModel
 import com.qhana.siku.ui.viewmodel.SyncViewModel
 
 /**
@@ -65,6 +75,8 @@ fun AppNavHost(
     authLoading: Boolean,
     authError: String?,
     onConnectOneDrive: (Activity) -> Unit,
+    /** Reautenticar la cuenta ya conectada (sesión caducada). NO es [onConnectOneDrive]. */
+    onReconnectOneDrive: (Activity) -> Unit,
     onDisconnectOneDrive: () -> Unit,
     /** Encola un scan de fuentes (KEEP: no pisa uno ya encolado por elegir carpeta local). */
     onRequestSync: () -> Unit,
@@ -146,11 +158,12 @@ fun AppNavHost(
                 accountPhotoPath = accountPhotoPath,
                 accountInitial = accountInitial,
                 onLogoutClick = onDisconnectOneDrive,
+                onReconnectOneDrive = onReconnectOneDrive,
                 onDownloadManagerClick = { navController.navigate(Screen.DownloadManager.route) },
                 onPlaylistClick = { id, name -> navController.navigate(Screen.PlaylistDetail.createRoute(id, name)) },
                 onFavoritesClick = { navController.navigate(Screen.Favorites.route) },
                 onArtistClick = { name -> navController.navigate(Screen.ArtistDetail.createRoute(name)) },
-                onAlbumClick = { name -> navController.navigate(Screen.AlbumDetail.createRoute(name)) },
+                onAlbumClick = { name, albumArtist -> navController.navigate(Screen.AlbumDetail.createRoute(name, albumArtist)) },
                 onGenreClick = { name -> navController.navigate(Screen.GenreDetail.createRoute(name)) },
                 onStatsClick = { navController.navigate(Screen.Stats.route) },
                 onSeeAllRecentClick = { navController.navigate(Screen.RecentlyAdded.route) },
@@ -206,9 +219,7 @@ fun AppNavHost(
                 onAddAllToQueue = { playbackViewModel.addToQueue(it) },
                 onAddSongToPlaylist = { targetId, songId -> libraryViewModel.addSongToPlaylist(targetId, songId) },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 onReorderSongs = { songIds -> libraryViewModel.reorderPlaylistSongs(playlistId, songIds) },
                 onRemoveSong = { songId -> libraryViewModel.removeSongFromPlaylist(playlistId, songId) },
@@ -228,7 +239,7 @@ fun AppNavHost(
                 favorites = favorites,
                 playlists = playlists,
                 onBackClick = { navController.popBackStack() },
-                onAlbumClick = { album -> appState.navigateToAlbum(album) },
+                onAlbumClick = { album, albumArtist -> appState.navigateToAlbum(album, albumArtist) },
                 onPlayAll = { songs, index ->
                     libraryViewModel.recordContext(
                         PlaybackContext.Artist(artistName, songs.firstOrNull()?.albumArtUri?.toString())
@@ -249,9 +260,7 @@ fun AppNavHost(
                 onAddAllToQueue = { playbackViewModel.addToQueue(it) },
                 onAddSongToPlaylist = { playlistId, songId -> libraryViewModel.addSongToPlaylist(playlistId, songId) },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this@composable
@@ -259,13 +268,24 @@ fun AppNavHost(
         }
 
         composable(
-            route = Screen.AlbumDetail.route
+            route = Screen.AlbumDetail.route,
+            arguments = listOf(
+                navArgument(Screen.AlbumDetail.ARG_ALBUM_ARTIST) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
         ) { backStackEntry ->
             val albumName = Screen.AlbumDetail.decodeName(
                 backStackEntry.arguments?.getString(Screen.AlbumDetail.ARG_ALBUM_NAME)
             )
+            val albumArtist = Screen.AlbumDetail.decodeAlbumArtist(
+                backStackEntry.arguments?.getString(Screen.AlbumDetail.ARG_ALBUM_ARTIST)
+            )
             AlbumDetailScreen(
                 albumName = albumName,
+                albumArtist = albumArtist,
                 currentSong = currentSong,
                 favorites = favorites,
                 playlists = playlists,
@@ -291,9 +311,7 @@ fun AppNavHost(
                 onAddAllToQueue = { playbackViewModel.addToQueue(it) },
                 onAddSongToPlaylist = { playlistId, songId -> libraryViewModel.addSongToPlaylist(playlistId, songId) },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this@composable
@@ -312,7 +330,7 @@ fun AppNavHost(
                 favorites = favorites,
                 playlists = playlists,
                 onBackClick = { navController.popBackStack() },
-                onAlbumClick = { album -> appState.navigateToAlbum(album) },
+                onAlbumClick = { album, albumArtist -> appState.navigateToAlbum(album, albumArtist) },
                 onPlayAll = { songs, index ->
                     libraryViewModel.recordContext(
                         PlaybackContext.Genre(genreName, songs.firstOrNull()?.albumArtUri?.toString())
@@ -333,9 +351,7 @@ fun AppNavHost(
                 onAddAllToQueue = { playbackViewModel.addToQueue(it) },
                 onAddSongToPlaylist = { playlistId, songId -> libraryViewModel.addSongToPlaylist(playlistId, songId) },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = this@composable
@@ -369,9 +385,7 @@ fun AppNavHost(
                 onAddAllToQueue = { playbackViewModel.addToQueue(it) },
                 onAddSongToPlaylist = { targetId, songId -> libraryViewModel.addSongToPlaylist(targetId, songId) },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 onAddSongs = { appState.showAddSongsSheet = true }
             )
@@ -475,6 +489,17 @@ fun AppNavHost(
         }
 
         composable(
+            route = Screen.SettingsArtists.route
+        ) {
+            // ViewModel propio de la ruta a propósito: todo lo que la pantalla lee son preferencias
+            // globales, así que otra instancia no desincroniza nada (mismo caso que Ajustes → Descargas).
+            SettingsArtistsScreen(
+                onBackClick = { navController.popBackStack() },
+                viewModel = hiltViewModel()
+            )
+        }
+
+        composable(
             route = Screen.SettingsTabs.route
         ) {
             SettingsTabsScreen(
@@ -527,16 +552,20 @@ fun AppNavHost(
                     libraryViewModel.addSongToPlaylist(playlistId, songId)
                 },
                 onCreatePlaylist = { name, pendingSongId ->
-                    libraryViewModel.createPlaylist(name) { id ->
-                        pendingSongId?.let { libraryViewModel.addSongToPlaylist(id, it) }
-                    }
+                    libraryViewModel.createPlaylist(name, listOfNotNull(pendingSongId))
                 },
                 // El COMPARTIDO, no uno por ruta (convención 9).
                 libraryViewModel = libraryViewModel
             )
         }
 
-        composable(Screen.Stats.route) {
+        composable(Screen.Stats.route) { backStackEntry ->
+            // El periodo que la pantalla está mirando, para heredarlo al abrir una entidad. Se lee
+            // del ViewModel de ESTA ruta —el mismo que resuelve `StatsScreen` por dentro, porque es
+            // el mismo `NavBackStackEntry`— y no se pasa hacia abajo por parámetro: la pantalla ya
+            // lo tiene y duplicarlo serían dos verdades del mismo estado.
+            val statsViewModel: StatsViewModel = hiltViewModel(backStackEntry)
+            val statsSelection by statsViewModel.selection.collectAsStateWithLifecycle()
             StatsScreen(
                 onBackClick = { navController.popBackStack() },
                 currentSong = currentSong,
@@ -544,10 +573,68 @@ fun AppNavHost(
                     playbackViewModel.playSongs(songs, index)
                     appState.openPlayer(PlayerArtOrigin.ROW)
                 },
-                onArtistClick = { name -> appState.navigateToArtist(name) },
-                onAlbumClick = { name -> appState.navigateToAlbum(name) },
-                onGenreClick = { name -> appState.navigateToGenre(name) }
+                // **Tocar una entidad aquí abre SUS estadísticas, no su detalle de biblioteca**: se
+                // está mirando un periodo y la pregunta que sigue es qué escuchaste EN ÉL. A su
+                // música se llega desde ahí, con la fila de identidad de arriba. Es la misma regla
+                // en las tres categorías, para no tener que recordar cuál lleva a dónde.
+                onArtistClick = { name -> navController.openStats(StatsScopeKind.ARTIST, name, statsSelection, null) },
+                onAlbumClick = { name, albumArtist ->
+                    navController.openStats(StatsScopeKind.ALBUM, name, statsSelection, albumArtist)
+                },
+                onGenreClick = { name -> navController.openStats(StatsScopeKind.GENRE, name, statsSelection, null) },
+                viewModel = statsViewModel
+            )
+        }
+
+        composable(
+            route = Screen.EntityStats.route,
+            arguments = listOf(
+                navArgument(Screen.EntityStats.ARG_ALBUM_ARTIST) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            // El periodo de ESTA pantalla, para heredarlo al abrir una sub-entidad — igual que la
+            // pantalla general lo hereda hacia aquí. Sale del ViewModel de esta ruta, que es el
+            // mismo que resuelve la pantalla por dentro.
+            val entityViewModel: EntityStatsViewModel = hiltViewModel(backStackEntry)
+            val entityState by entityViewModel.uiState.collectAsStateWithLifecycle()
+            EntityStatsScreen(
+                onBackClick = { navController.popBackStack() },
+                onOpenEntity = { kind, name, albumArtist ->
+                    when (kind) {
+                        StatsScopeKind.ARTIST -> appState.navigateToArtist(name)
+                        StatsScopeKind.ALBUM -> appState.navigateToAlbum(name, albumArtist)
+                        StatsScopeKind.GENRE -> appState.navigateToGenre(name)
+                    }
+                },
+                onChildClick = { kind, name, albumArtist ->
+                    navController.openStats(kind, name, entityState.selection, albumArtist)
+                },
+                currentSong = currentSong,
+                onPlaySongs = { songs, index ->
+                    playbackViewModel.playSongs(songs, index)
+                    appState.openPlayer(PlayerArtOrigin.ROW)
+                },
+                viewModel = entityViewModel
             )
         }
     }
 }
+
+/**
+ * Abre las estadísticas de una entidad heredando el periodo desde donde se navega.
+ *
+ * Es una función y no cuatro `navigate` escritos a mano porque el par (tipo, periodo) es justo lo
+ * que un caller nuevo se olvida: sin el periodo, tocar un artista desde "agosto" lo abriría en el
+ * día de hoy, y el fallo no rompe nada — solo enseña otros números.
+ */
+private fun NavController.openStats(
+    kind: StatsScopeKind,
+    name: String,
+    selection: StatsSelection,
+    /** Solo para un álbum: su artista del álbum (ver `Screen.AlbumDetail`). */
+    albumArtist: String?
+) = navigate(Screen.EntityStats.createRoute(kind, name, selection, albumArtist))

@@ -53,6 +53,11 @@ data class SongEntity(
     val year: Int,
     // Tag GENRE del archivo (null hasta leerlo). Alimenta los chips de género del inicio.
     val genre: String? = null,
+    // v29. Tag ALBUMARTIST (null = sin leer, "" = leído sin tag) y artistas multivalor de la pista
+    // (null = el archivo no declara más que `artist`). Ambos codificados con `encodeMultiValue`. Los
+    // consume el indexador de `song_artists`; ver [ArtistCreditEntity].
+    val albumArtist: String? = null,
+    val artistCredits: String? = null,
     val dateAdded: Long,
     // Colores extraídos de la carátula (null si aún no se han extraído)
     val colorPrimary: Int? = null,
@@ -125,6 +130,8 @@ data class SongEntity(
         trackNumber = trackNumber,
         year = year,
         genre = genre,
+        albumArtist = albumArtist,
+        artistCredits = artistCredits,
         dateAdded = dateAdded,
         lyrics = lyrics,
         lyricsAttemptedAt = lyricsAttemptedAt,
@@ -166,6 +173,8 @@ data class SongEntity(
             trackNumber = song.trackNumber,
             year = song.year,
             genre = song.genre,
+            albumArtist = song.albumArtist,
+            artistCredits = song.artistCredits,
             dateAdded = song.dateAdded,
             colorPrimary = null,
             colorSecondary = null,

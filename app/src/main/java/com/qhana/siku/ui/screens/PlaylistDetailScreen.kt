@@ -418,9 +418,10 @@ fun PlaylistDetailScreen(
                                                         MaterialSymbol(
                                                             "favorite",
                                                             fill = true,
-                                                            // Del fondo REAL de la fila: en la que
-                                                            // suena, `primary` se funde con el
-                                                            // `primaryContainer` que la rellena.
+                                                            // Según cuál de los DOS fondos tocó: en
+                                                            // la fila que suena `primary` se funde
+                                                            // con el `secondaryContainer` que la
+                                                            // rellena, así que ahí va el `on…`.
                                                             color = rememberRowAccentColor(rowBackground)
                                                         )
                                                     }

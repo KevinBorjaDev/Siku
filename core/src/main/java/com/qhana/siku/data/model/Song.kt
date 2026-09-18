@@ -27,6 +27,20 @@ data class Song(
     val trackNumber: Int = 0,
     val year: Int = 0,
     val genre: String? = null, // Tag GENRE del archivo (null hasta leerlo del tag)
+    /**
+     * Tag ALBUMARTIST, codificado con [encodeMultiValue]. Tres estados, como [genre]:
+     * `null` = aún no leído, `""` = leído y el archivo no lo trae, y el valor.
+     *
+     * Es también la segunda mitad de la IDENTIDAD de un álbum: dos "Greatest Hits" de artistas del
+     * álbum distintos son dos discos. Sin el tag, el álbum se agrupa solo por nombre, como siempre.
+     */
+    val albumArtist: String? = null,
+    /**
+     * Los artistas de la pista cuando el archivo los declara como MULTIVALOR (ARTISTS de Picard,
+     * ID3v2.4 con varios valores, claves Vorbis repetidas), codificados con [encodeMultiValue].
+     * `null` = el archivo no declara más que el [artist] de siempre.
+     */
+    val artistCredits: String? = null,
     val dateAdded: Long = 0, // Timestamp en segundos de cuando se añadió
     val lyrics: String? = null,
     /**

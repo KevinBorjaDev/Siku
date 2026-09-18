@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.microsoft.identity.client.*
 import com.microsoft.identity.client.exception.MsalException
+// El wildcard `client.*` de arriba NO cubre el subpaquete `.exception`: va explícito.
+import com.microsoft.identity.client.exception.MsalUiRequiredException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.awaitClose
@@ -209,6 +211,62 @@ class AuthManager @Inject constructor(
         awaitClose()
     }
 
+    /**
+     * Vuelve a autenticar la cuenta que YA está conectada, con la pantalla de Microsoft.
+     *
+     * Es la salida de [AuthErrorReason.INTERACTION_REQUIRED]: la sesión sigue existiendo —la cuenta,
+     * sus scopes consentidos y toda la biblioteca sincronizada— y lo único muerto es el refresh
+     * token, así que **no hay que desconectar nada**. Un `signOut` aquí sería destructivo de verdad:
+     * el logout de la app borra las canciones de esa fuente (convención 8), o sea que cambiar la
+     * contraseña acabaría costando la biblioteca de nube entera.
+     *
+     * **Va por `signInAgain` y NO por `signIn`**, que es lo que usa el onboarding: en modo
+     * single-account, `signIn` comprueba si ya hay cuenta y, si la hay, falla en el acto con
+     * `INVALID_PARAMETER "An account is already signed in."` — o sea que reusarlo aquí habría dado
+     * otro error, esta vez sin arreglo posible. `signInAgain` es justo su gemelo para este caso:
+     * pide el token interactivo PARA la cuenta persistida.
+     *
+     * Pide [scopes] (los tres, como el login) para no volver del re-login con menos permisos de los
+     * que la sesión tenía.
+     */
+    fun reauthenticate(activity: android.app.Activity): Flow<AuthResult> = callbackFlow {
+        val app = publicClientApplication
+        if (app == null) {
+            trySend(AuthResult.Error(AuthErrorReason.SERVICE_UNAVAILABLE))
+            close()
+            return@callbackFlow
+        }
+
+        val params = SignInParameters.builder()
+            .withActivity(activity)
+            .withScopes(scopes.toList())
+            .withCallback(object : AuthenticationCallback {
+                override fun onSuccess(authenticationResult: IAuthenticationResult) {
+                    Log.d(TAG, "Reautenticación correcta")
+                    // La cuenta ya estaba, pero el hecho se reafirma: es el mismo punto por el que
+                    // pasa `signIn`, y dejarlo sin tocar haría depender el estado de quién entró.
+                    _hasSession.value = true
+                    trySend(AuthResult.Success(authenticationResult.accessToken))
+                    close()
+                }
+
+                override fun onError(exception: MsalException) {
+                    Log.e(TAG, "Reautenticación fallida", exception)
+                    trySend(AuthResult.Error(AuthErrorReason.SIGN_IN_FAILED))
+                    close()
+                }
+
+                override fun onCancel() {
+                    trySend(AuthResult.Cancelled)
+                    close()
+                }
+            })
+            .build()
+
+        app.signInAgain(params)
+        awaitClose()
+    }
+
     private fun acquireTokenSilent(requestedScopes: List<String>): Flow<AuthResult> = callbackFlow {
         val app = publicClientApplication
         if (app == null) {
@@ -238,7 +296,18 @@ class AuthManager @Inject constructor(
                 }
 
                 override fun onError(exception: MsalException) {
-                    trySend(AuthResult.Error(AuthErrorReason.TOKEN_REFRESH_FAILED))
+                    // **El TIPO de la excepción es el dato, no su mensaje.** `MsalUiRequiredException`
+                    // significa exactamente "esto no se arregla en silencio, hace falta la pantalla
+                    // de Microsoft": el refresh token está revocado o caducado (el caso típico es un
+                    // cambio de contraseña de la cuenta). Colapsarlo con el resto de fallos dejaba a
+                    // la UI ofreciendo un reintento que no podía funcionar nunca.
+                    val reason = if (exception is MsalUiRequiredException) {
+                        AuthErrorReason.INTERACTION_REQUIRED
+                    } else {
+                        AuthErrorReason.TOKEN_REFRESH_FAILED
+                    }
+                    Log.w(TAG, "Refresco silencioso falló ($reason): ${exception.errorCode}", exception)
+                    trySend(AuthResult.Error(reason))
                     close()
                 }
             })
@@ -377,7 +446,22 @@ enum class AuthErrorReason {
     CONSENT_FAILED,
     /** No hay ninguna cuenta conectada para un refresco silencioso. */
     NO_ACCOUNT,
-    /** El refresco silencioso del token falló (sesión expirada / revocada). */
+    /**
+     * El refresco silencioso falló y **NINGÚN reintento silencioso puede arreglarlo**: hace falta
+     * que el usuario pase por la pantalla de Microsoft. Es lo que MSAL señala con
+     * `MsalUiRequiredException` — típicamente `invalid_grant`, o sea el refresh token revocado
+     * porque el usuario **cambió la contraseña**, o `no_tokens_found`.
+     *
+     * Se distingue de [TOKEN_REFRESH_FAILED] porque la acción que le toca al usuario es OTRA:
+     * volver a entrar, no reintentar. Mientras los dos casos fueron el mismo motivo, el banner de
+     * la biblioteca ofrecía "toca para reintentar" y el reintento repetía el silencioso que acababa
+     * de fallar — un bucle del que no se salía sin desconectar la cuenta (device, 16 sep 2026).
+     */
+    INTERACTION_REQUIRED,
+    /**
+     * El refresco silencioso falló por una causa que SÍ puede pasar sola: red, servicio caído, un
+     * error transitorio de MSAL. Aquí reintentar es lo correcto.
+     */
     TOKEN_REFRESH_FAILED
 }
 

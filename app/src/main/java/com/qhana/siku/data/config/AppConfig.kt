@@ -103,6 +103,18 @@ object AppConfig {
      * biblioteca, cruzando incluso fuentes distintas. Y el error no se corrige solo, porque
      * `setAlbumArt` respeta las portadas ya escritas.
      */
+    /**
+     * Nombres que NO son un artista sino "varios": el ALBUMARTIST de las recopilaciones. En la
+     * biblioteca sí se agrupan —es lo que se espera en el modo "por álbum"—, pero buscarles foto en
+     * Deezer devuelve una imagen genérica que no identifica nada. Van en minúsculas porque se
+     * comparan así (aquí y en el SQL de `ArtistDao`, que recibe esta misma lista).
+     */
+    val VARIOUS_ARTISTS_NAMES: List<String> = listOf(
+        "various artists", "various", "va", "v.a.", "varios artistas", "varios", "artistas varios"
+    )
+
+    fun isVariousArtists(name: String): Boolean = name.trim().lowercase() in VARIOUS_ARTISTS_NAMES
+
     fun isUnknownAlbum(album: String): Boolean =
         album.isBlank() || album.equals(UNKNOWN_ALBUM, ignoreCase = true)
 }

@@ -3,6 +3,8 @@ package com.qhana.siku.data.coordinator
 import android.util.Log
 import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.data.model.encodeMultiValue
+import com.qhana.siku.data.local.albumIdentityKey
 import com.qhana.siku.data.repository.IMusicRepository
 import com.qhana.siku.data.source.MusicSourceRegistry
 import com.qhana.siku.data.util.AudioFileAnalyzer
@@ -117,10 +119,12 @@ class LightMetadataFetcher @Inject constructor(
             // las que entran aquí por carátula pendiente y no por falta de tags — sin él, pedir
             // la cabecera para acabar ejecutando un UPDATE sería una petición HTTP tirada.
             if (song.artist != AppConfig.UNKNOWN_ARTIST && !AppConfig.isUnknownAlbum(song.album)) {
-                val known = albumArtThisRun[song.album] ?: musicRepository.getAlbumArtUri(song.album)
+                val albumKey = song.albumArtist.orEmpty()
+                val runKey = albumIdentityKey(song.album, albumKey)
+                val known = albumArtThisRun[runKey] ?: musicRepository.getAlbumArtUri(song.album, albumKey)
                 if (known != null) {
-                    musicRepository.setAlbumArt(song.album, known)
-                    albumArtThisRun[song.album] = known
+                    musicRepository.setAlbumArt(song.album, albumKey, known)
+                    albumArtThisRun[runKey] = known
                     return
                 }
             }
@@ -132,6 +136,9 @@ class LightMetadataFetcher @Inject constructor(
             // rehenes de que la portada (que a menudo cuesta una segunda petición) llegue bien.
             // Que una fila se quede con sus tags y sin imagen ya no la condena: sigue siendo
             // candidata de esta fase por la carátula pendiente, no solo por el artista.
+            // El artista del álbum que la fila tendrá tras esta lectura: es la mitad de la identidad del
+            // disco con la que se reparte la portada. Sin texto, la fila no se toca y conserva el suyo.
+            val albumArtistKey = if (meta.hasText) encodeMultiValue(meta.albumArtists) ?: "" else song.albumArtist.orEmpty()
             if (meta.hasText) {
                 musicRepository.updateLightMetadata(
                     songId = song.id,
@@ -141,7 +148,11 @@ class LightMetadataFetcher @Inject constructor(
                     genre = meta.genre?.takeIf { it.isNotBlank() },
                     trackNumber = meta.trackNumber,
                     year = meta.year,
-                    durationMs = meta.durationMs
+                    durationMs = meta.durationMs,
+                    // `""` sella "cabecera leída, sin ALBUMARTIST": la canción sale así de la lista
+                    // de `ArtistTagsBackfiller` sin pedir la misma cabecera otra vez.
+                    albumArtist = albumArtistKey,
+                    artistCredits = encodeMultiValue(meta.artists)
                 )
                 updated.incrementAndGet()
             } else if (song.artist == AppConfig.UNKNOWN_ARTIST) {
@@ -156,7 +167,7 @@ class LightMetadataFetcher @Inject constructor(
                 noTags.add(song.id)
             }
 
-            when (applyArtwork(song.id, album, meta, albumArtThisRun, isStopped)) {
+            when (applyArtwork(song.id, album, albumArtistKey, meta, albumArtThisRun, isStopped)) {
                 // La cabecera contestó: este archivo no tiene portada. Sellarlo es lo que
                 // mantiene barata la fase — sin esto, cada sync volvería a pedir la cabecera de
                 // todo álbum que legítimamente no trae imagen.
@@ -200,20 +211,22 @@ class LightMetadataFetcher @Inject constructor(
     private suspend fun applyArtwork(
         songId: String,
         album: String,
+        albumArtist: String,
         meta: com.qhana.siku.data.source.LightMetadata,
         albumArtThisRun: MutableMap<String, String>,
         isStopped: () -> Boolean
     ): ArtOutcome {
         val groupable = !AppConfig.isUnknownAlbum(album)
+        val runKey = albumIdentityKey(album, albumArtist)
 
         // El álbum ya tiene portada conocida: se REPARTE, no se da por hecho que esta fila la
         // tenga. Antes, saber que el disco tenía imagen solo servía para ahorrarse la petición
         // y la canción se quedaba sin nada — el ahorro estaba bien, la conclusión no.
         if (groupable) {
-            val known = albumArtThisRun[album] ?: musicRepository.getAlbumArtUri(album)
+            val known = albumArtThisRun[runKey] ?: musicRepository.getAlbumArtUri(album, albumArtist)
             if (known != null) {
-                musicRepository.setAlbumArt(album, known)
-                albumArtThisRun[album] = known
+                musicRepository.setAlbumArt(album, albumArtist, known)
+                albumArtThisRun[runKey] = known
                 return ArtOutcome.RESOLVED
             }
         }
@@ -240,8 +253,8 @@ class LightMetadataFetcher @Inject constructor(
 
         if (groupable) {
             // Compartir con todo el álbum, sin pisar las que ya tuvieran carátula propia.
-            musicRepository.setAlbumArt(album, uri)
-            albumArtThisRun[album] = uri
+            musicRepository.setAlbumArt(album, albumArtist, uri)
+            albumArtThisRun[runKey] = uri
         } else {
             musicRepository.updateAlbumArtUri(songId, uri)
         }

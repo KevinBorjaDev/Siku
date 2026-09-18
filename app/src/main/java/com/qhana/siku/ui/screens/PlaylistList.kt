@@ -22,7 +22,6 @@ import com.qhana.siku.R
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.repository.PlaylistCoverMeta
 import com.qhana.siku.ui.components.AppMenuPopup
-import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.GroupedListRow
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.MenuItemIcon
@@ -322,6 +321,19 @@ private fun FavoritesItem(
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
+            // **Las tres piezas de la píldora van en `onSecondaryContainer` CRUDO, y la jerarquía
+            // la hace la TIPOGRAFÍA**: el título es `bodyLargeEmphasized` (Medium) y el conteo
+            // `bodyMedium` (Regular), o sea un salto de tamaño y otro de peso.
+            //
+            // Estuvo derivado con `rememberSecondaryContentColor`, que acerca el tono del contenido
+            // al del contenedor. Esa función sigue siendo la respuesta cuando hace falta un
+            // secundario sobre un contenedor de ACENTO —M3 no define ningún `onXContainerVariant`—,
+            // pero aquí no hacía falta ninguno: entre dos `on*Container` el spec no promete ningún
+            // orden, así que la jerarquía por escala tipográfica es la salida tabulada.
+            //
+            // Y el CHEVRON no es texto de apoyo: es el icono que dice que la píldora NAVEGA, y
+            // atenuarlo lo hacía parecer deshabilitado. En el resto de la app estos van en el `on…`
+            // de su contenedor, sin rebajar.
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.common_favorites),
@@ -331,12 +343,15 @@ private fun FavoritesItem(
                 Text(
                     text = pluralStringResource(R.plurals.song_count, count, count),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = rememberSecondaryContentColor(
-                        AppColors.onSecondaryContainer,
-                        AppColors.secondaryContainer
-                    )
+                    color = AppColors.onSecondaryContainer
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            // Chevron: la píldora NAVEGA, y era la única fila de la pestaña con el trailing vacío
+            // (las de lista llevan play + ⋮), así que el único acceso especial de la pantalla era
+            // también el único que no decía a dónde va. GLIFO y no `IconButton`: el objetivo táctil
+            // es la tarjeta entera, y un botón ahí prometería una segunda acción que no existe.
+            MaterialSymbol("chevron_right", size = 24.sp, color = AppColors.onSecondaryContainer)
         }
     }
 }

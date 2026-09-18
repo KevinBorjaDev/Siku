@@ -54,14 +54,10 @@ import com.qhana.siku.ui.components.ChoiceGroupWidth
 import com.qhana.siku.ui.components.ConnectedChoiceGroup
 import com.qhana.siku.ui.components.LyricsSearchSheet
 import com.qhana.siku.ui.components.MaterialSymbol
-import com.qhana.siku.ui.components.TONAL_LAYER_DELTA
-import com.qhana.siku.ui.components.rememberSecondaryContentColor
-import com.qhana.siku.ui.components.maxContrastOn
 import com.qhana.siku.ui.components.MIN_STEP_MS
 import com.qhana.siku.ui.components.pixelPacedClock
 import com.qhana.siku.ui.state.LyricsFailure
 import com.qhana.siku.ui.theme.AppColors
-import com.qhana.siku.ui.components.rememberTonalLayerColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.viewmodel.LyricLine
 import kotlinx.coroutines.coroutineScope
@@ -234,6 +230,17 @@ fun LyricsScreen(
     backgroundColor: Color,
     contentColor: Color,
     accentColor: Color,
+    /**
+     * Contenido sobre [accentColor], DECIDIDO POR QUIEN LO PINTA (el play del NowPlaying) y no aquí.
+     *
+     * El acento de esta pantalla es el mismo `primary` que el botón de play que hay debajo, así que
+     * las piezas que lo usan de relleno —la píldora del toggle, el botón de acción del estado
+     * vacío— no pueden elegir su contenido por su cuenta: cuando lo hacían (`maxContrastOn`, o sea
+     * blanco/negro por contraste bruto) la etiqueta salía NEGRA sobre el mismo azul donde el play
+     * llevaba glifo BLANCO. A tono ~50 los dos lados están empatados (4,65:1 el negro, 4,52:1 el
+     * blanco), y ese empate no se puede resolver dos veces por separado.
+     */
+    accentContentColor: Color,
     modifier: Modifier = Modifier
 ) {
     // La posición NO se lee aquí: se pasa el flow hacia abajo y solo la vista sincronizada lo
@@ -267,11 +274,17 @@ fun LyricsScreen(
     // caso sin red directamente engañosos.
     val showEmptyState = !isResolving && lyrics == null && lyricLines.isEmpty()
 
-    // Acento "seguro": el del álbum si contrasta con el fondo, si no contentColor.
-    // Se usa para los iconos del header, el pill del toggle y la línea activa.
-    val safeAccent = remember(accentColor, backgroundColor, contentColor) {
-        safeAccentColor(accentColor, backgroundColor, contentColor)
-    }
+    // **El acento y su contenido llegan TAL CUAL del reproductor**: `primary` y `onPrimary` (ver el
+    // caller en `NowPlayingScreen`), el par que M3 tabula.
+    //
+    // Hubo un `safeAccentColor` que comprobaba 3,0:1 contra el fondo y, si no llegaba, caía a
+    // `contentColor`; y un `maxContrastOn` que reponía el contenido en blanco o negro para ese caso.
+    // La guarda no podía saltar nunca: **el fondo de esta pantalla es `surfaceContainer`**, un rol,
+    // y con el color spec 2021 el tono de los dos es una constante — peor caso medido sobre los
+    // cuatro esquemas y los dos temas, 5,51:1. Era una rama muerta que además obligaba a resolver
+    // el contenido por contraste en vez de por el par.
+    val safeAccent = accentColor
+    val onSafeAccent = accentContentColor
 
     // State initialization
     var viewMode by remember { mutableStateOf(if (hasSyncedData) LyricsViewMode.SYNCED else LyricsViewMode.PLAIN) }
@@ -341,7 +354,7 @@ fun LyricsScreen(
                     LyricsModeToggle(
                         viewMode = viewMode,
                         pillColor = safeAccent,
-                        contentColor = contentColor,
+                        activeContentColor = onSafeAccent,
                         onModeChange = { viewMode = it }
                     )
                 } else {
@@ -403,6 +416,7 @@ fun LyricsScreen(
                         errorDetail = lyricsError,
                         contentColor = contentColor,
                         accentColor = safeAccent,
+                        accentContentColor = onSafeAccent,
                         onFetchLyrics = onFetchLyrics,
                         onSearchManually = onSearchManually,
                         onGoogleSearch = onGoogleSearch
@@ -485,8 +499,7 @@ fun LyricsScreen(
                 LyricsTimingBar(
                     shiftMs = lyricsShiftMs,
                     onShift = onShiftLyrics,
-                    accentColor = safeAccent,
-                    backgroundColor = backgroundColor
+                    accentColor = safeAccent
                 )
             }
 
@@ -705,20 +718,6 @@ fun LyricsScreen(
 }
 
 /**
- * Acento "seguro": devuelve [accent] si contrasta bien con [background]; si no,
- * cae a [fallback] (blanco/negro) para garantizar legibilidad.
- * Umbral 3.0 ≈ mínimo WCAG para texto grande.
- */
-private fun safeAccentColor(accent: Color, background: Color, fallback: Color): Color {
-    val contrast = androidx.core.graphics.ColorUtils.calculateContrast(
-        accent.toArgb(),
-        // calculateContrast exige fondo opaco; albumPrimary debería serlo, pero forzamos.
-        androidx.core.graphics.ColorUtils.setAlphaComponent(background.toArgb(), 255)
-    )
-    return if (contrast >= 3.0) accent else fallback
-}
-
-/**
  * Toggle Karaoke/Texto con el connected button group de M3 Expressive (el segmentado que usaba
  * antes dejó de estar recomendado). El botón activo se tiñe con [pillColor] y morfea de forma;
  * los springs los pone el `MotionScheme` del tema.
@@ -727,20 +726,22 @@ private fun safeAccentColor(accent: Color, background: Color, fallback: Color): 
 private fun LyricsModeToggle(
     viewMode: LyricsViewMode,
     pillColor: Color,
-    contentColor: Color,
+    /**
+     * Contenido del segmento ACTIVO. Llega decidido desde fuera y no se calcula aquí: la píldora es
+     * el mismo color que el play del transporte, y dos piezas del mismo color no pueden resolver por
+     * separado un empate que a tono ~50 se juega en centésimas. Lo hizo dos veces, y cada vez el
+     * arreglo dejó al otro lado mal: primero "Karaoke" claro con el play oscuro (de ahí que naciera
+     * el `maxContrastOn` que estaba aquí), y el 10 sep 2026 al revés.
+     */
+    activeContentColor: Color,
     onModeChange: (LyricsViewMode) -> Unit
 ) {
-    // Contenido del segmento activo: blanco/negro por CONTRASTE real (`maxContrastOn`), NO por el
-    // umbral de luminancia 0.5. Sobre un acento medio (0.18 < L < 0.5) aquel umbral elegía blanco
-    // cuando el negro contrasta el doble, así que "Karaoke" salía claro sobre la píldora clara del
-    // acento mientras el play, del mismo color, iba con glifo oscuro — la inconsistencia reportada.
-    val activeContentColor = remember(pillColor) { maxContrastOn(pillColor) }
     // Connected button group (el segmentado dejó de recomendarse en M3 Expressive). El fondo de
     // esta pantalla es `surfaceContainer` (rol del scheme), así que el segmento INACTIVO usa roles
     // del scheme y NO un alpha sobre el contenido: contenedor tenue `surfaceContainerHighest` (un
     // escalón por encima del fondo, para leerse como botón sin competir con la píldora activa) y
     // contenido `onSurfaceVariant`. La píldora ACTIVA sí es el acento dinámico del álbum (`pillColor`),
-    // con su contenido decidido por contraste unas líneas más arriba.
+    // con su contenido puesto desde fuera (ver [activeContentColor]).
     val colors = ToggleButtonDefaults.toggleButtonColors(
         containerColor = AppColors.surfaceContainerHighest,
         contentColor = AppColors.onSurfaceVariant,
@@ -783,10 +784,9 @@ private fun SyncedLyricsView(
     backgroundColor: Color,
     onSeek: (Long) -> Unit
 ) {
-    // Color de la línea activa: acento del álbum con fallback de legibilidad.
-    val activeLineColor = remember(accentColor, backgroundColor, contentColor) {
-        safeAccentColor(accentColor, backgroundColor, contentColor)
-    }
+    // Línea activa: el acento tal cual lo manda el reproductor (ver el bloque del header). El
+    // `safeAccentColor` que había aquí medía contra el mismo fondo de rol y nunca podía caer.
+    val activeLineColor = accentColor
 
     val listState = rememberLazyListState()
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -1268,6 +1268,8 @@ private fun EmptyStateView(
     errorDetail: String?,
     contentColor: Color,
     accentColor: Color,
+    /** Contenido sobre [accentColor]; ver el parámetro homónimo de [LyricsScreen]. */
+    accentContentColor: Color,
     onFetchLyrics: () -> Unit,
     onSearchManually: () -> Unit,
     onGoogleSearch: () -> Unit
@@ -1325,15 +1327,15 @@ private fun EmptyStateView(
         ) {
             when (failure) {
                 LyricsFailure.NO_NETWORK -> {
-                    LyricsActionButton("refresh", stringResource(R.string.common_retry), accentColor, primary = true, onClick = onFetchLyrics, modifier = Modifier.fillMaxWidth())
+                    LyricsActionButton("refresh", stringResource(R.string.common_retry), accentColor, accentContentColor, primary = true, onClick = onFetchLyrics, modifier = Modifier.fillMaxWidth())
                 }
                 LyricsFailure.PROVIDER_ERROR -> {
-                    LyricsActionButton("refresh", stringResource(R.string.common_retry), accentColor, primary = true, onClick = onFetchLyrics, modifier = Modifier.fillMaxWidth())
-                    LyricsActionButton("travel_explore", stringResource(R.string.lyrics_search_google), accentColor, primary = false, onClick = onGoogleSearch, modifier = Modifier.fillMaxWidth())
+                    LyricsActionButton("refresh", stringResource(R.string.common_retry), accentColor, accentContentColor, primary = true, onClick = onFetchLyrics, modifier = Modifier.fillMaxWidth())
+                    LyricsActionButton("travel_explore", stringResource(R.string.lyrics_search_google), accentColor, accentContentColor, primary = false, onClick = onGoogleSearch, modifier = Modifier.fillMaxWidth())
                 }
                 else -> {
-                    LyricsActionButton("manage_search", stringResource(R.string.lyrics_search_alternatives), accentColor, primary = true, onClick = onSearchManually, modifier = Modifier.fillMaxWidth())
-                    LyricsActionButton("travel_explore", stringResource(R.string.lyrics_search_google), accentColor, primary = false, onClick = onGoogleSearch, modifier = Modifier.fillMaxWidth())
+                    LyricsActionButton("manage_search", stringResource(R.string.lyrics_search_alternatives), accentColor, accentContentColor, primary = true, onClick = onSearchManually, modifier = Modifier.fillMaxWidth())
+                    LyricsActionButton("travel_explore", stringResource(R.string.lyrics_search_google), accentColor, accentContentColor, primary = false, onClick = onGoogleSearch, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -1351,6 +1353,8 @@ private fun LyricsActionButton(
     icon: String,
     label: String,
     accentColor: Color,
+    /** Contenido sobre [accentColor] cuando el botón es LLENO; ver [LyricsScreen]. */
+    accentContentColor: Color,
     primary: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1359,9 +1363,9 @@ private fun LyricsActionButton(
     // del acento del álbum en vez de Surface artesanal.
     val contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
     if (primary) {
-        // Contenido sobre el acento: `maxContrastOn` (contraste WCAG real), no el umbral de
-        // luminancia 0.5, por el mismo motivo que el toggle Karaoke y el icono del chip.
-        val content = maxContrastOn(accentColor)
+        // El contenido NO se decide aquí: este relleno es el mismo `primary` que el play, y el
+        // empate a tono ~50 ya lo resolvió quien pinta aquél (ver [LyricsScreen.accentContentColor]).
+        val content = accentContentColor
         Button(
             onClick = onClick,
             modifier = modifier,
@@ -1418,40 +1422,42 @@ private fun LyricsTimingBar(
     shiftMs: Long,
     onShift: (Long?) -> Unit,
     accentColor: Color,
-    /** Fondo sobre el que se apoya la fila: de él se DERIVA su contenedor, ver abajo. */
-    backgroundColor: Color,
     modifier: Modifier = Modifier
 ) {
     // **Contenedor propio y no controles sueltos sobre el fondo** (device, 31 ago 2026). Sin él la
     // fila flotaba sobre la letra con el mismo fondo, así que las cifras se leían como un verso más
-    // —y encima quedaban a la altura donde el usuario está buscando texto—. El color se DERIVA del
-    // fondo real con `tonalLayerContainer` en vez de tomar un rol fijo: aquí el fondo lo pone la
-    // carátula, así que ningún rol puede prometer separación (es la regla de la horquilla de
-    // superficies, y el mismo criterio que la píldora de búsqueda o el chip de origen).
-    val layer = rememberTonalLayerColors(background = backgroundColor)
-    // **Del MISMO fondo con el DOBLE de separación, no encadenado sobre `layer`.** Es la regla que
-    // documenta `rememberTonalLayerColors`: fondo → barra → círculo son tres capas con "aléjate del
-    // extremo", y sobre un fondo de tono medio el segundo paso invierte el sentido y devuelve el
-    // círculo al color de la barra. Pidiéndole a las dos su distancia al mismo fondo, la dirección
-    // la decide una sola vez el tono medido y apilan hacia el mismo lado. Mismo criterio que el
-    // indicador activo del toolbar de la biblioteca.
-    val valueLayer = rememberTonalLayerColors(
-        background = backgroundColor,
-        delta = TONAL_LAYER_DELTA * 2
-    )
-    val valueContainer = valueLayer.container
-    // Sin ajuste puesto, el valor es contenido SECUNDARIO, y eso en esta app se hace acercando el
-    // TONO al del contenedor —no bajando el alfa—: un alfa fijo da un contraste que depende de lo
-    // que haya debajo, y aquí lo que hay debajo lo pone la carátula. Se calcula SIEMPRE y no dentro
-    // del `if` (convención 15: un composable con estado no va en una condición).
-    val idleValueColor = rememberSecondaryContentColor(valueLayer.content, valueContainer)
+    // —y encima quedaban a la altura donde el usuario está buscando texto—.
+    //
+    // **El escalón superior de la escala neutra, `surfaceContainerHighest`.** La página de las
+    // letras es `surfaceContainer` (ver el caller en `NowPlayingScreen`), así que la barra queda un
+    // peldaño por encima: 4 puntos de tono en claro y 10 en oscuro. Modesto a propósito — su trabajo
+    // es AGRUPAR los cinco controles, no destacar.
+    val barContainer = AppColors.surfaceContainerHighest
+
+    // **La píldora del valor dice con su COLOR si hay ajuste puesto**, y eso reemplaza a la capa
+    // tonal que llevaba antes:
+    //  - Sin ajuste, `surfaceContainer` — el color de la propia página, así que se lee como un
+    //    HUECO en la barra: no hay nada puesto. Su cifra va en `onSurfaceVariant`, el secundario
+    //    tabulado de la escala neutra.
+    //  - Con ajuste, el par lleno `primary`/`onPrimary`: es el ancla de la fila, lo que hay que leer
+    //    de un vistazo.
+    //
+    // **Estuvieron DERIVADAS las dos capas** con `rememberTonalLayerColors` desde el mismo fondo,
+    // una a 8 puntos y otra a 16, más un `rememberSecondaryContentColor` para la cifra en reposo. El
+    // motivo era que "aquí el fondo lo pone la carátula", y eso NO es cierto: el fondo es un rol
+    // (`surfaceContainer`), lo que la carátula tiñe es el esquema entero. Lo que sí sigue siendo
+    // verdad es que **dos superficies neutras anidadas no caben en tema claro** — medido, toda la
+    // familia vive entre T90 y T94—, y por eso el segundo nivel es de acento y no otro neutro.
+    val hasShift = shiftMs != 0L
+    val valueContainer = if (hasShift) AppColors.primary else AppColors.surfaceContainer
+    val valueContentColor = if (hasShift) AppColors.onPrimary else AppColors.onSurfaceVariant
     AppSurface(
         modifier = modifier
             .fillMaxWidth()
             // Separada de los controles: pegada al transporte las dos piezas se leían como un solo
             // bloque de mandos, y el ajuste es de otra naturaleza —corrige el DATO, no reproduce—.
             .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = TimingBarBottomGap),
-        color = layer.container,
+        color = barContainer,
         shape = CircleShape
     ) {
         Row(
@@ -1491,7 +1497,7 @@ private fun LyricsTimingBar(
                         // vistazo— y los pasos son los mandos: el contraste tipográfico es lo que los
                         // separa. Se toca aquí y solo aquí; la escala global de `Type.kt` no cambia.
                         fontWeight = FontWeight.Bold,
-                        color = if (shiftMs == 0L) idleValueColor else accentColor,
+                        color = valueContentColor,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .widthIn(min = TIMING_VALUE_MIN_WIDTH)
@@ -1514,9 +1520,9 @@ private fun LyricsTimingBar(
                 onClick = { onShift(null) },
                 icon = "restart_alt",
                 description = stringResource(R.string.lyrics_timing_reset),
-                // Sin tocar el alfa: `FilledIconButton` deshabilitado usa el `disabledContentColor`
-            // que M3 tabula, así que un `copy(alpha = …)` aquí no llegaba ni a aplicarse.
-            contentColor = accentColor,
+                // El estado deshabilitado lo resuelve [ExpressiveActionIcon] con los cuatro roles
+                // explícitos; aquí solo va el color de reposo.
+                contentColor = accentColor,
                 iconSize = 20.sp,
                 enabled = shiftMs != 0L
             )

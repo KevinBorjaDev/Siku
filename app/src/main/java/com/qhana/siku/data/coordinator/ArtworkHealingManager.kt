@@ -2,6 +2,7 @@ package com.qhana.siku.data.coordinator
 
 import androidx.core.net.toUri
 import com.qhana.siku.data.config.AppConfig
+import com.qhana.siku.data.local.albumIdentityKey
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.repository.ArtworkRepository
 import com.qhana.siku.data.repository.IMusicRepository
@@ -197,6 +198,8 @@ class ArtworkHealingManager @Inject constructor(
         // UNA vez y sirve para todas sus canciones. La herencia va antes que la re-extracción
         // (al revés que en el healing de huérfanas): aquí se recorre la biblioteca entera y una
         // consulta es órdenes de magnitud más barata que abrir un MediaMetadataRetriever.
+        // La identidad del álbum, no su nombre: dos homónimos de distinto artista del álbum son dos
+        // discos y no se heredan la portada (ver `SongDao.getAlbumArtUri`).
         var currentAlbum: String? = null
         var albumArt: String? = null
         val attempted = ArrayList<String>(songs.size)
@@ -209,12 +212,12 @@ class ArtworkHealingManager @Inject constructor(
                 if (!groupable) {
                     currentAlbum = null
                     albumArt = null
-                } else if (song.album != currentAlbum) {
-                    currentAlbum = song.album
+                } else if (albumIdentityKey(song.album, song.albumArtist) != currentAlbum) {
+                    currentAlbum = albumIdentityKey(song.album, song.albumArtist)
                     albumArt = inheritFromAlbum(song)
                     // Una sola escritura reparte la portada por todo el disco: `setAlbumArt`
                     // alcanza a las hermanas sin portada, que son justo las de esta lista.
-                    if (albumArt != null) musicRepository.setAlbumArt(song.album, albumArt)
+                    if (albumArt != null) musicRepository.setAlbumArt(song.album, song.albumArtist.orEmpty(), albumArt)
                 }
 
                 if (albumArt != null) {
@@ -229,7 +232,7 @@ class ArtworkHealingManager @Inject constructor(
                     is Extraction.Found -> {
                         if (groupable) {
                             // Lo que acaba de salir del archivo vale para el resto del disco.
-                            musicRepository.setAlbumArt(song.album, extraction.uri)
+                            musicRepository.setAlbumArt(song.album, song.albumArtist.orEmpty(), extraction.uri)
                             albumArt = extraction.uri
                         } else {
                             musicRepository.updateAlbumArtUri(song.id, extraction.uri)
@@ -298,7 +301,7 @@ class ArtworkHealingManager @Inject constructor(
      */
     private suspend fun inheritFromAlbum(song: Song): String? {
         if (AppConfig.isUnknownAlbum(song.album)) return null
-        val uri = musicRepository.getAlbumArtUri(song.album) ?: return null
+        val uri = musicRepository.getAlbumArtUri(song.album, song.albumArtist.orEmpty()) ?: return null
         if (!uri.startsWith("file://")) return uri
         return uri.takeIf { File(it.removePrefix("file://")).exists() }
     }

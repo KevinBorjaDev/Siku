@@ -59,10 +59,14 @@ import androidx.navigation.NavBackStackEntry
  *    forma que hace falta cuando un spring no sirve.
  *
  * No es una formalidad, y la diferencia es de mecánica, no de gusto: una transición necesita
- * **duración nominal** porque hay piezas que solo pueden sincronizarse contra un número — la
- * píldora del reproductor espera exactamente lo que dura el slide antes de desmontarse
- * (`snap(delayMillis = …)`), y un shared element tiene que aterrizar a la vez que la pantalla que
- * lo lleva. Un spring no ofrece ninguna de las dos cosas.
+ * **duración nominal** cuando hay algo que solo puede sincronizarse contra un número — la píldora del
+ * reproductor espera exactamente lo que dura el slide antes de desmontarse (`snap(delayMillis = …)`),
+ * y un spring no ofrece eso.
+ *
+ * **Pero el criterio es si el DESTINO se mueve, no si la cosa es "una pantalla".** Un shared element
+ * de navegación llegó a llevar duración por el mismo argumento y estaba mal: su destino vive dentro
+ * de la pantalla que entra, que escala durante toda la transición, y un spec de duración al
+ * re-apuntar reinicia. Ver [AppBoundsTransform], que por eso es un spring del [MotionScheme].
  *
  * Había un segundo motivo —el **predictive back** recorría la transición con el dedo
  * (`SeekableTransitionState`), y una duración nominal es más predecible de recorrer que la duración
@@ -340,26 +344,44 @@ val AppRevealSpec: FiniteAnimationSpec<Float> =
 
 /**
  * Motion de los shared elements que viajan CON una transición del `NavHost` (foto de artista,
- * portada de álbum, tarjetas del home → detalle): mismo easing y duración que la pantalla que los
- * transporta, o el elemento aterriza en otro momento que su destino.
+ * portada de álbum, tarjetas del home → detalle).
  *
- * Sin esto la API de shared transitions aplica su propio default (`spring(StiffnessMediumLow)`),
- * ajeno a la duración del `NavHost`. **Es un container transform, o sea una TRANSICIÓN**: por eso
- * lleva easing y duración y no un spring del `MotionScheme`.
+ * Es el **MISMO [MorphBoundsSpec] que [AppContainerBoundsTransform]**, o sea el spring spatial
+ * *default* del `MotionScheme` STANDARD leído del scheme —no un valor copiado— más el umbral de
+ * visibilidad de `Rect`. Los dos nombres se quedan porque los sitios de llamada significan cosas
+ * distintas (navegación / container transform), pero **el spec es uno solo**: si alguno tuviera que
+ * apartarse, hay que escribir el motivo.
  *
- * **La carátula del reproductor (píldora/fila ↔ NowPlaying) YA NO lo usa** (16 ago): desde que el
- * player es un container transform con [AppContainerBoundsTransform], la portada viaja con ESE mismo
- * spring, para aterrizar con la superficie que la lleva. La lección que dejó esta constante sigue
- * valiendo: un shared element tiene que asentar A LA VEZ que lo que lo transporta — cuando el player
- * era un slide de 500 ms y la portada iba con el spring default de la API (~300 ms) aterrizaba primero
- * y se quedaba flotando quieta, el "flash" del 30 jul; con el contenedor asentando a ~350 y la portada
- * a 500 pasaba lo contrario. Aquí NO se recorta el sobrepaso (ver [ScreenSlideEasing]): un shared
- * element viaja en el overlay y no destapa nada.
+ * ## Por qué DEJÓ de ser un tween (8 sep 2026)
+ *
+ * Estuvo en `tween(`[SCREEN_TRANSFORM_MS]`, `[ExpressiveDefaultSpatialEasing]`)` con el argumento de
+ * que un shared element tiene que asentar A LA VEZ que la pantalla que lo transporta, y que por eso
+ * debía llevar su misma duración. **Ese argumento era correcto y la implementación no lo cumplía.**
+ *
+ * Las cuatro transiciones del `NavHost` son un shared axis Z: la pantalla que ENTRA escala de
+ * [SHARED_AXIS_Z_FAR_SCALE] a 1 durante [SCREEN_TRANSFORM_MS]. La punta destino vive DENTRO de esa
+ * capa, así que **sus bounds se mueven durante los 500 ms enteros**. Y un `Transition` con spec de
+ * duración, al cambiarle el destino, **reinicia la animación completa desde cero** — cada frame. El
+ * resultado medido sobre una grabación: un vuelo de ~1,6 s con un spec de 500 ms, persiguiendo
+ * asintóticamente un destino que se mueve, y con la carátula translúcida todo ese rato porque los
+ * fades del contenido sí duran lo que dice el spec.
+ *
+ * Un spring re-apunta **conservando la velocidad** y converge. Y de paso cumple el argumento original
+ * mejor que el tween: como el destino se mueve con la pantalla, la punta lo persigue y **aterriza
+ * cuando la pantalla se para**, en vez de correr un reloj propio en paralelo.
+ *
+ * Los dos son motion de M3 Expressive publicado; lo que cambia es la FORMA (ver el encabezado de este
+ * archivo). Una transición de pantalla se expresa en easing + duración porque nada le mueve el
+ * destino; unos bounds que cambian son un COMPONENTE, y para eso el `MotionScheme` ya trae el spec —
+ * su KDoc dice literalmente "animaciones que cambian la FORMA o los BOUNDS de un componente".
+ *
+ * **La lección del "flash" del 30 jul sigue viva y NO la contradice**: entonces la portada iba con el
+ * spring *default de la API* (`StiffnessMediumLow`, ajeno al tema) contra un slide de 500 ms, y
+ * aterrizaba antes y se quedaba parada. Aquello era un destino QUIETO alcanzado demasiado pronto; esto
+ * es un destino MÓVIL al que hay que seguir. NO reintroducir el spring por defecto de la API.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
-val AppBoundsTransform = BoundsTransform { _, _ ->
-    tween(SCREEN_TRANSFORM_MS, easing = ExpressiveDefaultSpatialEasing)
-}
+val AppBoundsTransform = BoundsTransform { _, _ -> MorphBoundsSpec }
 
 /**
  * BoundsTransform del *container transform* píldora/fila ↔ player (ver [com.qhana.siku.ui.PlayerOverlay]).
@@ -413,15 +435,17 @@ val AppBoundsTransform = BoundsTransform { _, _ ->
  * antes de fabricar una curva a mano conviene mirar si el `MotionScheme` ya trae el spec correcto.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
-val AppContainerBoundsTransform = BoundsTransform { _, _ -> ContainerBoundsSpec }
+val AppContainerBoundsTransform = BoundsTransform { _, _ -> MorphBoundsSpec }
 
 /**
- * El spring de [AppContainerBoundsTransform], construido UNA vez: los valores (damping/stiffness) son
- * los del token y no se copian — se leen del `SpringSpec` que devuelve el scheme y solo se le añade el
- * umbral de visibilidad de `Rect`. Si el scheme dejara de devolver un `SpringSpec`, se usa tal cual.
+ * **El único spec de bounds de la app**: lo comparten [AppBoundsTransform] (shared elements de
+ * navegación) y [AppContainerBoundsTransform] (container transform del reproductor). Construido UNA
+ * vez, y los valores (damping/stiffness) **no se copian del token: se leen del `SpringSpec` que
+ * devuelve el scheme**, al que solo se le añade el umbral de visibilidad de `Rect`. Si el scheme
+ * dejara de devolver un `SpringSpec`, se usa tal cual.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private val ContainerBoundsSpec: FiniteAnimationSpec<Rect> =
+private val MorphBoundsSpec: FiniteAnimationSpec<Rect> =
     MotionScheme.standard().defaultSpatialSpec<Rect>().let { spec ->
         (spec as? SpringSpec<*>)
             ?.let { spring<Rect>(it.dampingRatio, it.stiffness, Rect.VisibilityThreshold) }
@@ -432,11 +456,14 @@ private val ContainerBoundsSpec: FiniteAnimationSpec<Rect> =
  * Cambio de COLOR que acompaña a una transición de pantalla — hoy, el `ColorScheme` propio de un
  * detalle de artista o de álbum, que se deriva de la imagen de SU header (ver `DetailContentTheme`).
  *
- * Comparte [SCREEN_TRANSFORM_MS] con [AppBoundsTransform] y con el slide del `NavHost` por el mismo
- * motivo que ellos entre sí: la carátula que viaja hacia el header y el color que sale de esa misma
- * carátula son **una sola cosa** para quien mira. Si el color acabara antes, la pantalla ya estaría
- * teñida mientras la portada todavía va por el aire; si acabara después, la portada aterrizaría y el
- * color seguiría moviéndose por detrás.
+ * Comparte [SCREEN_TRANSFORM_MS] con el slide del `NavHost`: la carátula que viaja hacia el header y
+ * el color que sale de esa misma carátula son **una sola cosa** para quien mira. Si el color acabara
+ * antes, la pantalla ya estaría teñida mientras la portada todavía va por el aire; si acabara después,
+ * la portada aterrizaría y el color seguiría moviéndose por detrás.
+ *
+ * **Ya NO comparte el número con [AppBoundsTransform]**, que desde el 8 sep 2026 es un spring — pero
+ * sigue cuadrando, y por una razón mejor: ese spring persigue un destino que se mueve CON la pantalla,
+ * así que asienta cuando la pantalla asienta, o sea a los mismos [SCREEN_TRANSFORM_MS].
  *
  * **La curva sí es distinta, y tiene que serlo**: los tokens *spatial* sobrepasan (y1 > 1) y eso
  * sobre un color EXTRAPOLA fuera del segmento entre los dos valores — la regla de la sección de
@@ -641,6 +668,36 @@ fun appContainerSurfaceExitSpec(): FiniteAnimationSpec<Float> =
 /** Exit RÁPIDO del container transform, para la superficie CHICA (la píldora) — ver [appContainerSurfaceExitSpec]. */
 fun appContainerContentExitFast(): ExitTransition =
     fadeOut(tween(EXPRESSIVE_FAST_EFFECTS_MS, easing = ExpressiveFastEffectsEasing))
+
+/**
+ * Cruce de contenidos de un shared element de ENTIDAD (foto de artista, portada de álbum → header del
+ * detalle): [com.qhana.siku.ui.components.entityImageSharedBounds].
+ *
+ * **Es rápido, y esa es la regla, no un ajuste**: el KDoc de [AppContainerBoundsTransform] ya la deja
+ * escrita — *los fades del CONTENIDO son más cortos que el asentado del bounds a propósito, para que
+ * la superficie no deje residuo*. Aquí las dos puntas envuelven una imagen OPACA, así que mientras el
+ * fundido corre se ve el fondo A TRAVÉS de ellas.
+ *
+ * Estuvo en [appFadeEnter]/[appFadeExit], o sea [SCREEN_TRANSFORM_MS], y era coherente mientras el
+ * morph fuese un tween de esa misma duración — su propio KDoc dice que manda el morph al que
+ * acompañan. Desde que [AppBoundsTransform] es un spring del [MotionScheme] (8 sep 2026) el morph
+ * asienta en ~330 ms con el recorrido visible despachado en ~130, así que un cruce de 500 dejaba la
+ * carátula translúcida bastante después de haber aterrizado: el usuario lo describió como *"se
+ * visualiza por unos segundos por atrás y luego aparece por adelante"*.
+ *
+ * El token es el *fast* de effects, que es lo que M3 publica para lo que "debe estar ya visible (o ya
+ * ido)" enseguida. **No es [EnterTransition.None]** —el `FADE_MODE_OUT` que sí usa el container
+ * transform del reproductor— porque aquí las dos puntas son LA MISMA IMAGEN con distinto encuadre: sin
+ * cruce, el encuadre cambiaría de golpe en el primer frame. Con cruce rápido se resuelve en 150 ms y
+ * el resto del vuelo la imagen va sólida.
+ */
+fun appEntityContentEnter(): EnterTransition = fadeIn(EntityContentFadeSpec)
+
+/** Contrario de [appEntityContentEnter]. Mismo spec: el cruce es simétrico. */
+fun appEntityContentExit(): ExitTransition = fadeOut(EntityContentFadeSpec)
+
+private val EntityContentFadeSpec =
+    tween<Float>(EXPRESSIVE_FAST_EFFECTS_MS, easing = ExpressiveFastEffectsEasing)
 
 /*
  * La RAMA saliente del `AnimatedContent` de la capa del reproductor NO lleva exit propio: usa

@@ -8,6 +8,7 @@ import com.qhana.siku.data.model.ReplayGainMode
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.preferences.MusicPreferences
 import com.qhana.siku.ui.viewmodel.LibraryBannerState
 
@@ -21,8 +22,8 @@ data class SearchFilterState(
 
 @Stable
 data class SortingState(
-    val sortOrderAll: SortOrder = SortOrder.TITLE_ASC,
-    val sortOrderFavorites: SortOrder = SortOrder.TITLE_ASC
+    val sortOrderAll: SortSpec<SortOrder> = SortOrder.DEFAULT,
+    val sortOrderFavorites: SortSpec<SortOrder> = SortOrder.DEFAULT
 )
 
 @Stable
@@ -86,8 +87,8 @@ data class LibraryUiState(
     val searchQuery: String get() = searchFilter.searchQuery
     val showSearch: Boolean get() = searchFilter.showSearch
     val sourceFilters: Set<SongSourceFilter> get() = searchFilter.sourceFilters
-    val sortOrderAll: SortOrder get() = sorting.sortOrderAll
-    val sortOrderFavorites: SortOrder get() = sorting.sortOrderFavorites
+    val sortOrderAll: SortSpec<SortOrder> get() = sorting.sortOrderAll
+    val sortOrderFavorites: SortSpec<SortOrder> get() = sorting.sortOrderFavorites
     val playlists: List<Playlist> get() = data.playlists
     val favorites: Set<String> get() = data.favorites
     val favoriteSongs: List<Song> get() = data.favoriteSongs

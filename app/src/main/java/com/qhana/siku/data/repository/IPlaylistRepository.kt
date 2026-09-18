@@ -4,6 +4,7 @@ import androidx.paging.PagingData
 import com.qhana.siku.data.model.Playlist
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import kotlinx.coroutines.flow.Flow
 
 /** Metadatos de portada de una playlist para la pestaña Listas: conteo + hasta 4 carátulas. */
@@ -21,6 +22,9 @@ interface IPlaylistRepository {
     fun getPlaylistsCoverMeta(): Flow<Map<Long, PlaylistCoverMeta>>
 
     suspend fun createPlaylist(name: String): Long
+
+    /** Nombre de la lista, para los avisos de confirmación. `null` si ya no existe. */
+    suspend fun getPlaylistName(playlistId: Long): String?
 
     /** Borra la playlist y sus cross-refs de la BD (hard-delete). */
     suspend fun deletePlaylist(playlistId: Long)
@@ -53,14 +57,18 @@ interface IPlaylistRepository {
      */
     suspend fun ensureFavoritesPlaylist()
 
-    suspend fun toggleFavorite(songId: String)
+    /** Devuelve el estado RESULTANTE: `true` si la canción quedó en favoritos. */
+    suspend fun toggleFavorite(songId: String): Boolean
 
     /** Alta en lote a favoritos (mismo contrato que [addSongsToPlaylist]). */
     suspend fun addSongsToFavorites(songIds: List<String>): Int
 
     fun getFavoritesIds(): Flow<Set<String>>
     fun getFavoritesSongs(): Flow<List<Song>>
-    fun getFavoritesPaging(query: String = "", sortOrder: SortOrder = SortOrder.TITLE_ASC): Flow<PagingData<Song>>
+    fun getFavoritesPaging(
+        query: String = "",
+        sortOrder: SortSpec<SortOrder> = SortOrder.DEFAULT
+    ): Flow<PagingData<Song>>
 
     /** Lista completa (no paginada) de favoritos con la misma búsqueda + orden que [getFavoritesPaging]. Para construir la cola. */
     suspend fun getFavoritesSnapshot(query: String = ""): List<Song>

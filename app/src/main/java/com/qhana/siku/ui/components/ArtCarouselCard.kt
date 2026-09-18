@@ -71,13 +71,15 @@ private const val LabelSubtitleAlpha = 0.8f
  * Vivió como `private` en `HomeScreen` hasta el 30 ago 2026, cuando el ranking de estadísticas
  * necesitó la misma tarjeta.
  *
- * @param modifier llega con el recorte del carrusel (`maskClip`) donde lo haya.
+ * @param modifier **trae el recorte**: la tarjeta no se lo pone ella. En los carruseles de la app lo
+ *   pone el llamador (`.clip(...)`), porque `KeylineCarousel` —al revés que el de M3— no enmascara
+ *   nada desde fuera.
  * @param artModifier para el shared element de la carátula (álbumes, artistas).
  * @param badgeIcon distintivo de tipo, esquina superior derecha.
  * @param isCurrent indicador de "en reproducción", también superior derecha.
  * @param labelAlpha alfa de la etiqueta y su degradado. `1f` fijo cuando TODAS las tarjetas deben
- *   leerse a la vez —un ranking, donde se compara—; en un `HorizontalMultiBrowseCarousel` se pasa el
- *   del ítem, para que solo el que está en foco muestre su texto.
+ *   leerse a la vez —un ranking, donde se compara—; en un carrusel de keylines se pasa el del ítem
+ *   (`KeylineItemScope.revealFraction`), para que solo el que está en foco muestre su texto.
  */
 @Composable
 fun ArtCarouselCard(
@@ -144,13 +146,19 @@ fun ArtCarouselCard(
         // collage de portadas claras desaparece, y es el mismo motivo por el que existe el
         // degradado de la etiqueta de abajo. Va con el alfa del label para que en el multi-browse
         // los ítems que solo asoman enseñen su portada limpia, igual que hacen con el título.
+        //
+        // **El velo es el rol `scrim`** (antes `Color.Black`): es el que M3 define para exactamente
+        // esto. El alfa se queda —aquí la opacidad ES el efecto, no un color derivado—, y el
+        // contenido encima sigue en `Color.White` porque **lo que hay debajo es una IMAGEN y no un
+        // rol**: M3 no tabula ningún `on…` para eso, y blanco sobre scrim es el patrón. Es el mismo
+        // criterio del texto de la etiqueta, unas líneas más abajo.
         val emblem = emblemIcon
         if (emblem != null && !collage.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = labelAlpha() }
-                    .background(Color.Black.copy(alpha = ARTWORK_SCRIM_ALPHA)),
+                    .background(AppColors.scrim.copy(alpha = ARTWORK_SCRIM_ALPHA)),
                 contentAlignment = Alignment.Center
             ) {
                 MaterialSymbol(emblem, fill = true, size = EmblemGlyphSize, color = Color.White)
@@ -166,7 +174,7 @@ fun ArtCarouselCard(
                 .background(
                     Brush.verticalGradient(
                         LabelScrimStart to Color.Transparent,
-                        1f to Color.Black.copy(alpha = LabelScrimAlpha)
+                        1f to AppColors.scrim.copy(alpha = LabelScrimAlpha)
                     )
                 )
         )
@@ -197,33 +205,38 @@ fun ArtCarouselCard(
             }
         }
 
-        // Distintivo de tipo (esquina superior DERECHA).
-        if (badgeIcon != null) {
-            val badge = vividAccentColor(AppColors.primary)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(badge)
-                    .padding(4.dp)
-            ) {
-                MaterialSymbol(badgeIcon, size = 16.sp, color = onContainerColor(badge))
-            }
+        // **UN SOLO distintivo en la esquina superior derecha, y "en reproducción" GANA.**
+        //
+        // Los dos se dibujaban en `Alignment.TopEnd` con el mismo padding, cada uno bajo su propio
+        // `if`: con `badgeIcon` e `isCurrent` a la vez quedaban UNO ENCIMA DEL OTRO. Hoy ningún
+        // caller pasa los dos —el carrusel de canciones manda `isCurrent` y los otros dos
+        // `badgeIcon`—, así que el solape estaba a un parámetro de distancia y no lo impedía nada.
+        // Con un `when` la posición tiene un solo dueño y el orden es una decisión escrita: qué
+        // suena AHORA es más urgente que de qué tipo es la tarjeta.
+        //
+        // **Color: el par tabulado `primary`/`onPrimary`.** Lo que hay que garantizar es el glifo
+        // contra SU PROPIO relleno, y de eso se encarga el par; que el sello se despegue de la
+        // portada lo hace por ser un bloque sólido, que es como M3 pinta un badge sobre una imagen.
+        //
+        // Estuvo en `vividAccentColor(primary)` —saturación y brillo forzados a una banda vívida—
+        // con el glifo en `onContainerColor`, que elige blanco o negro por luminancia: dos
+        // derivaciones encadenadas. Hacían falta con el spec 2025, donde `primary` podía salir
+        // lavado y el sello se fundía con la portada; con el 2021 es T40 en claro y T80 en oscuro,
+        // un tono medio macizo que se lee como pieza deliberada sobre cualquier imagen.
+        val badge = when {
+            isCurrent -> "graphic_eq"
+            else -> badgeIcon
         }
-
-        // Indicador de "en reproducción" (esquina superior derecha).
-        if (isCurrent) {
-            val accent = vividAccentColor(AppColors.primary)
+        if (badge != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(8.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(accent)
+                    .background(AppColors.primary)
                     .padding(4.dp)
             ) {
-                MaterialSymbol("graphic_eq", size = 16.sp, color = onContainerColor(accent), fill = true)
+                MaterialSymbol(badge, size = 16.sp, color = AppColors.onPrimary, fill = isCurrent)
             }
         }
     }

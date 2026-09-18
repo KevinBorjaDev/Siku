@@ -1,5 +1,11 @@
 package com.qhana.siku.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -37,6 +43,7 @@ import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +54,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,6 +63,8 @@ import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.SafeBarInsets
 import com.qhana.siku.ui.theme.AppColors
+import com.qhana.siku.ui.theme.appEffectsSpec
+import com.qhana.siku.ui.theme.appFastEffectsSpec
 import com.qhana.siku.ui.theme.appLibraryToolbarItemColors
 import com.qhana.siku.ui.theme.appNavigationRailItemColors
 import com.qhana.siku.ui.theme.appShortNavigationBarItemColors
@@ -69,8 +79,9 @@ import com.qhana.siku.ui.theme.appLibraryToolbarColors
  * `bottomBar`, y antes de eso hubo una imitación con `ShortNavigationBar`; el motivo del cambio es
  * el que el usuario dio al verlas las dos en device: ninguna se siente Expressive. Una fila de
  * pestañas puesta abajo sigue siendo una fila de pestañas — el toolbar flotante es otro
- * componente, con su material, su elevación y sus destinos como `ToggleButton`, que morfean de
- * forma al presionarse.
+ * componente, con su material, su elevación y sus destinos como `ToggleButton`. Lo que NO se
+ * conserva del `ToggleButton` es su motion de fábrica —color que salta y morph al presionar—; ver
+ * [LibraryToolbarDestination].
  *
  * **Lo que se pierde y hay que saberlo**: la fila de arriba SCROLLEA (las seis no caben en 393dp) y
  * un toolbar no puede hacerlo — dentro del contenedor flotante todos los destinos tienen que estar
@@ -80,7 +91,8 @@ import com.qhana.siku.ui.theme.appLibraryToolbarColors
  * El rail es un tercer componente porque su eje es otro: apila en vertical, y ahí no hay píldora
  * con etiqueta al lado que valga. Los colores de los tres salen del MISMO sitio
  * (`appNavigationRailItemColors` / `appLibraryToolbarItemColors` / la píldora de `LibraryTabs`):
- * son proyecciones del MISMO `pagerState.currentPage` y usan el mismo lenguaje de color.
+ * son proyecciones del MISMO destino del pager (`targetPage`; ver la nota junto al
+ * `rememberPagerState` de `LibraryScreen`) y usan el mismo lenguaje de color.
  *
  * **Desde el 7 sep 2026 no divergen en NADA.** El toolbar tuvo su contenedor y su indicador
  * DERIVADOS del fondo mientras el fondo de página fue `surfaceContainer` —o sea el propio token del
@@ -297,54 +309,129 @@ internal fun LibraryBottomToolbar(
             ) {
                 pages.forEachIndexed { index, page ->
                     val selected = index == safeIndex
-                    val label = labels[index]
-                    ToggleButton(
-                        checked = selected,
-                        onCheckedChange = {
+                    LibraryToolbarDestination(
+                        iconName = page.iconName,
+                        label = labels[index],
+                        labelStyle = labelStyle,
+                        selected = selected,
+                        showLabel = showLabel,
+                        onClick = {
                             if (!selected) {
                                 // Tick de segmento: el háptico de moverse dentro de un grupo, el
                                 // mismo que la fila de arriba y el rail.
                                 haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                 onTabSelected(index)
                             }
-                        },
-                        // CircleShape en los tres estados. `ToggleButtonDefaults.shapes()` trae un
-                        // `checkedShape` más CUADRADO —el morph que M3 usa para "esto quedó
-                        // encendido"—, y aquí el estado marcado no es un ajuste sino dónde estás:
-                        // la forma la comparte con la píldora de arriba y el indicador del rail. Lo
-                        // que sí se conserva es el morph del PRESSED, que es el carácter del toque.
-                        shapes = ToggleButtonDefaults.shapes(
-                            shape = CircleShape,
-                            checkedShape = CircleShape
-                        ),
-                        colors = appLibraryToolbarItemColors(),
-                        // Sin sombra propia: ya está dentro de un contenedor elevado, y una segunda
-                        // sombra ahí dentro se lee como suciedad.
-                        elevation = null,
-                        contentPadding = PaddingValues(horizontal = ToolbarItemPadding),
-                        modifier = Modifier
-                            .height(ToolbarItemSize)
-                            // `widthIn` y no `width`: con solo glifo mide 48 exactos (12+24+12), y
-                            // al aparecer la etiqueta crece lo que el texto pida. Con el ajuste de
-                            // tamaño de texto del sistema el glifo también crece —`MaterialSymbol`
-                            // es una fuente— y el mínimo deja de mandar solo.
-                            .widthIn(min = ToolbarItemSize)
-                            // El glifo no lleva descripción, así que sin esto un destino sin
-                            // etiqueta visible sería un botón mudo para el lector de pantalla.
-                            .semantics { contentDescription = label }
-                    ) {
-                        MaterialSymbol(page.iconName, size = TabIconSize, fill = selected)
-                        if (selected && showLabel) {
-                            Spacer(modifier = Modifier.width(ToolbarLabelGap))
-                            Text(
-                                text = label,
-                                style = labelStyle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
                         }
-                    }
+                    )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Un destino del toolbar de la biblioteca: el `ToggleButton` real, con el motion ALINEADO al de la
+ * píldora de `LibraryTabs` y no el que trae de fábrica.
+ *
+ * **El `ToggleButton` de M3 se sentía duro por tres cosas, las tres de la librería** (leídas en las
+ * fuentes de 1.5.0-alpha24, 13 sep 2026):
+ *
+ *  1. **El color SALTA.** `ToggleButton` elige `checkedContainerColor` o `containerColor` y se lo pasa
+ *     crudo al `Surface`, sin animar: el indicador aparecía en un frame y desaparecía en otro.
+ *  2. **Morph al presionar hacia `RoundedCornerShape(6.dp)` con `FastSpatial`**, el token que MÁS
+ *     rebota (damping 0.6). `ToggleButtonDefaults.shapes(shape, checkedShape)` deja el `pressedShape`
+ *     en ese default: del círculo a un casi-cuadrado y de vuelta con rebote, que es el carácter de un
+ *     BOTÓN de acción, no de un destino de navegación.
+ *  3. **La etiqueta aparecía con un `if`**: el destino cambiaba de ancho de golpe y el
+ *     `SpaceBetween` reordenaba a los demás en el mismo frame.
+ *
+ * Lo que se hace, en el mismo orden:
+ *
+ *  1. Los dos colores se animan FUERA con `appEffectsSpec()` (effects: son color, damping 1.0) y se
+ *     pasan como los DOS estados de `ToggleButtonColors`, así el componente reciba lo que reciba ya
+ *     no tiene nada que conmutar. El contenedor inactivo es el MISMO rol a alfa 0 y no
+ *     `Color.Transparent`, por el destello oscuro que ya documenta `LibraryTabs`.
+ *  2. `pressedShape = CircleShape`: forma fija. Queda el ripple del `Surface`, recortado a la píldora,
+ *     que es el mismo acuse de toque que tiene la fila de arriba — y el háptico.
+ *  3. La etiqueta entra con `expandHorizontally` + fade, con los MISMOS specs de effects que
+ *     `LibraryTabs` (entra con el default, sale con el rápido). El ancho se anima, así que el hueco del
+ *     `SpaceBetween` se reparte frame a frame en vez de saltar. Sin rebote porque anima TAMAÑO: un
+ *     spec spatial ahí oscila y cada oscilación es una pasada de layout (ver la nota en `LibraryTabs`).
+ *
+ * Es un composable propio y no el cuerpo del `forEach` para que el scope de recomposición de los dos
+ * `animateColorAsState` sea el destino y no la fila: durante el fundido solo recomponen los dos
+ * destinos que cambian, no los seis.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LibraryToolbarDestination(
+    iconName: String,
+    label: String,
+    labelStyle: TextStyle,
+    selected: Boolean,
+    showLabel: Boolean,
+    onClick: () -> Unit
+) {
+    val baseColors = appLibraryToolbarItemColors()
+    val containerColor by animateColorAsState(
+        targetValue = baseColors.checkedContainerColor.copy(alpha = if (selected) 1f else 0f),
+        animationSpec = appEffectsSpec(),
+        label = "toolbarDestinationContainer"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) baseColors.checkedContentColor else baseColors.contentColor,
+        animationSpec = appEffectsSpec(),
+        label = "toolbarDestinationContent"
+    )
+
+    ToggleButton(
+        checked = selected,
+        onCheckedChange = { onClick() },
+        // CircleShape en los TRES estados. El `checkedShape` de fábrica es más CUADRADO —"esto quedó
+        // encendido"— y aquí el estado marcado no es un ajuste sino dónde estás: la forma la comparte
+        // con la píldora de arriba y el indicador del rail. El `pressedShape` también, ver el KDoc.
+        shapes = ToggleButtonDefaults.shapes(
+            shape = CircleShape,
+            pressedShape = CircleShape,
+            checkedShape = CircleShape
+        ),
+        colors = baseColors.copy(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            checkedContainerColor = containerColor,
+            checkedContentColor = contentColor
+        ),
+        // Sin sombra propia: ya está dentro de un contenedor elevado, y una segunda sombra ahí
+        // dentro se lee como suciedad.
+        elevation = null,
+        contentPadding = PaddingValues(horizontal = ToolbarItemPadding),
+        modifier = Modifier
+            .height(ToolbarItemSize)
+            // `widthIn` y no `width`: con solo glifo mide 48 exactos (12+24+12), y al aparecer la
+            // etiqueta crece lo que el texto pida. Con el ajuste de tamaño de texto del sistema el
+            // glifo también crece —`MaterialSymbol` es una fuente— y el mínimo deja de mandar solo.
+            .widthIn(min = ToolbarItemSize)
+            // El glifo no lleva descripción, así que sin esto un destino sin etiqueta visible sería
+            // un botón mudo para el lector de pantalla.
+            .semantics { contentDescription = label }
+    ) {
+        MaterialSymbol(iconName, size = TabIconSize, fill = selected)
+        AnimatedVisibility(
+            visible = selected && showLabel,
+            enter = expandHorizontally(animationSpec = appEffectsSpec()) +
+                fadeIn(animationSpec = appEffectsSpec()),
+            exit = shrinkHorizontally(animationSpec = appFastEffectsSpec()) +
+                fadeOut(animationSpec = appFastEffectsSpec())
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(ToolbarLabelGap))
+                Text(
+                    text = label,
+                    style = labelStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

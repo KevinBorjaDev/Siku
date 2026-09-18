@@ -4,6 +4,8 @@ import androidx.room.Dao
 import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.RawQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 /** Totales de un periodo. Salen SOLO de `play_events`, así que incluyen canciones ya borradas. */
@@ -45,6 +47,8 @@ data class TopArtistRow(
 data class TopAlbumRow(
     val name: String,
     val artist: String,
+    /** Clave de identidad del álbum (v29), `""` sin tag. Ver `AlbumSummary.albumArtist`. */
+    val albumArtist: String,
     val plays: Int,
     val listenedMs: Long,
     val albumArtUri: String?
@@ -200,22 +204,10 @@ interface PlayEventDao {
      * mismo criterio que `SongDao.getTopPlayedArtistFlow`: tener ese filtro escrito en dos sitios
      * distintos fue exactamente el bug del banner de red medida.
      */
-    @Query(
-        """
-        SELECT s.artist AS name,
-               COUNT(*) AS plays,
-               COALESCE(SUM(e.playedMs), 0) AS listenedMs,
-               COUNT(DISTINCT e.songId) AS songCount,
-               MAX(s.albumArtUriString) AS fallbackArtUri
-        FROM play_events e JOIN songs s ON s.id = e.songId
-        WHERE e.playedAt >= :since AND e.playedAt < :until
-          AND TRIM(s.artist) != '' AND s.artist != :unknownArtist
-        GROUP BY s.artist
-        ORDER BY plays DESC, listenedMs DESC
-        LIMIT :limit
-        """
-    )
-    fun topArtistsFlow(since: Long, until: Long, unknownArtist: String, limit: Int): Flow<List<TopArtistRow>>
+    // Por CRÉDITOS desde la v29 (una escucha de una canción de dos artistas suma para los dos): el
+    // SQL lo arma `StatsScopeQueries.periodTopArtists`.
+    @RawQuery(observedEntities = [PlayEventEntity::class, SongEntity::class, ArtistCreditEntity::class])
+    fun topArtistsFlow(query: SupportSQLiteQuery): Flow<List<TopArtistRow>>
 
     /**
      * El par `TRIM(album) != ''` + `!= :unknownAlbum COLLATE NOCASE` es
@@ -226,14 +218,16 @@ interface PlayEventDao {
     @Query(
         """
         SELECT s.album AS name,
-               MIN(s.artist) AS artist,
+               CASE WHEN IFNULL(s.albumArtist, '') != '' THEN REPLACE(s.albumArtist, char(31), ', ')
+                    ELSE MIN(s.artist) END AS artist,
+               IFNULL(s.albumArtist, '') AS albumArtist,
                COUNT(*) AS plays,
                COALESCE(SUM(e.playedMs), 0) AS listenedMs,
                MAX(s.albumArtUriString) AS albumArtUri
         FROM play_events e JOIN songs s ON s.id = e.songId
         WHERE e.playedAt >= :since AND e.playedAt < :until
           AND TRIM(s.album) != '' AND s.album != :unknownAlbum COLLATE NOCASE
-        GROUP BY s.album
+        GROUP BY s.album, IFNULL(s.albumArtist, '') COLLATE NOCASE
         ORDER BY plays DESC, listenedMs DESC
         LIMIT :limit
         """
@@ -265,7 +259,7 @@ interface PlayEventDao {
      */
     @Query(
         """
-        SELECT COUNT(DISTINCT s.album)
+        SELECT COUNT(DISTINCT s.album || char(31) || LOWER(IFNULL(s.albumArtist, '')))
         FROM play_events e JOIN songs s ON s.id = e.songId
         WHERE e.playedAt >= :since AND e.playedAt < :until
           AND TRIM(s.album) != '' AND s.album != :unknownAlbum COLLATE NOCASE
@@ -283,4 +277,26 @@ interface PlayEventDao {
         """
     )
     fun distinctGenresFlow(since: Long, until: Long): Flow<Int>
+
+    // ==================== UN SOLO ÁMBITO (artista, álbum o género) ====================
+    // El SQL lo construye `StatsScopeQueries` a partir del `StatsScope`: lo que cambia entre los
+    // tres es el predicado y la columna que agrupa, y ninguna de las dos se puede pasar como bind.
+    // Ver ahí el porqué de RawQuery en vez de veintiséis `@Query`.
+    //
+    // Las cuatro llevan `JOIN songs` —lo necesitan para saber de quién es cada escucha—, así que
+    // `observedEntities` nombra las DOS tablas: sin `songs`, re-etiquetar una canción no
+    // refrescaría la pantalla. Y por lo mismo el sync SÍ las invalida, de ahí que su consumidor las
+    // muestree (a diferencia del resumen de la pantalla general, que mira una sola tabla).
+
+    @RawQuery(observedEntities = [PlayEventEntity::class, SongEntity::class, ArtistCreditEntity::class])
+    fun scopeTotalsFlow(query: SupportSQLiteQuery): Flow<ScopeTotals>
+
+    @RawQuery(observedEntities = [PlayEventEntity::class, SongEntity::class, ArtistCreditEntity::class])
+    fun scopeTopSongsFlow(query: SupportSQLiteQuery): Flow<List<TopSongRow>>
+
+    @RawQuery(observedEntities = [PlayEventEntity::class, SongEntity::class, ArtistCreditEntity::class])
+    fun scopeChildrenFlow(query: SupportSQLiteQuery): Flow<List<ScopeChildRow>>
+
+    @RawQuery(observedEntities = [PlayEventEntity::class, SongEntity::class, ArtistCreditEntity::class])
+    fun scopeActivityFlow(query: SupportSQLiteQuery): Flow<List<ActivityRow>>
 }

@@ -21,18 +21,19 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
-import androidx.compose.material3.carousel.CarouselItemScope
-import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,14 +49,16 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.ui.components.ArtCarouselCard
 import com.qhana.siku.ui.components.COLLAGE_MAX_TILES
 import com.qhana.siku.ui.components.SongRowContainer
+import com.qhana.siku.ui.components.KeylineCarousel
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QuickActionButton
 import com.qhana.siku.ui.components.formatListeningTime
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
-import com.qhana.siku.ui.theme.appCardColors
-import com.qhana.siku.ui.theme.appButtonColors
+import com.qhana.siku.ui.theme.LocalEffectivePaletteStyle
+import com.qhana.siku.ui.theme.LocalThemeGeneration
+import com.materialkolor.PaletteStyle
 import com.qhana.siku.ui.viewmodel.HomeDiscover
 import com.qhana.siku.ui.viewmodel.HomeDiscoverKind
 import com.qhana.siku.ui.viewmodel.RelatedArtistUi
@@ -63,8 +66,8 @@ import com.qhana.siku.ui.viewmodel.HomeStats
 import com.qhana.siku.data.model.PlaybackContext
 import java.time.LocalTime
 
-// Tarjeta grande de los carruseles Expressive del inicio (item "grande" del multi-browse; los
-// medianos/chicos los deriva el propio carrusel). Cuadrada con etiqueta superpuesta.
+// Tarjeta grande de los carruseles Expressive del inicio (el item "grande" del arreglo de
+// keylines; los medianos/chicos los deriva el propio carrusel). Cuadrada con etiqueta superpuesta.
 //
 // **Se probó y se DESCARTÓ la anatomía de `AlbumTileCard`** (portada arriba y texto en un
 // contenedor debajo, 27 ago 2026): sobre el papel unificaba el inicio con la pestaña Álbumes y
@@ -96,13 +99,13 @@ private val StatsBadgeSize = 48.dp
 
 /**
  * Si este carrusel tiene algo que desplazar. Load-bearing para el GESTO, no para el aspecto:
- * `HorizontalMultiBrowseCarousel` es por dentro un `HorizontalPager` y queda ANIDADO dentro del
- * pager de las pestañas de la biblioteca, así que con el scroll habilitado se queda con el arrastre
- * horizontal aunque tenga una sola página — y cambiar de pestaña deslizando sobre el carrusel
- * dejaba de funcionar. Con un item no hay nada que desplazar y el gesto tiene que pasar de largo.
+ * [KeylineCarousel] es por dentro un `HorizontalPager` y queda ANIDADO dentro del pager de las
+ * pestañas de la biblioteca, así que con el scroll habilitado se queda con el arrastre horizontal
+ * aunque tenga una sola página — y cambiar de pestaña deslizando sobre el carrusel dejaba de
+ * funcionar. Con un item no hay nada que desplazar y el gesto tiene que pasar de largo.
  *
  * Es `size > 1` y no una medida de si el contenido cabe: la tarjeta ocupa [HomeCardWidth] y con dos
- * o más el multi-browse siempre tiene recorrido en un teléfono. La condición se queda del lado
+ * o más el carrusel siempre tiene recorrido en un teléfono. La condición se queda del lado
  * conservador — como mucho un carrusel de dos items sigue capturando el gesto, que es el
  * comportamiento normal de un carrusel con contenido fuera de pantalla.
  */
@@ -331,22 +334,17 @@ private fun GreetingHeader(stats: HomeStats) {
 }
 
 /**
- * Entrada a Estadísticas: **Filled Card de M3** (`surfaceContainerHighest`), con un distintivo
- * `Cookie4Sided` (girado 90°) a la izquierda, dos renglones de texto, y un botón "Ver" a la derecha
- * que es el ÚNICO objetivo táctil (la fila entera no navega).
+ * Entrada a Estadísticas: una `Card` con un distintivo `Cookie4Sided` (girado 90°) a la izquierda,
+ * dos renglones de texto, y un botón "Ver" a la derecha que es el ÚNICO objetivo táctil (la fila
+ * entera no navega).
  *
- * Sello y botón van en el par Fixed de la familia SECONDARY (`secondaryFixedDim`/`onSecondaryFixed`)
- * — sobre una tarjeta, Fixed no depende de con qué superficie se encuentre y `on*Fixed` va
- * garantizado contra `*FixedDim`.
- *
- * (En revisión de roles por pasos — no consolidar la doc hasta cerrar.)
+ * Todos sus colores salen de [statsEntryRoles], la tabla por paleta × tema.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
-    // Filled Card de M3 (`FilledCardTokens.ContainerColor` = `surfaceContainerHighest`), vía
-    // `appCardColors` para que el rol salga de `AppColors` (carátula) y no del `MaterialTheme` base.
-    val cardColors = appCardColors()
+    val roles = statsEntryRoles(LocalEffectivePaletteStyle.current, LocalThemeGeneration.current.isDark)
+    val cardColors = CardDefaults.cardColors(containerColor = roles.card, contentColor = roles.title)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -371,10 +369,9 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         ) {
             AppSurface(
                 // `Cookie4Sided` girado 90° (`startAngle` rota la geometría del `Shape`, no el
-                // contenido). Par Fixed `secondaryFixedDim`/`onSecondaryFixed`: un escalón por
-                // debajo del botón "Ver", que desde el 8 sep 2026 se lleva el `primary` lleno.
+                // contenido).
                 shape = MaterialShapes.Cookie4Sided.toShape(startAngle = 90),
-                color = AppColors.secondaryFixedDim,
+                color = roles.badge,
                 modifier = Modifier.size(StatsBadgeSize)
             ) {
                 // fillMaxSize: sin él el Box se ciñe al glifo y `Center` no centra nada dentro del
@@ -384,7 +381,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         "bar_chart",
                         fill = true,
                         size = 24.sp,
-                        color = AppColors.onSecondaryFixed
+                        color = roles.onBadge
                     )
                 }
             }
@@ -393,8 +390,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                 Text(
                     text = stringResource(R.string.stats_home_entry_title),
                     style = MaterialTheme.typography.bodyLargeEmphasized,
-                    // El `contentColor` de la tarjeta (`onSurface`), su par declarado.
-                    color = cardColors.contentColor,
+                    color = roles.title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -407,11 +403,7 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
                         stringResource(R.string.stats_home_entry_empty)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    // `onSurfaceVariant`, directo: el contenedor es neutro (`surfaceContainerHighest`)
-                    // y para la escala neutra M3 SÍ tabula un rol de apoyo — `secondaryContentColor`
-                    // es el cálculo por tono que existe para cuando NO lo hay (contenedores de
-                    // acento tipo `primaryContainer`), no para este caso.
-                    color = AppColors.onSurfaceVariant,
+                    color = roles.subtitle,
                     // El dato ("2h 15m") es compacto en CUALQUIER idioma y a 1 línea le sobra sitio;
                     // la ayuda del estado vacío es una frase y no un dato, así que su longitud varía
                     // con el idioma y la escala tipográfica — a 1 línea se cortaba a la mitad
@@ -425,19 +417,12 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
             // El ÚNICO objetivo táctil de la tarjeta: la acción vive aquí, no en la fila. Un VERBO
             // ("Ver"), no un botón de icono.
             //
-            // **Botón LLENO en `primary`** (8 sep 2026, decisión en device). Estuvo en el par
-            // `secondaryFixedDim`/`onSecondaryFixed`, que llegó el 4-5 sep huyendo de un `primary`
-            // que con Fidelidad se volvía casi invisible — pero aquello era `primary` como
-            // CONTENIDO sobre la tarjeta neutra, y ahí M3 no promete nada; como CONTENEDOR de un
-            // botón lleno, `onPrimary` sobre `primary` sí es un par tabulado, así que la etiqueta
-            // se lee siempre. Lo que queda expuesto es el borde del botón contra la tarjeta
-            // (`surfaceContainerHighest`): con una paleta muy lavada pueden acercarse de tono.
-            //
-            // El DISTINTIVO de la izquierda se queda en el par Fixed a propósito: cuando los dos
-            // llevaban el mismo color, el adorno pesaba igual que la acción.
             Button(
                 onClick = onClick,
-                colors = appButtonColors()
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = roles.button,
+                    contentColor = roles.onButton
+                )
             ) {
                 // Sin `style`: `Button` ya pone `labelLarge` en su slot.
                 Text(text = stringResource(R.string.stats_home_entry_action))
@@ -445,6 +430,80 @@ private fun StatsEntry(stats: HomeStats, onClick: () -> Unit) {
         }
     }
 }
+
+/** Los colores de [StatsEntry] que dependen de la paleta. */
+@Immutable
+private class StatsEntryRoles(
+    val card: Color,
+    val title: Color,
+    val subtitle: Color,
+    val badge: Color,
+    val onBadge: Color,
+    val button: Color,
+    val onButton: Color
+)
+
+/**
+ * **La tabla de roles de la tarjeta de estadísticas por PALETA × TEMA**, elegida fila a fila por el
+ * usuario en el banco del inicio (13 sep 2026) y validada contra siete carátulas. Es la fuente de
+ * verdad: si una fila cambia en el banco, cambia aquí, y viceversa. Mismo patrón que
+ * `miniPlayerRoles`; el estilo es el EFECTIVO (una carátula acromática pinta en `Monochrome`).
+ *
+ * Los defaults de [statsRoles] son lo que comparten la mayoría —la Filled Card de M3
+ * (`surfaceContainerHighest`), el distintivo en el par Fixed secundario y el botón lleno en
+ * `primary`—, y cada fila sólo escribe lo que se aparta.
+ *
+ * El banco marcaba fallos al aprobar (recuento de tarjeta y toolbar juntos, sobre 7 carátulas):
+ * Neutro · claro 20, Equilibrado · oscuro 15, Equilibrado · claro 14, Fiel y Fidelidad · claro 7.
+ * Aprobados sabiéndolo: no "arreglarlos" sin preguntar.
+ */
+@Composable
+@ReadOnlyComposable
+private fun statsEntryRoles(style: PaletteStyle, isDark: Boolean): StatsEntryRoles = when (style) {
+    PaletteStyle.TonalSpot ->
+        if (isDark) statsRoles(card = AppColors.inversePrimary)
+        else statsRoles(
+            card = AppColors.primaryContainer,
+            title = AppColors.onPrimaryContainer,
+            subtitle = AppColors.onPrimaryContainer,
+            badge = AppColors.primary,
+            onBadge = AppColors.onPrimary
+        )
+    PaletteStyle.Content, PaletteStyle.Fidelity ->
+        if (isDark) statsRoles(card = AppColors.inversePrimary)
+        else statsRoles(
+            card = AppColors.primaryFixedDim,
+            title = AppColors.onPrimaryFixedVariant,
+            subtitle = AppColors.onPrimaryFixedVariant,
+            badge = AppColors.primary,
+            onBadge = AppColors.onPrimary
+        )
+    PaletteStyle.Rainbow ->
+        if (isDark) statsRoles(card = AppColors.inversePrimary, badge = AppColors.primary)
+        else statsRoles(
+            card = AppColors.onPrimaryContainer,
+            title = AppColors.inverseOnSurface,
+            subtitle = AppColors.inverseOnSurface,
+            badge = AppColors.inversePrimary,
+            onBadge = AppColors.onPrimaryContainer,
+            button = AppColors.inversePrimary,
+            onButton = AppColors.onPrimaryContainer
+        )
+    PaletteStyle.Vibrant, PaletteStyle.Neutral, PaletteStyle.Expressive,
+    PaletteStyle.FruitSalad, PaletteStyle.Monochrome -> statsRoles()
+}
+
+@Composable
+@ReadOnlyComposable
+private fun statsRoles(
+    card: Color = AppColors.surfaceContainerHighest,
+    title: Color = AppColors.onSurface,
+    subtitle: Color = AppColors.onSurfaceVariant,
+    badge: Color = AppColors.secondaryFixedDim,
+    onBadge: Color = AppColors.onSecondaryFixed,
+    button: Color = AppColors.primary,
+    onButton: Color = AppColors.onPrimary
+) = StatsEntryRoles(card, title, subtitle, badge, onBadge, button, onButton)
 
 /**
  * ACCIONES RÁPIDAS del inicio en GRILLA que envuelve (máx. 3 por fila, `FlowRow`). Botones XSmall de
@@ -567,8 +626,18 @@ private fun SectionHeader(title: String, onSeeAll: (() -> Unit)? = null) {
     }
 }
 
-/** Carrusel Expressive de canciones. Recortado/parallaxeado por el multi-browse. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Carrusel Expressive de canciones, con el apretón de keylines de [KeylineCarousel].
+ *
+ * **Sus tarjetas son punta de origen del *container transform* hacia el reproductor**, y con el
+ * `HorizontalMultiBrowseCarousel` de M3 arrastraban el desfase de geometría que cuenta el KDoc de
+ * [KeylineCarousel]: los bounds de layout no eran los dibujados. Aquí **no llegaba a percibirse** —al
+ * cerrar, la superficie aterriza en la fila de la canción que suena AHORA o, si no está en pantalla,
+ * en la PÍLDORA (ver el KDoc de `rememberPlayerMorphOrigin`), y con el contenido ya cambiado no hay
+ * una vecina al lado que sirva de referencia—, así que esta fila se quedó con el de M3 mientras solo
+ * "Porque escuchaste a X" lo necesitaba. Ya no: las tres filas del inicio van con el mismo motor, con
+ * el mismo reparto de keylines y el mismo encaje, y ninguna finge su geometría.
+ */
 @Composable
 private fun SongCarousel(
     title: String,
@@ -579,8 +648,8 @@ private fun SongCarousel(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title, onSeeAll)
-        val state = rememberCarouselState { songs.size }
-        HorizontalMultiBrowseCarousel(
+        val state = rememberPagerState { songs.size }
+        KeylineCarousel(
             state = state,
             preferredItemWidth = HomeCardWidth,
             itemSpacing = 8.dp,
@@ -591,11 +660,14 @@ private fun SongCarousel(
                 .height(HomeCardHeight)
         ) { i ->
             val song = songs[i]
+            // Cuánto está revelada esta tarjeta; se resuelve en fase de DIBUJO.
+            val reveal = revealFraction()
             // La tarjeta ES la punta de origen del morph: crece hasta ser el reproductor, igual que
-            // una fila de "Todas", y con la misma maquinaria (`SongRowContainer`). El `maskClip` del
-            // carrusel va POR FUERA de la punta compartida: durante el morph la superficie se dibuja
-            // en el overlay del `SharedTransitionScope`, fuera del recorte del carrusel, que es lo
-            // que le permite crecer más allá de su casilla.
+            // una fila de "Todas", y con la misma maquinaria (`SongRowContainer`). Alrededor de la
+            // punta NO hay recorte de carrusel que valga: el carrusel la mide a su ancho visible y la
+            // coloca en su sitio, así que sus bounds de layout son los dibujados. Durante el morph la
+            // superficie se dibuja en el overlay del `SharedTransitionScope`, que cuelga de la raíz, y
+            // por eso puede crecer más allá de su casilla.
             //
             // **Se identifica por el id de CANCIÓN, así que dos tarjetas de la misma canción serían
             // dos orígenes y no morfaría ninguna** (el mismo empate que `SharedTransitionGate`
@@ -606,7 +678,7 @@ private fun SongCarousel(
             // `LibraryViewModel.homeDiscover`).
             SongRowContainer(
                 songId = song.id,
-                modifier = Modifier.maskClip(HomeCardShape).fillMaxSize()
+                modifier = Modifier.fillMaxSize()
             ) {
                 ArtCarouselCard(
                     art = song.albumArtUri?.toString(),
@@ -614,12 +686,14 @@ private fun SongCarousel(
                     subtitle = song.artist,
                     isCurrent = song.id == currentSongId,
                     onClick = { onPlaySongs(songs, i) },
-                    labelAlpha = labelAlpha(),
-                    // La tarjeta se RECORTA A SÍ MISMA, y eso no es redundante con el `maskClip` de
-                    // fuera: mientras vuela, el shared element se dibuja en el overlay del
-                    // `SharedTransitionScope`, que cuelga de la raíz y por tanto se salta los recortes
-                    // de sus padres — incluido el del carrusel. Sin este clip, la superficie que crece
-                    // salía con las ESQUINAS RECTAS mientras que la tarjeta parada es un cuadrado
+                    // La MISMA curva que las otras dos filas del inicio; ver [labelAlphaFor].
+                    labelAlpha = { labelAlphaFor(reveal()) },
+                    // La tarjeta se RECORTA A SÍ MISMA, y ahora es el ÚNICO recorte que tiene: sin el
+                    // `maskClip` del carrusel de M3 no hay nadie más que le dé su forma. Y aunque lo
+                    // hubiera seguiría haciendo falta — mientras vuela, el shared element se dibuja en
+                    // el overlay del `SharedTransitionScope`, que cuelga de la raíz y por tanto se
+                    // salta los recortes de sus padres. Sin este clip, la superficie que crece salía
+                    // con las ESQUINAS RECTAS mientras que la tarjeta parada es un cuadrado
                     // redondeado. Es el mismo motivo por el que la píldora y las filas de lista no
                     // pasan `clipInOverlayDuringTransition`: su propia superficie ya lleva la forma
                     // puesta (ver el Card de `MiniPlayer` y el `.clip(...)` de `SongItem`).
@@ -634,8 +708,11 @@ private fun SongCarousel(
  * Carrusel de "Seguir escuchando": los últimos CONTEXTOS reproducidos (álbum/artista/lista/
  * favoritos/aleatorio/biblioteca), cada uno reanudable como tal. Cada tarjeta muestra la
  * carátula snapshot del contexto, su nombre y un distintivo + subtítulo de tipo.
+ *
+ * Sus tarjetas no son punta de ningún shared element —reanudar un contexto no morfea nada—, así que
+ * va con [KeylineCarousel] por HOMOGENEIDAD y no por necesidad: es la fila de en medio de tres, y con
+ * el carrusel de M3 tenía otro reparto de keylines y otro encaje que las de arriba y abajo.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ContextCarousel(
     title: String,
@@ -647,8 +724,8 @@ private fun ContextCarousel(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title)
-        val state = rememberCarouselState { contexts.size }
-        HorizontalMultiBrowseCarousel(
+        val state = rememberPagerState { contexts.size }
+        KeylineCarousel(
             state = state,
             preferredItemWidth = HomeCardWidth,
             itemSpacing = 8.dp,
@@ -659,6 +736,8 @@ private fun ContextCarousel(
                 .height(HomeCardHeight)
         ) { i ->
             val ctx = contexts[i]
+            // Cuánto está revelada esta tarjeta; se resuelve en fase de DIBUJO.
+            val reveal = revealFraction()
             // Contextos SIN carátula propia → collage. Los de biblioteca (aleatorio / toda la
             // biblioteca) usan una muestra de la biblioteca; un GÉNERO usa las suyas, que es lo
             // que ya muestra su tarjeta en la pestaña Géneros — aquí se quedaba en el glifo de
@@ -687,8 +766,11 @@ private fun ContextCarousel(
                 // biblioteca"— y no arrastran un símbolo propio que reponer.
                 emblemIcon = "favorite".takeIf { ctx is PlaybackContext.Favorites },
                 onClick = { onResumeContext(ctx) },
-                labelAlpha = labelAlpha(),
-                modifier = Modifier.maskClip(HomeCardShape)
+                // La MISMA curva que las otras dos filas del inicio; ver [labelAlphaFor].
+                labelAlpha = { labelAlphaFor(reveal()) },
+                // El recorte lo pone la tarjeta: sin el `maskClip` del carrusel de M3 no hay ningún
+                // otro que le dé su forma.
+                modifier = Modifier.fillMaxSize().clip(HomeCardShape)
             )
         }
     }
@@ -744,8 +826,15 @@ private fun PlaybackContext.typeIcon(): String = when (this) {
  * de reproducir: la sección es de descubrimiento, y descubrir a alguien es ir a ver qué tiene. Por eso
  * tampoco es punta del *container transform* hacia el reproductor — su transición es la del NavHost,
  * con la foto viajando al header del detalle (misma key que la celda de la pestaña Artistas).
+ *
+ * **Fue la primera fila que pasó a [KeylineCarousel]**, y la única que lo exigía: es la única cuya
+ * tarjeta es punta de un shared element hacia una RUTA, o sea la única donde el vuelo aterriza sobre
+ * la tarjeta con todo parado y una vecina al lado de referencia. El carrusel de M3 finge su geometría
+ * al dibujar y al colocar, y el lookahead no ve ninguna de las dos, así que la foto aterrizaba a
+ * tamaño completo y corrida — todo el porqué está en el KDoc de [KeylineCarousel]. Las otras dos
+ * filas del inicio fueron detrás, por homogeneidad: ver el bloque de [SongCarousel].
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun RelatedArtistCarousel(
     title: String,
@@ -756,8 +845,8 @@ private fun RelatedArtistCarousel(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title)
-        val state = rememberCarouselState { artists.size }
-        HorizontalMultiBrowseCarousel(
+        val state = rememberPagerState { artists.size }
+        KeylineCarousel(
             state = state,
             preferredItemWidth = HomeCardWidth,
             itemSpacing = 8.dp,
@@ -768,16 +857,24 @@ private fun RelatedArtistCarousel(
                 .height(HomeCardHeight)
         ) { i ->
             val artist = artists[i]
-            // Shared element de la foto → header del detalle de artista (misma key que la fila de la
-            // pestaña Artistas). La FORMA de la tarjeta viaja con ella: el recorte que se ve aquí lo
-            // pone el `maskClip` del carrusel, o sea un ANCESTRO, y el overlay del
-            // `SharedTransitionScope` cuelga de la raíz — ver [entityImageSharedBounds].
-            val sharedArtModifier = entityImageSharedBounds(
+            // Shared element → header del detalle de artista (misma key que la fila de la pestaña
+            // Artistas). Aquí la punta NO necesita nada alrededor: la tarjeta se mide a su ancho
+            // visible y se coloca en su sitio, así que sus bounds de layout son los dibujados.
+            //
+            // **Va en el `modifier` de la TARJETA y no en su `artModifier`**, o sea que lo que vuela
+            // es la tarjeta entera y no la imagen de dentro. Con la punta en la imagen, al despegar
+            // se quedaba en el hueco todo lo demás de `ArtCarouselCard` —su `background`, que se veía
+            // como un rectángulo GRIS, y el distintivo flotando— hasta que el vuelo terminaba. Es
+            // además lo simétrico: el otro extremo (`ArtistImmersiveHeader`) también declara su punta
+            // sobre el `Box` entero, no sobre su `AsyncImage`.
+            val sharedCardModifier = entityImageSharedBounds(
                 key = "artist_image_${artist.name}",
                 shape = HomeCardShape,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope
             )
+            // Cuánto está revelada esta tarjeta; se resuelve en fase de DIBUJO.
+            val reveal = revealFraction()
             ArtCarouselCard(
                 art = artist.artUri,
                 title = artist.name,
@@ -789,29 +886,40 @@ private fun RelatedArtistCarousel(
                 badgeIcon = "artist",
                 placeholderIcon = "artist",
                 onClick = { onArtistClick(artist.name) },
-                artModifier = sharedArtModifier,
-                labelAlpha = labelAlpha(),
-                modifier = Modifier.maskClip(HomeCardShape)
+                // La MISMA curva que las otras dos filas del inicio; ver [labelAlphaFor].
+                labelAlpha = { labelAlphaFor(reveal()) },
+                // El recorte va DENTRO de la punta para que viaje con ella; aquí no hay `maskClip`
+                // de carrusel que lo ponga desde fuera, igual que en `RankCarousel`.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(sharedCardModifier)
+                    .clip(HomeCardShape)
             )
         }
     }
 }
 
 /**
- * Provee el alfa de la etiqueta de un ítem del carrusel según cuán "revelado" esté (0 = asomando
- * al borde, 1 = grande/foco). Devuelve un lambda que se lee en fase de dibujo (graphicsLayer), no
- * en composición, para no recomponer en cada frame del scroll.
+ * Por debajo de esta fracción de revelado, una tarjeta NO enseña su etiqueta.
+ *
+ * En un carrusel de keylines la tarjeta "mediana" ya es bastante grande (fracción ~0,5-0,7), así que
+ * una rampa lineal la dejaba **casi legible**, que es el peor de los dos mundos. Con este suelo, y
+ * subiendo suave (t²) hasta 1 en el foco, solo la tarjeta en foco dice su nombre — que es lo que hace
+ * el inicio, donde se SUGIERE. Donde hay que comparar (el ranking de estadísticas) las tarjetas van a
+ * `1f` fijo; ver el KDoc de [com.qhana.siku.ui.components.ArtCarouselCard].
  */
-@OptIn(ExperimentalMaterial3Api::class)
-private fun CarouselItemScope.labelAlpha(): () -> Float = {
-    val info = carouselItemDrawInfo
-    val range = info.maxSize - info.minSize
-    val fraction = if (range <= 0f) 1f else ((info.size - info.minSize) / range).coerceIn(0f, 1f)
-    // Solo el ítem cercano al tamaño MÁXIMO (foco) muestra el label. En el multi-browse el ítem
-    // "mediano" ya es bastante grande (fracción ~0.5-0.7), así que una rampa lineal lo dejaba casi
-    // legible: remapeamos para que por debajo de ~0.65 sea 0 y suba suave (t²) hasta 1 en el foco.
-    val t = ((fraction - 0.65f) / 0.35f).coerceIn(0f, 1f)
-    t * t
+private const val LabelRevealFloor = 0.65f
+
+/**
+ * La curva de la etiqueta, **compartida por las tres filas del inicio**. Todas sacan su fracción del
+ * mismo sitio (`KeylineItemScope.revealFraction`), pero la función sigue siendo una sola y explícita
+ * porque el fallo que evita no es de código repetido: mientras convivieron los dos carruseles, cada
+ * uno atenuaba con su propia rampa y se veía — la fila de artistas enseñaba la etiqueta de la mediana
+ * al ~40 % mientras las de arriba la ocultaban del todo.
+ */
+private fun labelAlphaFor(revealFraction: Float): Float {
+    val t = ((revealFraction - LabelRevealFloor) / (1f - LabelRevealFloor)).coerceIn(0f, 1f)
+    return t * t
 }
 
 @Composable

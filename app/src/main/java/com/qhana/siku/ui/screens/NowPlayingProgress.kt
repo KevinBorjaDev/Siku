@@ -30,10 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.findRootCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -58,7 +55,6 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 import com.qhana.siku.ui.theme.AppColors
-import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appFastSpatialSpec
 import com.qhana.siku.ui.theme.appSpatialSpec
@@ -88,16 +84,6 @@ internal fun ProgressSlider(
      */
     showBuffer: Boolean,
     onSeek: (Long) -> Unit,
-    /**
-     * El color del fondo a una fracción dada de la altura de la pantalla. De él sale TODO el color
-     * de aquí, así que **no vale `AppColors.surface`**: esta pantalla no tiene ese fondo en ninguno
-     * de sus dos modos —sólido es `surfaceContainer`, degradado es un punto del degradado— y elegir
-     * un rol contra un fondo que no es el de debajo tira abajo la premisa entera.
-     *
-     * Es una FUNCIÓN y no un color porque dónde cae esta barra lo decide el layout: la carátula es
-     * `weight(1f)`, así que la posición depende de la portada, de la orientación y del teléfono.
-     */
-    groundAt: (Float) -> Color,
     format: AudioFormatInfo,
     /** Chip de formato con ficha técnica en vez de solo el contenedor. */
     detailedFormat: Boolean,
@@ -228,27 +214,7 @@ internal fun ProgressSlider(
         label = "handleDrawWidth"
     )
 
-    // DÓNDE cae este bloque dentro de la pantalla, para poder preguntarle a [groundAt] el color que
-    // tiene detrás. Se siembra a media pantalla: es el orden de magnitud correcto, así que el primer
-    // frame ya sale con un fondo razonable en vez de con un extremo del degradado.
-    //
-    // `onGloballyPositioned` corre en cada pasada de layout, pero esto solo cambia cuando el bloque
-    // se MUEVE de verdad (girar, otra portada): escribir el mismo Float en un `mutableFloatStateOf`
-    // no invalida nada.
-    var groundFraction by remember { mutableFloatStateOf(0.5f) }
-    val ground = groundAt(groundFraction)
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coords ->
-                val screenHeight = coords.findRootCoordinates().size.height
-                if (screenHeight > 0) {
-                    val centerY = coords.positionInRoot().y + coords.size.height / 2f
-                    groundFraction = (centerY / screenHeight).coerceIn(0f, 1f)
-                }
-            }
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
         // Barra de grosor ajustable (12dp por defecto) con la geometría del `Slider` de M3: fill y
         // riel separados por un hueco permanente (`ProgressHandleGap`, el `ActiveHandleLeadingSpace`
         // del spec), extremos interiores con `ProgressTrackInsideCorner` y exteriores redondos,
@@ -340,24 +306,18 @@ internal fun ProgressSlider(
                 .onSizeChanged { trackWidthPx = it.width },
             contentAlignment = Alignment.Center
         ) {
-            // [contentRoleOn] prueba roles tintados de M3 contra la superficie y solo deriva de
-            // `primary` si ninguno llega — role-first, resultado siempre tintado, nunca gris.
-            // Activo a 4.5:1 (el más oscuro = el progreso), búfer a 2.5:1 (medio), riel a 1.5:1
-            // (recede hacia la superficie).
+            // Los TOKENS del Slider de M3, tal cual: tramo recorrido en `primary` y riel en
+            // `secondaryContainer`, que es el par que el spec tabula para esta barra sobre
+            // `surface` — la banda donde ahora vive (ver las tres bandas en `NowPlayingScreen`).
+            // El BÚFER no lo tabula M3 porque su Slider no tiene ese nivel: va en `secondary`, el
+            // escalón intermedio de la misma familia que el riel.
             //
-            // Los roles se leen DENTRO del lambda: leerlos fuera suscribiría a cada uno de ellos, y
-            // `version` sube en CADA frame del fundido de color (`AppColorScheme.updateFrom`), así
-            // que ese `remember` se recalcula por frame — cuanto más chico sea su scope, mejor. Por
-            // eso vive aquí y no en el cuerpo del slider, donde arrastraría el `pointerInput` y el
-            // `semantics` en cada uno de esos frames.
-            val scheme = LocalAppColors.current
-            val (activeColor, bufferColor, inactiveColor) = remember(scheme.version, ground) {
-                Triple(
-                    contentRoleOn(ground, 4.5f, listOf(scheme.primary, scheme.secondary, scheme.onSecondaryContainer), scheme.primary),
-                    contentRoleOn(ground, 2.5f, listOf(scheme.secondary, scheme.tertiary, scheme.primary), scheme.primary),
-                    contentRoleOn(ground, 1.5f, listOf(scheme.secondaryContainer, scheme.primaryContainer), scheme.primary),
-                )
-            }
+            // Los tres salían de `contentRoleOn` contra el color del degradado medido a esta
+            // altura, con tres pisos de contraste distintos (4,5 / 2,5 / 1,5). Eso existía porque el
+            // fondo no era un rol.
+            val activeColor = AppColors.primary
+            val bufferColor = AppColors.secondary
+            val inactiveColor = AppColors.secondaryContainer
             if (wavy) {
                 WavyTrack(
                     fraction = displayPosition.coerceIn(0f, 1f),
@@ -473,8 +433,7 @@ internal fun ProgressSlider(
             total = formatTime(duration),
             format = format,
             detailedFormat = detailedFormat,
-            onToggleDetailedFormat = onToggleDetailedFormat,
-            backgroundColor = ground
+            onToggleDetailedFormat = onToggleDetailedFormat
         )
     }
 }
@@ -482,20 +441,13 @@ internal fun ProgressSlider(
 /**
  * Los tres chips bajo la barra: tiempo transcurrido, formato y duración.
  *
- * **Su color NO sale de [contentRoleOn] aunque el de la barra sí**, y la diferencia no es de gusto:
- * `contentRoleOn` mide con RATIO WCAG, que es la unidad correcta para CONTENIDO sobre un contenedor
- * y la equivocada para una SUPERFICIE sobre otra. La luminancia se comprime cerca del blanco, así
- * que el mismo salto tonal da ratios muy distintos según dónde caiga en la escala: medido,
- * `secondaryContainer` (T90) contra el fondo del reproductor da **1,23:1 en claro y 1,98:1 en
- * oscuro** — con un umbral único, en claro no llega nunca y en oscuro llega siempre.
+ * El par `secondaryContainer`/`onSecondaryContainer` CRUDO, que es el mismo riel de la barra que
+ * tienen justo encima: los chips y el riel son la misma pieza informativa, y sobre `surface` ese
+ * contenedor es un escalón que el spec ya separa.
  *
- * Una píldora sobre un fondo va por [roleLayerOn], que escoge por TONO el par tabulado que mejor se
- * apoya ahí. Es el mismo criterio que la barra —mirar el fondo real— con la unidad que corresponde,
- * y sin derivar: el contenedor sale de la paleta y su etiqueta es el `on…` que M3 le garantiza.
- *
- * Es un composable aparte —y no un `Box` dentro de [ProgressSlider]— por el mismo COLOR: ese
- * `remember` va clavado a `version`, que sube en cada frame del fundido, y en el cuerpo del slider
- * arrastraría también al detector de gestos y a la semántica de la barra en cada uno de ellos.
+ * Estuvo en `roleLayerOn`, que escoge por TONO el par que mejor se apoya en el fondo REAL, porque
+ * ese fondo era el degradado: sobre él ningún rol podía prometer separación, y en su primera parada
+ * —que ES `secondaryContainer`— ese par medía distancia cero.
  */
 @Composable
 private fun ProgressChipsRow(
@@ -503,14 +455,10 @@ private fun ProgressChipsRow(
     total: String,
     format: AudioFormatInfo,
     detailedFormat: Boolean,
-    onToggleDetailedFormat: () -> Unit,
-    /** Color real de lo que hay debajo; ver el parámetro homónimo de [ProgressSlider]. */
-    backgroundColor: Color
+    onToggleDetailedFormat: () -> Unit
 ) {
-    val colors = LocalAppColors.current
-    val (containerColor, contentColor) = remember(colors.version, backgroundColor) {
-        roleLayerOn(backgroundColor, playerRolePairs(colors))
-    }
+    val containerColor = AppColors.secondaryContainer
+    val contentColor = AppColors.onSecondaryContainer
     // Tiempos a los extremos y FORMATO al medio. Un Box (no una Row con SpaceBetween):
     // así el chip de formato queda centrado con la barra de verdad, sin depender de que
     // los dos tiempos midan lo mismo (no lo hacen: "0:07" vs "12:41").

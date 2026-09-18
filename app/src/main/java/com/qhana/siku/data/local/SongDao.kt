@@ -9,7 +9,12 @@ import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.qhana.siku.data.model.AlbumSortOrder
+import com.qhana.siku.data.model.ArtistCreditRole
+import com.qhana.siku.data.model.ArtistSortOrder
+import com.qhana.siku.data.model.DetailSongSort
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import kotlinx.coroutines.flow.Flow
 
@@ -151,6 +156,39 @@ interface SongDao {
         const val NO_LIMIT = -1
 
         /**
+         * Las columnas de [AlbumSummary], en UN sitio para todas las consultas de álbumes (v29).
+         *
+         * **La identidad de un álbum es (nombre, artista del álbum)**, y [ALBUM_GROUP_BY] es esa regla:
+         * dos "Greatest Hits" con ALBUMARTIST distinto son dos discos. Sin el tag la clave es `''`, así
+         * que la biblioteca que no lo trae se agrupa solo por nombre, exactamente como antes — el
+         * criterio de "los feats no parten el álbum" se mantiene, porque lo que se mira es el artista
+         * del ÁLBUM y no el de cada pista. `NOCASE` en la clave para que "Queen" y "QUEEN" en dos pistas
+         * del mismo disco no lo partan.
+         *
+         * El artista que se muestra es el del álbum cuando existe (con los valores multivalor unidos:
+         * `char(31)` es `MULTI_VALUE_SEPARATOR`) y si no el `MIN(artist)` de siempre.
+         */
+        const val ALBUM_COLUMNS =
+            "album AS name, " +
+                "CASE WHEN IFNULL(albumArtist, '') != '' THEN REPLACE(albumArtist, char(31), ', ') " +
+                "ELSE MIN(artist) END AS artist, " +
+                "IFNULL(albumArtist, '') AS albumArtist, " +
+                "COUNT(*) AS songCount, MAX(albumArtUriString) AS albumArtUri, " +
+                "MIN(NULLIF(year, 0)) AS year"
+
+        /** Ver [ALBUM_COLUMNS]. */
+        const val ALBUM_GROUP_BY = "GROUP BY album, IFNULL(albumArtist, '') COLLATE NOCASE"
+
+        /**
+         * Predicado "esta canción es del álbum" para su detalle. [albumArtist] `null` = cualquier
+         * artista del álbum: es lo que piden las entradas que solo conocen el nombre (el "seguir
+         * escuchando" guardado antes de la v29, las estadísticas), y devuelve lo mismo que antes.
+         */
+        fun albumPredicate(album: String, albumArtist: String?, alias: String = ""): Pair<String, List<Any>> =
+            if (albumArtist == null) "${alias}album = ?" to listOf(album)
+            else "${alias}album = ? AND IFNULL(${alias}albumArtist, '') = ? COLLATE NOCASE" to listOf(album, albumArtist)
+
+        /**
          * Escapa los comodines de LIKE (`%`, `_`) y la propia barra de escape, para que un
          * nombre de género que los contenga se busque literal. Pareja del `ESCAPE '\'` de las
          * consultas por coincidencia parcial.
@@ -208,19 +246,149 @@ interface SongDao {
 
             appendSourceFilters(sb, args, sourceFilters)
 
-            // Whitelist de columnas de orden
+            sb.append(" ORDER BY ").append(songOrderClause(sortColumn, sortAsc))
+
+            return SimpleSQLiteQuery(sb.toString(), args.toTypedArray())
+        }
+
+        /**
+         * El fragmento `ORDER BY` para ordenar canciones por una columna de `songs`.
+         *
+         * **Está aquí, en una función, porque lo comparten la pestaña Todas y los tres detalles**:
+         * la collation y el desempate son el criterio de "orden alfabético" de la app y no pueden
+         * tener dos definiciones — el mismo par de canciones saldría en un orden en la biblioteca y
+         * en otro dentro de un artista. Es la misma razón por la que `DetailPlayOrder.sort` va por
+         * `String.CASE_INSENSITIVE_ORDER`, que es el equivalente en Kotlin del `COLLATE NOCASE`.
+         *
+         * La whitelist no es defensa contra inyección —[sortColumn] nunca viene del usuario— sino
+         * contra un typo: una columna inexistente lanzaría en runtime al ejecutar la consulta.
+         *
+         * El desempate estable por título es load-bearing: sin él, `playCount`/`lastPlayedAt`
+         * (llenos de empates en 0/NULL — en SQLite los NULL son "menores" y en DESC van al final)
+         * dejan el resto de la lista en orden arbitrario, o sea que dos aperturas de la misma
+         * pantalla pueden enseñar dos listas distintas.
+         */
+        fun songOrderClause(sortColumn: String, sortAsc: Boolean): String {
             val allowedColumns = setOf("title", "dateAdded", "artist", "album", "playCount", "lastPlayedAt")
             val safeSortColumn = if (allowedColumns.contains(sortColumn)) sortColumn else "title"
             val collate = if (safeSortColumn == "title") " COLLATE NOCASE" else ""
             val order = if (sortAsc) "ASC" else "DESC"
-            // Desempate estable por título: sin él, playCount/lastPlayedAt (llenos de empates
-            // en 0/NULL — en SQLite los NULL son "menores" y en DESC van al final) dejan el
-            // resto de la lista en orden arbitrario.
             val tieBreak = if (safeSortColumn == "title") "" else ", title COLLATE NOCASE ASC"
-            sb.append(" ORDER BY $safeSortColumn$collate $order$tieBreak")
-
-            return SimpleSQLiteQuery(sb.toString(), args.toTypedArray())
+            // **"Sin dato" va al final en las DOS direcciones**, y por eso se ordena primero por un
+            // `IS NULL` (0/1, siempre ASC) antes que por la columna. Desde que la dirección es un eje
+            // aparte, la regla de SQLite —NULL es "menor", o sea al final en DESC— solo acertaba en
+            // una de las dos: al invertir "última escucha" la pantalla abría con todo lo que NUNCA se
+            // ha escuchado, que es precisamente lo que ese criterio no sabe ordenar. `playCount` no
+            // entra aquí: ahí un 0 es un número de verdad ("ninguna vez"), y ordenarlo es la gracia.
+            val nullsLast = if (safeSortColumn == "lastPlayedAt") "$safeSortColumn IS NULL, " else ""
+            return "$nullsLast$safeSortColumn$collate $order$tieBreak"
         }
+
+        /**
+         * Traduce el chip de orden de una pantalla de detalle a su `ORDER BY`.
+         *
+         * [catalog] es el orden del CATÁLOGO de esa pantalla, que es distinto en cada una (álbum +
+         * pista en un artista, pista en un álbum, título en un género) — por eso lo pone el caller y
+         * no un `when` aquí dentro. Recibe la dirección porque el catálogo también se invierte, y
+         * como es un orden COMPUESTO hay que darle la vuelta a todas sus claves a la vez: media
+         * vuelta (discos al revés pero pistas del derecho) no es ningún orden que alguien pida.
+         * Ver [com.qhana.siku.data.model.DetailSongSort].
+         */
+        private fun detailOrderClause(
+            sort: SortSpec<DetailSongSort>,
+            catalog: (Boolean) -> String
+        ): String = when (sort.criterion) {
+            DetailSongSort.CATALOG -> catalog(sort.ascending)
+            DetailSongSort.TITLE -> songOrderClause("title", sort.ascending)
+            DetailSongSort.PLAY_COUNT -> songOrderClause("playCount", sort.ascending)
+            DetailSongSort.LAST_PLAYED -> songOrderClause("lastPlayedAt", sort.ascending)
+            DetailSongSort.DATE_ADDED -> songOrderClause("dateAdded", sort.ascending)
+        }
+
+        /**
+         * Canciones de un ARTISTA con el orden del chip.
+         *
+         * Su catálogo es `album, trackNumber, title`: dentro de un artista lo que se navega es la
+         * discografía, así que las pistas de un disco van juntas y en su orden.
+         */
+        fun buildArtistSongsQuery(
+            artist: String,
+            role: ArtistCreditRole,
+            sort: SortSpec<DetailSongSort>
+        ): SimpleSQLiteQuery {
+            val (where, args) = ArtistCreditSql.songsOf(artist, role, alias = "")
+            return SimpleSQLiteQuery(
+                "SELECT * FROM songs WHERE $where ORDER BY " +
+                    detailOrderClause(sort, ::artistCatalogOrder),
+                args.toTypedArray()
+            )
+        }
+
+        /** Álbumes de un ARTISTA (la rejilla de su detalle), con los créditos del [role]. */
+        fun buildArtistAlbumsQuery(artist: String, role: ArtistCreditRole): SimpleSQLiteQuery {
+            val (where, args) = ArtistCreditSql.songsOf(artist, role, alias = "")
+            return SimpleSQLiteQuery(
+                "SELECT $ALBUM_COLUMNS FROM songs WHERE $where $ALBUM_GROUP_BY ORDER BY album COLLATE NOCASE ASC",
+                args.toTypedArray()
+            )
+        }
+
+        /**
+         * Canciones de un ÁLBUM con el orden del chip. Su catálogo es el número de pista. Ver
+         * [albumPredicate] para [albumArtist].
+         */
+        fun buildAlbumSongsQuery(
+            album: String,
+            albumArtist: String?,
+            sort: SortSpec<DetailSongSort>
+        ): SimpleSQLiteQuery {
+            val (where, args) = albumPredicate(album, albumArtist)
+            return SimpleSQLiteQuery(
+                "SELECT * FROM songs WHERE $where ORDER BY " +
+                    detailOrderClause(sort, ::albumCatalogOrder),
+                args.toTypedArray()
+            )
+        }
+
+        /**
+         * Canciones de un GÉNERO con el orden del chip. [partialMatch] = el ajuste "incluir géneros
+         * compuestos", con el mismo LIKE escapado que las consultas fijas que sustituye.
+         *
+         * Su catálogo es el título: un género no impone ninguno, así que ahí `DEFAULT` y "Título
+         * (A-Z)" son lo mismo y la pantalla ofrece uno solo de los dos.
+         */
+        fun buildGenreSongsQuery(
+            genre: String,
+            partialMatch: Boolean,
+            sort: SortSpec<DetailSongSort>
+        ): SimpleSQLiteQuery {
+            val order = detailOrderClause(sort, ::genreCatalogOrder)
+            return if (partialMatch) {
+                SimpleSQLiteQuery(
+                    "SELECT * FROM songs WHERE genre LIKE ? ESCAPE '\\' ORDER BY $order",
+                    arrayOf("%${escapeLike(genre)}%")
+                )
+            } else {
+                SimpleSQLiteQuery(
+                    "SELECT * FROM songs WHERE genre = ? COLLATE NOCASE ORDER BY $order",
+                    arrayOf(genre)
+                )
+            }
+        }
+
+        // Los tres órdenes de CATÁLOGO. Son funciones y no constantes porque la dirección es un eje
+        // aparte desde que el chip invierte con un segundo toque: todas las claves giran juntas.
+        private fun artistCatalogOrder(asc: Boolean): String = direction(asc).let { d ->
+            "album COLLATE NOCASE $d, trackNumber $d, title COLLATE NOCASE $d"
+        }
+
+        private fun albumCatalogOrder(asc: Boolean): String = direction(asc).let { d ->
+            "trackNumber $d, title COLLATE NOCASE $d"
+        }
+
+        private fun genreCatalogOrder(asc: Boolean): String = "title COLLATE NOCASE ${direction(asc)}"
+
+        private fun direction(asc: Boolean): String = if (asc) "ASC" else "DESC"
 
         /** Conteo con los mismos filtros de origen (para el chip "N canciones" del tab). */
         fun buildCountQuery(sourceFilters: Set<SongSourceFilter>): SimpleSQLiteQuery {
@@ -300,21 +468,42 @@ interface SongDao {
          * pero con filtro de origen OPCIONAL: el WHERE va ANTES del GROUP BY, así que un
          * álbum aparece si tiene AL MENOS UNA canción que cumple el filtro, y sus agregados
          * (songCount, carátula) reflejan solo esas canciones — misma semántica que la pestaña
-         * Todas. [sort] = nombre de un [com.qhana.siku.data.model.AlbumSortOrder].
+         * Todas.
+         *
+         * El `ORDER BY` se escribe entero en Kotlin en vez de con el truco viejo de
+         * `CASE WHEN ? = 'ARTIST'` sobre binds: con la dirección como eje aparte, cada criterio
+         * necesitaba su CASE por partida doble (uno ASC y otro DESC) y la consulta decía cuatro
+         * veces lo mismo. No es inyección —[sort] es un enum, no texto del usuario— y el `when`
+         * exhaustivo obliga a que un criterio nuevo declare aquí su columna.
          */
-        fun buildAlbumsQuery(sort: String, sourceFilters: Set<SongSourceFilter>): SimpleSQLiteQuery {
-            val sb = StringBuilder(
-                "SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount, " +
-                    "MAX(albumArtUriString) AS albumArtUri FROM songs WHERE 1=1"
-            )
+        fun buildAlbumsQuery(
+            sort: SortSpec<AlbumSortOrder>,
+            sourceFilters: Set<SongSourceFilter>
+        ): SimpleSQLiteQuery {
+            // El año de [ALBUM_COLUMNS] es el mismo MIN(NULLIF(...)) que ordena, para que el badge de
+            // la tarjeta enseñe EXACTAMENTE el número por el que está ordenada la cuadrícula. Dos
+            // fórmulas distintas darían una lista que se contradice con sus propias etiquetas.
+            val sb = StringBuilder("SELECT $ALBUM_COLUMNS FROM songs WHERE 1=1")
             val args = mutableListOf<Any>()
             appendSourceFilters(sb, args, sourceFilters)
-            sb.append(" GROUP BY album ORDER BY ")
-            sb.append("CASE WHEN ? = 'ARTIST' THEN MIN(artist) END COLLATE NOCASE, ")
-            args.add(sort)
-            sb.append("CASE WHEN ? = 'RECENTLY_ADDED' THEN -MAX(dateAdded) END, ")
-            args.add(sort)
-            sb.append("album COLLATE NOCASE ASC")
+            val dir = direction(sort.ascending)
+            sb.append(" $ALBUM_GROUP_BY ORDER BY ")
+            when (sort.criterion) {
+                // El desempate por nombre ya es la última cláusula: aquí no hace falta nada.
+                AlbumSortOrder.NAME -> Unit
+                AlbumSortOrder.ARTIST -> sb.append("MIN(artist) COLLATE NOCASE $dir, ")
+                // `year = 0` es el sentinel de "el archivo no lo declara" (ver AlbumSortOrder), no un
+                // año: el `IS NULL` lo manda al final en las DOS direcciones, que si no, ordenar de
+                // más antiguo a más nuevo abriría con todos los discos SIN año. MIN de los no-cero =
+                // el año de edición del disco, tolerando una pista suelta mal etiquetada.
+                AlbumSortOrder.YEAR ->
+                    sb.append("MIN(NULLIF(year, 0)) IS NULL, MIN(NULLIF(year, 0)) $dir, ")
+                AlbumSortOrder.DATE_ADDED -> sb.append("MAX(dateAdded) $dir, ")
+            }
+            val nameDir = if (sort.criterion == AlbumSortOrder.NAME) dir else "ASC"
+            // El artista del álbum desempata dos discos homónimos: sin él su orden relativo sería
+            // arbitrario y podrían cambiar de sitio entre dos aperturas.
+            sb.append("album COLLATE NOCASE $nameDir, albumArtist COLLATE NOCASE ASC")
             return SimpleSQLiteQuery(sb.toString(), args.toTypedArray())
         }
 
@@ -323,25 +512,34 @@ interface SongDao {
          * filtro de origen OPCIONAL. Como en [buildAlbumsQuery], el WHERE precede al GROUP BY
          * (semántica "≥1 canción que cumple"). Los nombres de columna del filtro (`sourceType`,
          * `uriString`) son inequívocos: la tabla `artists` no los tiene.
-         * [sort] = nombre de un [com.qhana.siku.data.model.ArtistSortOrder].
          */
-        fun buildArtistsQuery(sort: String, sourceFilters: Set<SongSourceFilter>): SimpleSQLiteQuery {
+        fun buildArtistsQuery(
+            sort: SortSpec<ArtistSortOrder>,
+            role: ArtistCreditRole,
+            sourceFilters: Set<SongSourceFilter>
+        ): SimpleSQLiteQuery {
+            // Desde la v29 se agrupa por CRÉDITO (`song_artists`) y no por `songs.artist`: una canción
+            // de dos artistas cuenta para los dos. Ver [ArtistCreditSql.ROWS].
             val sb = StringBuilder(
-                "SELECT s.artist AS name, COUNT(*) AS songCount, COUNT(DISTINCT s.album) AS albumCount, " +
+                "SELECT c.name AS name, COUNT(*) AS songCount, COUNT(DISTINCT s.album) AS albumCount, " +
                     "a.imageUrl AS imageUrl, a.thumbUrl AS thumbUrl, " +
                     // Respaldo cuando el artista no tiene foto: una carátula cualquiera de las
                     // suyas. Ya estamos agrupando por artista, así que sale gratis.
                     "MAX(s.albumArtUriString) AS fallbackArtUri " +
-                    "FROM songs s LEFT JOIN artists a ON a.name = s.artist WHERE 1=1"
+                    "FROM ${ArtistCreditSql.ROWS} c JOIN songs s ON s.id = c.songId " +
+                    "LEFT JOIN artists a ON a.name = c.name WHERE 1=1"
             )
-            val args = mutableListOf<Any>()
+            val args = ArtistCreditSql.rowsArgs(role).toMutableList()
             appendSourceFilters(sb, args, sourceFilters)
-            sb.append(" GROUP BY s.artist ORDER BY ")
-            sb.append("CASE WHEN ? = 'SONG_COUNT' THEN -COUNT(*) END, ")
-            args.add(sort)
-            sb.append("CASE WHEN ? = 'RECENTLY_ADDED' THEN -MAX(s.dateAdded) END, ")
-            args.add(sort)
-            sb.append("s.artist COLLATE NOCASE ASC")
+            val dir = direction(sort.ascending)
+            sb.append(" GROUP BY c.name ORDER BY ")
+            when (sort.criterion) {
+                ArtistSortOrder.NAME -> Unit
+                ArtistSortOrder.SONG_COUNT -> sb.append("COUNT(*) $dir, ")
+                ArtistSortOrder.DATE_ADDED -> sb.append("MAX(s.dateAdded) $dir, ")
+            }
+            val nameDir = if (sort.criterion == ArtistSortOrder.NAME) dir else "ASC"
+            sb.append("c.name COLLATE NOCASE $nameDir")
             return SimpleSQLiteQuery(sb.toString(), args.toTypedArray())
         }
 
@@ -556,10 +754,15 @@ interface SongDao {
             albumArtUriString = :albumArtUri,
             trackNumber = CASE WHEN :trackNumber > 0 THEN :trackNumber ELSE trackNumber END,
             year = CASE WHEN :year > 0 THEN :year ELSE year END,
+            albumArtist = COALESCE(:albumArtist, albumArtist),
+            artistCredits = CASE WHEN :albumArtist IS NULL THEN artistCredits ELSE :artistCredits END,
             needsMetadata = 0,
             lyricsAttemptedAt = NULL
         WHERE id = :songId
     """)
+    // `albumArtist` NULL = esta escritura no trae los tags de artista (no se leyeron): no toca ni ése
+    // ni `artistCredits`. Cuando SÍ los trae, los dos van juntos, porque `artistCredits = NULL` es
+    // también un dato ("el archivo no declara más que `artist`") y debe poder borrar uno anterior.
     suspend fun updateSongMetadata(
         songId: String,
         title: String,
@@ -568,8 +771,36 @@ interface SongDao {
         duration: Long,
         albumArtUri: String?,
         trackNumber: Int,
-        year: Int
+        year: Int,
+        albumArtist: String?,
+        artistCredits: String?
     )
+
+    /**
+     * Solo los tags de artista (v29). Es la escritura de `ArtistTagsBackfiller`, que relee archivos
+     * cuyo resto de metadata ya está bien — por el mismo motivo que [updateTrackInfo] no reescribe lo
+     * demás. [albumArtist] nunca es NULL aquí: `""` sella "leído, sin tag".
+     */
+    @Query("UPDATE songs SET albumArtist = :albumArtist, artistCredits = :artistCredits WHERE id = :songId")
+    suspend fun updateArtistTags(songId: String, albumArtist: String, artistCredits: String?)
+
+    /**
+     * Canciones cuyos tags de artista (v29) aún no se han leído. Mismo reparto que
+     * [getSongsNeedingTrackInfo]: [localOnly] limita a las que tienen el audio en el dispositivo.
+     *
+     * No necesita un flag de "pasada terminada" como aquél: aquí la lista SÍ se vacía sola, porque
+     * leer sella la columna (`""` si el archivo no trae el tag).
+     */
+    @Query("""
+        SELECT * FROM songs
+        WHERE albumArtist IS NULL AND isCorrupted = 0
+          AND (
+            uriString LIKE 'file://%' OR uriString LIKE 'content://%'
+            OR :localOnly = 0
+          )
+        ORDER BY album COLLATE NOCASE ASC
+    """)
+    suspend fun getSongsNeedingArtistTags(localOnly: Boolean): List<SongEntity>
 
     /**
      * Canciones a las que les falta el número de pista y cuyo audio SÍ está en el dispositivo,
@@ -690,9 +921,13 @@ interface SongDao {
             trackNumber = CASE WHEN :trackNumber > 0 THEN :trackNumber ELSE trackNumber END,
             year = CASE WHEN :year > 0 THEN :year ELSE year END,
             duration = CASE WHEN :durationMs > 0 THEN :durationMs ELSE duration END,
+            albumArtist = :albumArtist,
+            artistCredits = :artistCredits,
             lyricsAttemptedAt = NULL
         WHERE id = :songId
     """)
+    // Los tags de artista se escriben sin COALESCE: esta escritura siempre viene de una cabecera
+    // leída, así que `""`/NULL son datos (ver `updateSongMetadata`).
     suspend fun updateLightMetadata(
         songId: String,
         title: String,
@@ -701,23 +936,38 @@ interface SongDao {
         genre: String?,
         trackNumber: Int,
         year: Int,
-        durationMs: Long
+        durationMs: Long,
+        albumArtist: String,
+        artistCredits: String?
     )
 
-    /** ¿Algún tema de este álbum tiene ya carátula? Evita pedir la misma imagen una vez por canción. */
+    /**
+     * ¿Algún tema de este álbum tiene ya carátula? Evita pedir la misma imagen una vez por canción.
+     *
+     * El álbum es (nombre, [albumArtist]) desde la v29 —la misma identidad que la pestaña, ver
+     * [ALBUM_GROUP_BY]—: por nombre a secas, dos "Greatest Hits" de artistas distintos se heredaban
+     * la portada. [albumArtist] es la clave (`""` sin tag), nunca null: quien reparte una carátula
+     * siempre sabe de qué canción salió.
+     */
     @Query("""
         SELECT albumArtUriString FROM songs
-        WHERE album = :album AND albumArtUriString IS NOT NULL AND albumArtUriString != ''
+        WHERE album = :album AND IFNULL(albumArtist, '') = :albumArtist COLLATE NOCASE
+          AND albumArtUriString IS NOT NULL AND albumArtUriString != ''
         LIMIT 1
     """)
-    suspend fun getAlbumArtUri(album: String): String?
+    suspend fun getAlbumArtUri(album: String, albumArtist: String): String?
 
-    /** Aplica una carátula a todo el álbum, sin pisar las canciones que ya tuvieran la suya. */
+    /**
+     * Aplica una carátula a todo el álbum, sin pisar las canciones que ya tuvieran la suya. Mismo
+     * álbum que [getAlbumArtUri]. Una hermana cuyo ALBUMARTIST aún no se leyó cuenta como "sin tag" y
+     * no la recibe: la heredará cuando se lea, porque sigue pendiente de carátula.
+     */
     @Query("""
         UPDATE songs SET albumArtUriString = :uri
-        WHERE album = :album AND (albumArtUriString IS NULL OR albumArtUriString = '')
+        WHERE album = :album AND IFNULL(albumArtist, '') = :albumArtist COLLATE NOCASE
+          AND (albumArtUriString IS NULL OR albumArtUriString = '')
     """)
-    suspend fun setAlbumArt(album: String, uri: String)
+    suspend fun setAlbumArt(album: String, albumArtist: String, uri: String)
 
     /**
      * Persiste los tags ReplayGain leídos del archivo local tras la descarga.
@@ -782,14 +1032,6 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE genre LIKE :pattern ESCAPE '\\' ORDER BY title COLLATE NOCASE ASC")
     suspend fun getSongsByGenreLike(pattern: String): List<SongEntity>
 
-    /** [getSongsByGenre] reactivo, para la pantalla de detalle de género. */
-    @Query("SELECT * FROM songs WHERE genre = :genre COLLATE NOCASE ORDER BY title COLLATE NOCASE ASC")
-    fun getSongsByGenreFlow(genre: String): Flow<List<SongEntity>>
-
-    /** [getSongsByGenreLike] reactivo, para la pantalla de detalle de género. */
-    @Query("SELECT * FROM songs WHERE genre LIKE :pattern ESCAPE '\\' ORDER BY title COLLATE NOCASE ASC")
-    fun getSongsByGenreLikeFlow(pattern: String): Flow<List<SongEntity>>
-
     /**
      * Devuelve canciones cuyo URI de carátula apunta a un archivo local (`file://`).
      * Usado por el healing para detectar carátulas huérfanas tras pérdida de archivos
@@ -820,7 +1062,7 @@ interface SongDao {
         SELECT * FROM songs
         WHERE (albumArtUriString IS NULL OR albumArtUriString = '')
           AND artworkAttemptedAt IS NULL
-        ORDER BY album COLLATE NOCASE
+        ORDER BY album COLLATE NOCASE, IFNULL(albumArtist, '') COLLATE NOCASE
     """)
     suspend fun getSongsWithPendingArtwork(): List<SongEntity>
 
@@ -838,7 +1080,7 @@ interface SongDao {
         WHERE (albumArtUriString IS NULL OR albumArtUriString = '')
           AND artworkAttemptedAt IS NULL
           AND sourceType = 'LOCAL'
-        ORDER BY album COLLATE NOCASE
+        ORDER BY album COLLATE NOCASE, IFNULL(albumArtist, '') COLLATE NOCASE
     """)
     suspend fun getLocalSongsWithPendingArtwork(): List<SongEntity>
 
@@ -973,17 +1215,20 @@ interface SongDao {
      * poder inyectar el WHERE de origen antes del GROUP BY; `observedEntities` mantiene la
      * reactividad de Room sobre `songs`.
      */
-    @RawQuery(observedEntities = [SongEntity::class])
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
     fun getAlbumsFlow(query: SupportSQLiteQuery): Flow<List<AlbumSummary>>
 
-    @Query(
-        """
-        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
-               MAX(albumArtUriString) AS albumArtUri
-        FROM songs WHERE artist = :artist GROUP BY album ORDER BY album COLLATE NOCASE ASC
-        """
-    )
-    fun getAlbumsByArtistFlow(artist: String): Flow<List<AlbumSummary>>
+    /**
+     * Canciones con orden dinámico, para las tres pantallas de detalle (ver
+     * [SongDao.buildArtistSongsQuery] y compañeras). `observedEntities` mantiene la reactividad de
+     * Room sobre `songs`, que un `@RawQuery` no puede deducir del SQL.
+     */
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun getSongsRawFlow(query: SupportSQLiteQuery): Flow<List<SongEntity>>
+
+    /** Álbumes de un artista, con el SQL de [buildArtistAlbumsQuery]. */
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun getAlbumsByArtistFlow(query: SupportSQLiteQuery): Flow<List<AlbumSummary>>
 
     @Query("SELECT * FROM songs WHERE artist = :artist ORDER BY album COLLATE NOCASE ASC, trackNumber ASC, title COLLATE NOCASE ASC")
     fun getSongsByArtistFlow(artist: String): Flow<List<SongEntity>>
@@ -995,29 +1240,40 @@ interface SongDao {
      * álbum, no a una vista filtrada por género.
      */
     @Query(
-        """
-        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
-               MAX(albumArtUriString) AS albumArtUri
-        FROM songs WHERE genre = :genre COLLATE NOCASE GROUP BY album ORDER BY album COLLATE NOCASE ASC
-        """
+        "SELECT $ALBUM_COLUMNS FROM songs WHERE genre = :genre COLLATE NOCASE " +
+            "$ALBUM_GROUP_BY ORDER BY album COLLATE NOCASE ASC"
     )
     fun getAlbumsByGenreFlow(genre: String): Flow<List<AlbumSummary>>
 
-    /** Variante de coincidencia PARCIAL de [getAlbumsByGenreFlow], mismo patrón que [getSongsByGenreLikeFlow]. */
+    /** Variante de coincidencia PARCIAL de [getAlbumsByGenreFlow], mismo patrón que [getSongsByGenreLike]. */
     @Query(
-        """
-        SELECT album AS name, MIN(artist) AS artist, COUNT(*) AS songCount,
-               MAX(albumArtUriString) AS albumArtUri
-        FROM songs WHERE genre LIKE :pattern ESCAPE '\' GROUP BY album ORDER BY album COLLATE NOCASE ASC
-        """
+        "SELECT $ALBUM_COLUMNS FROM songs WHERE genre LIKE :pattern ESCAPE '\\' " +
+            "$ALBUM_GROUP_BY ORDER BY album COLLATE NOCASE ASC"
     )
     fun getAlbumsByGenreLikeFlow(pattern: String): Flow<List<AlbumSummary>>
 
-    @Query("SELECT * FROM songs WHERE album = :album ORDER BY trackNumber ASC, title COLLATE NOCASE ASC")
-    fun getSongsByAlbumFlow(album: String): Flow<List<SongEntity>>
-
     @Query("SELECT id FROM songs WHERE album = :album")
     suspend fun getSongIdsByAlbum(album: String): List<String>
+
+    /**
+     * Carátula de un álbum, reactiva: la identidad de su pantalla de estadísticas.
+     *
+     * `ORDER BY trackNumber` y no un `LIMIT 1` a secas: sin orden, dos aperturas de la misma
+     * pantalla pueden traer portadas distintas cuando el álbum tiene más de una. Es el mismo
+     * criterio con el que el detalle de álbum elige la del header.
+     */
+    @Query(
+        """
+        SELECT albumArtUriString FROM songs
+        WHERE album = :album
+          AND (:albumArtist IS NULL OR IFNULL(albumArtist, '') = :albumArtist COLLATE NOCASE)
+          AND albumArtUriString IS NOT NULL AND albumArtUriString != ''
+        ORDER BY trackNumber ASC, title COLLATE NOCASE ASC
+        LIMIT 1
+        """
+    )
+    // [albumArtist] null = por nombre, de cualquier artista del álbum (ver [albumPredicate]).
+    fun getAlbumArtUriFlow(album: String, albumArtist: String?): Flow<String?>
 
     // ==================== HOME (v22: derivadas del historial de reproducción) ====================
     // Todas reactivas (Flow) y con LIMIT: la home se actualiza sola cuando incrementPlayStats
@@ -1083,18 +1339,9 @@ interface SongDao {
     fun getAllTimeTotalsFlow(): Flow<AllTimeTotals>
 
     /** Top de artistas de siempre. Mismo filtro de nombre que [getTopPlayedArtistFlow]. */
-    @Query(
-        """
-        SELECT artist AS name, SUM(playCount) AS plays, COUNT(*) AS songCount,
-               MAX(albumArtUriString) AS fallbackArtUri
-        FROM songs
-        WHERE playCount > 0 AND TRIM(artist) != '' AND artist != :unknownArtist
-        GROUP BY artist
-        ORDER BY plays DESC, songCount DESC
-        LIMIT :limit
-        """
-    )
-    fun getAllTimeTopArtistsFlow(unknownArtist: String, limit: Int): Flow<List<AllTimeArtist>>
+    // Por CRÉDITOS desde la v29: el SQL lo arma `StatsScopeQueries.allTimeTopArtists`.
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun getAllTimeTopArtistsFlow(query: SupportSQLiteQuery): Flow<List<AllTimeArtist>>
 
     /**
      * Top de álbumes de siempre. Fue el gemelo de la sección "Álbumes del momento" del inicio
@@ -1106,11 +1353,15 @@ interface SongDao {
      */
     @Query(
         """
-        SELECT album AS name, MIN(artist) AS artist, SUM(playCount) AS plays,
+        SELECT album AS name,
+               CASE WHEN IFNULL(albumArtist, '') != '' THEN REPLACE(albumArtist, char(31), ', ')
+                    ELSE MIN(artist) END AS artist,
+               IFNULL(albumArtist, '') AS albumArtist,
+               SUM(playCount) AS plays,
                MAX(albumArtUriString) AS albumArtUri
         FROM songs
         WHERE playCount > 0 AND TRIM(album) != '' AND album != :unknownAlbum COLLATE NOCASE
-        GROUP BY album
+        GROUP BY album, IFNULL(albumArtist, '') COLLATE NOCASE
         ORDER BY plays DESC
         LIMIT :limit
         """
@@ -1133,7 +1384,7 @@ interface SongDao {
     /** Álbumes distintos con historial. Mismo filtro que [getAllTimeTopAlbumsFlow]. */
     @Query(
         """
-        SELECT COUNT(DISTINCT album) FROM songs
+        SELECT COUNT(DISTINCT album || char(31) || LOWER(IFNULL(albumArtist, ''))) FROM songs
         WHERE playCount > 0 AND TRIM(album) != '' AND album != :unknownAlbum COLLATE NOCASE
         """
     )
@@ -1161,6 +1412,22 @@ interface SongDao {
         """
     )
     fun getAllTimeClassifiedPlaysFlow(): Flow<Int>
+
+    // ---- "Siempre" acotado a UN ÁMBITO (artista, álbum o género) ----
+    // Gemelas de las de arriba con el predicado del ámbito añadido; el SQL lo construye
+    // `StatsScopeQueries`, que también arma las del periodo para que las dos fuentes de la misma
+    // pantalla se lean juntas. Van aquí y no en `PlayEventDao` porque son la misma fuente que el
+    // resto del periodo "Siempre": los agregados de `songs`, los únicos que llevan el pasado
+    // anterior al log de eventos.
+
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun scopeTotalsFlow(query: SupportSQLiteQuery): Flow<ScopeTotals>
+
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun scopeTopSongsFlow(query: SupportSQLiteQuery): Flow<List<TopSongRow>>
+
+    @RawQuery(observedEntities = [SongEntity::class, ArtistCreditEntity::class])
+    fun scopeChildrenFlow(query: SupportSQLiteQuery): Flow<List<ScopeChildRow>>
 
     /** Nº de canciones cuya ÚLTIMA escucha cae dentro de [since..now] (stat del saludo del inicio). */
     @Query("SELECT COUNT(*) FROM songs WHERE lastPlayedAt IS NOT NULL AND lastPlayedAt >= :since")
@@ -1274,6 +1541,8 @@ data class AllTimeArtist(
 data class AllTimeAlbum(
     val name: String,
     val artist: String,
+    /** Clave de identidad del álbum (v29), `""` sin tag. Ver `AlbumSummary.albumArtist`. */
+    val albumArtist: String,
     val plays: Int,
     val albumArtUri: String?
 )
@@ -1328,9 +1597,39 @@ data class RelatedArtist(
 data class AlbumSummary(
     val name: String,
     val artist: String,
+    /**
+     * La otra mitad de la identidad del álbum (v29): el ALBUMARTIST codificado, o `""` si el disco
+     * no lo trae. NO es para mostrar —[artist] ya es el texto a enseñar—: es la clave con la que se
+     * navega a su detalle y la que distingue dos álbumes homónimos en una lista.
+     */
+    val albumArtist: String,
     val songCount: Int,
-    val albumArtUri: String?
+    val albumArtUri: String?,
+    /**
+     * Año de edición del disco, o null si NINGUNA de sus canciones lo declara.
+     *
+     * Sale de `MIN(NULLIF(year, 0))` y no de un `MIN(year)` a secas porque en `songs` el 0 es el
+     * sentinel de "el archivo no lo trae" (ver `SongDao.updateSongMetadata`): sin descartarlo, un
+     * disco con una sola pista mal etiquetada se fecharía en el año 0. Nulo aquí y "sin año" en el
+     * orden son la misma cosa, y por eso el badge de la tarjeta no se pinta.
+     */
+    val year: Int?
 )
+
+/**
+ * Clave ÚNICA y estable de un álbum (v29): nombre + artista del álbum. Es lo que usan las listas
+ * (`key` de las rejillas) y el shared element de su carátula.
+ *
+ * Sin artista del álbum la clave es el nombre a secas —la misma que antes—, así que en una biblioteca
+ * sin ese tag nada cambia. Con él, dos "Greatest Hits" de artistas distintos dejan de chocar: con la
+ * clave vieja, una rejilla con los dos lanzaba por clave duplicada y sus carátulas eran dos puntas de
+ * shared element con la misma key.
+ */
+fun albumIdentityKey(name: String, albumArtist: String?): String =
+    if (albumArtist.isNullOrEmpty()) name else "$name\u001F${albumArtist.lowercase()}"
+
+/** Ver [albumIdentityKey]. */
+val AlbumSummary.identityKey: String get() = albumIdentityKey(name, albumArtist)
 
 /**
  * Proyección de un género: nombre representativo del grupo, cuántas canciones tiene y hasta

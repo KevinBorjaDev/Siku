@@ -80,11 +80,21 @@ fun AlbumArt(
     val primaryColor = AppColors.primary
     // Velo sobre la carátula durante la descarga (M3 scrim token, no negro fijo).
     val scrimColor = AppColors.scrim
-    // Track NO recorrido del aro: el MISMO acento del tramo recorrido (`primaryColor`), muy
-    // rebajado con la constante compartida, para que el aro se lea como una sola pieza —canal y
-    // relleno— igual que el resto de barras de progreso de la app. Antes era un `onSurface @ 0.18`
-    // (neutro y con alpha suelto), que rompía esa convención.
-    val ringTrackColor = primaryColor.copy(alpha = ACCENT_TRACK_ALPHA)
+    // Riel NO recorrido del aro: el rol que M3 TABULA para esto —`ProgressIndicatorTokens`:
+    // `ActiveIndicatorColor = Primary`, `TrackColor = SecondaryContainer`—, o sea el mismo par que
+    // el aro de descarga del toolbar del reproductor y el del MiniPlayer.
+    //
+    // Era `primary @ ACCENT_TRACK_ALPHA`, el único de los tres aros que se quedó derivando. Ese
+    // alpha existía para que el aro se leyera como UNA pieza, canal y relleno; el par tabulado da lo
+    // mismo sin depender de lo que haya debajo.
+    //
+    // ⚠️ **Éste es el aro que peor lo tiene en tema CLARO**: cae sobre una fila
+    // `surfaceContainerHigh` y ahí `secondaryContainer` está a solo **2 puntos de tono** (medido
+    // sobre 4 seeds, TonalSpot y spec 2021) — se separa por CROMA, +8/+10. En una fila entera eso
+    // basta; en un trazo de 3dp no hay superficie donde leer el tinte. En oscuro son 13 puntos y no
+    // hay duda. Si en device no se ve, el reemplazo es `outlineVariant`, que da 12-13 puntos
+    // constantes en los dos temas y los dos estilos de paleta.
+    val ringTrackColor = AppColors.secondaryContainer
 
     val isDownloadState = isDownloading ||
         (downloadProgress != null && downloadProgress > 0f && downloadProgress < 1f)

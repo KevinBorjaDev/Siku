@@ -2,6 +2,12 @@ package com.qhana.siku.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.qhana.siku.ui.theme.AppMenuGroup
+import com.qhana.siku.ui.theme.appMenuItemColors
+import com.qhana.siku.data.util.JankProbe
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -25,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qhana.siku.ui.model.SongUiModel
 import com.qhana.siku.ui.theme.AppColors
-import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppSurface
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -67,6 +72,12 @@ fun QueueBottomSheet(
     isShuffleEnabled: Boolean,
     onShuffleToggle: () -> Unit,
     onRemoveSong: (Int) -> Unit,
+    /**
+     * Añadir UNA canción de la cola a una lista. Se ofrece con una pulsación larga sobre la fila, y
+     * quien lo recibe abre la hoja de elegir lista: sin esto había que ir a buscar la canción a la
+     * biblioteca para hacer algo sobre una fila que ya se estaba viendo.
+     */
+    onAddToPlaylist: (songId: String) -> Unit,
     onSaveAsPlaylist: (String) -> Unit,
     /** Vacía la cola entera y detiene la reproducción (con deshacer en el snackbar). */
     onClearQueue: () -> Unit,
@@ -111,6 +122,20 @@ fun QueueBottomSheet(
 
     val listState = rememberLazyListState()
 
+    // Sonda de frames largos (solo con `setprop log.tag.JankProbe DEBUG`): arma una ventana al empezar
+    // cada scroll de la cola. Las marcas de abajo —lista nueva del controller, cambio de canción, fila
+    // compuesta— son las que separan las dos causas posibles de un jank que aparece AL AZAR: filas
+    // entrando en pantalla más caras que un frame, o una emisión de fuera (una descarga que termina, el
+    // fundido de color de la canción siguiente) cayendo a mitad del scroll.
+    //
+    // **Gateada entera** (convención 9d): es un `snapshotFlow(...).collect`, un colector permanente, y
+    // el `inline` de la sonda no ahorra nada ahí. Con la sonda apagada no se registra.
+    if (JankProbe.isEnabled) {
+        LaunchedEffect(listState) {
+            snapshotFlow { listState.isScrollInProgress }.collect { if (it) JankProbe.arm { "scroll cola" } }
+        }
+    }
+
     // Estado para rastrear el movimiento completo
     var initialDragIndex by remember { mutableStateOf<Int?>(null) }
     var currentDragIndex by remember { mutableStateOf<Int?>(null) }
@@ -139,6 +164,7 @@ fun QueueBottomSheet(
     // `currentDragIndex` apuntando a una lista que ya no es la que se ve — el reorden final movía
     // la canción equivocada. Lo que llegue durante el arrastre se aplica al soltar.
     LaunchedEffect(playlist) {
+        JankProbe.mark { "cola: lista nueva del controller (${playlist.size})" }
         if (reorderState.isAnyItemDragging) {
             syncDeferred = true
         } else {
@@ -147,11 +173,16 @@ fun QueueBottomSheet(
         }
     }
     LaunchedEffect(currentIndex) {
+        JankProbe.mark { "cola: canción actual → $currentIndex" }
         localCurrentIndex = currentIndex
     }
 
     // Detectar fin del arrastre
     LaunchedEffect(reorderState.isAnyItemDragging) {
+        // La sonda también se arma al AGARRAR una fila, no solo al hacer scroll: tocar el asa ya
+        // recompone esa fila (se levanta, redondea y le sale sombra) aunque no llegue a moverse, y un
+        // arrastre fuera de un scroll no abriría ninguna ventana de medición.
+        if (reorderState.isAnyItemDragging) JankProbe.arm { "arrastre cola" }
         if (!reorderState.isAnyItemDragging) {
             val start = initialDragIndex
             val end = currentDragIndex
@@ -319,6 +350,7 @@ fun QueueBottomSheet(
                                     localPlaylist = localPlaylist.toMutableList().apply { removeAt(removeIdx) }
                                     onRemoveSong(removeIdx)
                                 },
+                                onAddToPlaylist = { onAddToPlaylist(song.id) },
                                 dragHandleModifier = Modifier.draggableHandle()
                             )
                         }
@@ -396,27 +428,18 @@ private fun QueueActionsToolbar(
     // barra y el token que M3 usa para su texto (`VibrantButtonUnselectedTextColor`). Los TextButton
     // fuerzan `primary`, que sobre este contenedor apenas se ve, así que se pasa explícito.
     val toolbarContent = AppColors.onPrimaryContainer
-    // Relleno del ALEATORIO encendido: el par TABULADO de M3 que mejor se apoya en la barra
-    // ([roleLayerOn]), con el DOBLE del escalón de una capa pasiva porque esto marca un estado.
+    // Relleno del ALEATORIO encendido: **el token que M3 da al botón SELECCIONADO de una barra
+    // vibrante** (`FloatingToolbarTokens.VibrantButtonSelected*` = `surfaceContainer` / `onSurface`),
+    // el mismo par que lleva el "siguiente" del MiniPlayer. Dos barras vibrantes que dicen lo mismo
+    // con el mismo color.
     //
-    // Estuvo en el par INVERTIDO de la propia barra (`onPrimaryContainer` de relleno,
-    // `primaryContainer` de contenido) razonando que es lo único que contrasta con ella "por
-    // construcción sea cual sea el seed". Era cierto y a la vez el problema: garantizar es el SUELO,
-    // no el objetivo, y ese par es el escalón MÁS GRANDE que existe — con la barra en T90 (claro) el
-    // relleno cae en T10, ochenta puntos de tono, o sea una píldora casi negra; en oscuro, casi
-    // blanca y la pieza más clara de la hoja. Es el mismo defecto que costó cien líneas en el
-    // toolbar del NowPlaying (un toggle encendido pesando más que nada de la pantalla) y la regla
-    // que [roleLayerOn] documenta después: **el escalón más pequeño que aún se ve, nunca el más
-    // lejano**. Aquí no rompía nada porque en esta hoja no hay ningún control con más énfasis, pero
-    // el criterio era el equivocado.
-    //
-    // `playerRolePairs` trae cada par en las DOS orientaciones, que es justo lo que hace falta cuando
-    // el fondo ES un rol del catálogo: la barra es `primaryContainer`, así que ese par mide distancia
-    // CERO —un rol no se separa de sí mismo— y queda descartado solo.
-    val colors = LocalAppColors.current
-    val (shuffleOnContainer, shuffleOnContent) = remember(colors.version) {
-        roleLayerOn(colors.primaryContainer, playerRolePairs(colors), TONAL_LAYER_DELTA * 2)
-    }
+    // Antes se ELEGÍA midiendo: `roleLayerOn` buscaba en el catálogo el par tabulado más cercano que
+    // todavía se distinguiera de la barra. Y antes de eso estuvo en el par INVERTIDO de la propia
+    // barra, que despega siempre porque es el salto MÁXIMO —con la barra en T90 el relleno caía en
+    // T10, una píldora casi negra—. Las dos versiones intentaban contestar con una medida algo que
+    // el spec ya tabula para esta posición exacta.
+    val shuffleOnContainer = AppColors.surfaceContainer
+    val shuffleOnContent = AppColors.onSurface
 
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         HorizontalFloatingToolbar(
@@ -430,13 +453,9 @@ private fun QueueActionsToolbar(
             ToggleButton(
                 checked = isShuffleEnabled,
                 onCheckedChange = { onShuffleToggle() },
-                // Activo = el par elegido arriba por [roleLayerOn] contra la barra. Un rol FIJO no
-                // sirve y eso ya está probado: ni el `secondaryContainer` del tonal por defecto
-                // (pegado a la barra en croma bajo) ni un relleno `secondary` (que en un tema VÍVIDO
-                // comparte matiz con el toolbar) despegan en TODOS los temas — la distancia entre dos
-                // roles la decide el estilo de paleta. Lo que cambió es CÓMO se resuelve eso: antes
-                // con el par invertido de la propia barra, que despega siempre porque es el salto
-                // máximo; ahora escogiendo el par tabulado más CERCANO que todavía se distingue.
+                // Activo = el par que M3 tabula para esta posición (ver arriba). Lo que NO sirve es
+                // el `secondaryContainer` del toggle tonal POR DEFECTO: queda pegado a la barra en
+                // croma bajo, que es el motivo por el que los cuatro roles van explícitos.
                 //
                 // APAGADO = PLANO sobre la barra, igual que los otros dos items. Los cuatro roles
                 // van explícitos porque **un rol que no se pasa NO se hereda: se resuelve contra
@@ -498,7 +517,7 @@ private fun QueueActionsToolbar(
 /**
  * Row individual de la cola - Optimizado con Surface para mejor rendimiento de renderizado
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun QueueItemRow(
     song: SongUiModel,
@@ -508,8 +527,18 @@ private fun QueueItemRow(
     colors: QueueColors,
     onClick: () -> Unit,
     onRemove: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     dragHandleModifier: Modifier
 ) {
+    // Menú de la pulsación larga. Vive en la fila y no en la hoja: cada fila ancla el suyo, así el
+    // popup sale pegado a la canción sobre la que se actúa.
+    var showMenu by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    // Cuántas filas se componen en el frame largo. Mismo gate que el colector de arriba: un
+    // `SideEffect` es un efecto por fila, y con la sonda apagada no debe registrarse ninguno.
+    if (JankProbe.isEnabled) {
+        SideEffect { JankProbe.mark { "fila cola compuesta «${song.title.take(24)}» · ${song.album.take(24)}" } }
+    }
     // Resaltado del ítem en reproducción, por el helper compartido: un escalón de superficie teñido
     // con el croma de `primaryContainer` —la paleta primary lleva más color que la secondary— sobre
     // la base de estas filas, que es [AppColors.contentSurface] como en TODAS las demás. Estuvo
@@ -537,6 +566,11 @@ private fun QueueItemRow(
 
     // Usar Surface es más eficiente que Modifier.clip().background()
     // Surface maneja el clipping y el dibujo de fondo en una sola pasada de renderizado cuando es posible.
+    //
+    // La variante SIN `onClick`: la de M3 no admite pulsación larga, así que el toque va en la `Row`
+    // con `combinedClickable`. El ripple sigue saliendo con la forma de la tarjeta porque la Surface
+    // recorta su contenido. No compite con el arrastre: el asa es `draggableHandle` (arrastrar, no
+    // mantener), y en cuanto el dedo se mueve el asa consume el gesto y el clic de la fila se cancela.
     AppSurface(
         modifier = Modifier
             .fillMaxWidth()
@@ -547,12 +581,19 @@ private fun QueueItemRow(
         shape = shape,
         color = backgroundColor,
         contentColor = contentColor,
-        tonalElevation = itemElevation,
-        onClick = onClick
+        tonalElevation = itemElevation
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showMenu = true
+                    }
+                )
         ) {
             // Drag Handle
             Box(
@@ -634,6 +675,25 @@ private fun QueueItemRow(
                     }
                 }
             )
+
+            // Una sola entrada: "quitar" ya tiene su X a la vista y "reproducir" es el toque corto.
+            // El clip del grupo le da la forma de píldora (mismo criterio que `QueueOverflowButton`).
+            // Va dentro de la `Row` porque el popup no ocupa sitio y se ancla a su padre: sale
+            // pegado a la fila sobre la que se hizo la pulsación larga.
+            AppMenuPopup(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                AppMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                    DropdownMenuItem(
+                        colors = appMenuItemColors(),
+                        onClick = {
+                            showMenu = false
+                            onAddToPlaylist()
+                        },
+                        text = { Text(stringResource(R.string.common_add_to_playlist)) },
+                        shape = MenuDefaults.standaloneItemShape,
+                        leadingIcon = { MenuItemIcon("playlist_add") }
+                    )
+                }
+            }
         }
     }
 }

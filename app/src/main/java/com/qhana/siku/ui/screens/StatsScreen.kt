@@ -42,7 +42,6 @@ import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appFilledTonalIconButtonColors
 import com.qhana.siku.ui.theme.appTopAppBarColors
-import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.viewmodel.ActivityChart
 import com.qhana.siku.ui.viewmodel.ActivityColumn
 import com.qhana.siku.ui.viewmodel.StatsUiState
@@ -120,10 +119,12 @@ private const val StreakGreenFromDays = 30
  * abajo, así que lo único que separaba la tarjeta de la racha del borde eran sus propios 8dp de
  * margen vertical, que son para el hueco ENTRE tarjetas, no para el remate de la pantalla.
  *
- * Mismo valor que `HeaderContentGap` en la biblioteca — es el mismo problema (dónde empieza el
- * contenido bajo el cromo) y no debería resolverse con dos números distintos.
+ * Mismo valor que el `HeaderContentGap` de `LibraryScreen` — es el mismo problema (dónde empieza el
+ * contenido bajo el cromo) y no debería resolverse con dos números distintos. **Lleva prefijo
+ * porque es `internal`**: lo comparte la pantalla de estadísticas de un artista, y con el nombre
+ * pelado chocaba con el de la biblioteca, que es privado pero vive en este mismo paquete.
  */
-private val HeaderContentGap = 16.dp
+internal val StatsHeaderContentGap = 16.dp
 
 /**
  * Forma de las dos tarjetas de la pantalla: la racha y la del periodo.
@@ -131,10 +132,10 @@ private val HeaderContentGap = 16.dp
  * El radio es el MISMO en las dos. Lo fue ya cuando eran seis y una rejilla: con radios distintos se
  * leían como piezas sueltas en vez de una familia, y eso no cambia porque queden dos.
  */
-private val StatsCardShape = RoundedCornerShape(28.dp)
+internal val StatsCardShape = RoundedCornerShape(28.dp)
 
 /** Margen lateral de las dos tarjetas. */
-private val CardSidePadding = 16.dp
+internal val CardSidePadding = 16.dp
 
 /**
  * Estadísticas de escucha.
@@ -178,7 +179,8 @@ fun StatsScreen(
      */
     onPlaySongs: (List<Song>, Int) -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit,
+    /** Nombre y artista del álbum (v29), para abrir ESE disco y no sus homónimos. */
+    onAlbumClick: (String, String?) -> Unit,
     onGenreClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: StatsViewModel = hiltViewModel()
@@ -283,7 +285,7 @@ fun StatsScreen(
                 .safeSidePadding()
                 .widthIn(max = ComponentConfig.ContentMaxWidth)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(top = HeaderContentGap, bottom = listBottomInset)
+            contentPadding = PaddingValues(top = StatsHeaderContentGap, bottom = listBottomInset)
         ) {
             // La RACHA va ARRIBA DEL TODO, por encima del propio selector de periodo. Es el único
             // dato de la pantalla que NO depende del periodo elegido —una racha es del presente, no
@@ -295,7 +297,9 @@ fun StatsScreen(
 
             item(key = "period_selector") {
                 PeriodSelector(
-                    state = state,
+                    selection = state.selection,
+                    canGoPrevious = state.canGoPrevious,
+                    canGoNext = state.canGoNext,
                     onSelectMode = viewModel::selectMode,
                     onPrevious = viewModel::goToPrevious,
                     onNext = viewModel::goToNext
@@ -346,7 +350,7 @@ fun StatsScreen(
                         RankCarousel(
                             entries = rankings.artists,
                             fallbackIcon = "artist",
-                            onClick = onArtistClick
+                            onClick = { onArtistClick(it.name) }
                         )
                     }
                 }
@@ -366,7 +370,7 @@ fun StatsScreen(
                         RankCarousel(
                             entries = rankings.albums,
                             fallbackIcon = "album",
-                            onClick = onAlbumClick
+                            onClick = { onAlbumClick(it.name, it.albumArtist) }
                         )
                     }
                 }
@@ -405,9 +409,17 @@ fun StatsScreen(
 
 // ==================== SELECTOR DE PERIODO ====================
 
+/**
+ * El selector de periodo: los cinco modos y las flechas para recorrerlos.
+ *
+ * Recibe los tres datos sueltos y no un `StatsUiState` entero: lo comparten esta pantalla y la de
+ * estadísticas de un artista, que tienen estados distintos y solo coinciden en el periodo.
+ */
 @Composable
-private fun PeriodSelector(
-    state: StatsUiState,
+internal fun PeriodSelector(
+    selection: StatsSelection,
+    canGoPrevious: Boolean,
+    canGoNext: Boolean,
     onSelectMode: (StatsPeriodMode) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit
@@ -440,7 +452,7 @@ private fun PeriodSelector(
         // correcto porque no tienen nada que enseñar, y el sobrante se estira sin recortar a nadie.
         ConnectedChoiceGroup(
             options = StatsPeriodMode.entries.toList(),
-            selected = state.selection.mode,
+            selected = selection.mode,
             onSelect = onSelectMode,
             labelFor = { mode ->
                 stringResource(
@@ -459,7 +471,7 @@ private fun PeriodSelector(
 
         // "Siempre" no se navega: no existe un "siempre anterior". La fila desaparece entera en vez
         // de quedarse con las dos flechas apagadas, que prometerían un recorrido inexistente.
-        if (state.selection.mode != StatsPeriodMode.ALL) {
+        if (selection.mode != StatsPeriodMode.ALL) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -467,11 +479,11 @@ private fun PeriodSelector(
                 PeriodArrow(
                     icon = "arrow_back",
                     description = stringResource(R.string.stats_period_previous),
-                    enabled = state.canGoPrevious,
+                    enabled = canGoPrevious,
                     onClick = onPrevious
                 )
                 Text(
-                    text = periodLabel(state.selection),
+                    text = periodLabel(selection),
                     style = MaterialTheme.typography.titleMediumEmphasized,
                     color = AppColors.onSurface,
                     // Centrado entre las dos flechas: es la etiqueta de un control de navegación,
@@ -486,7 +498,7 @@ private fun PeriodSelector(
                 PeriodArrow(
                     icon = "arrow_forward",
                     description = stringResource(R.string.stats_period_next),
-                    enabled = state.canGoNext,
+                    enabled = canGoNext,
                     onClick = onNext
                 )
             }
@@ -545,7 +557,20 @@ private fun PeriodArrow(
 private fun PeriodCard(state: StatsUiState, chart: ActivityChart?) {
     val summary = state.summary
     val style = summaryCardStyles()[0]
-    val secondary = rememberSecondaryContentColor(style.onContainer, style.container)
+    // **Todo el contenido de la tarjeta en `onContainer`; la jerarquía la hace la ESCALA**
+    // (`displaySmallEmphasized` para la cifra contra `bodyMedium` y `labelSmall` para el resto: dos
+    // saltos de tamaño y uno de peso).
+    //
+    // Estuvo derivado con `secondaryContentColor`, que acerca el tono del contenido al del
+    // contenedor. Existía porque esta tarjeta se apoya en un contenedor de ACENTO y M3 no define
+    // ningún `onXContainerVariant` — pero entre dos `on*Container` el spec tampoco promete orden,
+    // así que la tipografía era la salida tabulada desde el principio.
+    //
+    // El EJE del histograma comparte ese color con las barras y no se confunde: las barras son
+    // formas MACIZAS y el eje es texto pequeño, o sea que no compiten por ser lo mismo. Lo que el
+    // histograma sí distingue por opacidad son las columnas VACÍAS, que es el caso que M3 resuelve
+    // con alfa.
+    val secondary = style.onContainer
     AppSurface(
         color = style.container,
         shape = StatsCardShape,
@@ -696,7 +721,7 @@ private const val HISTOGRAM_EMPTY_ALPHA = 0.22f
  * exacto ya lo dice el titular de la tarjeta, a dos centímetros.
  */
 @Composable
-private fun ActivityHistogram(chart: ActivityChart, color: Color, axisColor: Color) {
+internal fun ActivityHistogram(chart: ActivityChart, color: Color, axisColor: Color) {
     // Un periodo entero sin escuchas no pinta barras: 31 rayas al mínimo no son un histograma, son
     // ruido. La tarjeta se queda con su titular, que ya dice cero.
     if (chart.isEmpty) return
@@ -817,7 +842,7 @@ private fun HistogramAxis(columns: List<ActivityColumn>, color: Color) {
  * `onPrimaryFixed`) — el porqué, en [summaryCardStyles].
  */
 @Composable
-private fun RankingSectionHeader(
+internal fun RankingSectionHeader(
     icon: String,
     label: String,
     count: Int,
@@ -881,7 +906,7 @@ private val SectionBadgeSize = 28.dp
  * decisión de la PANTALLA —qué se lleva cada acento— y no del componente, que solo pinta lo que le
  * den. Hoy la usan la tarjeta del periodo (índice 0) y las cuatro cabeceras de sección (2..5).
  */
-private data class SummaryCardStyle(
+internal data class SummaryCardStyle(
     val container: Color,
     val onContainer: Color,
     val badge: Color,
@@ -909,7 +934,7 @@ private data class SummaryCardStyle(
  * racha. **NO volver a un color por sección.**
  */
 @Composable
-private fun summaryCardStyles(): List<SummaryCardStyle> {
+internal fun summaryCardStyles(): List<SummaryCardStyle> {
     val headerBadge = SummaryCardStyle(
         container = AppColors.surfaceContainerHighest,
         onContainer = AppColors.onSurface,
@@ -1081,7 +1106,11 @@ private fun StreakRow(days: Int) {
                     Text(
                         text = stringResource(achieved?.second ?: R.string.stats_streak_title),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = rememberSecondaryContentColor(onContainer, container),
+                        // Sin meta el fondo es `surfaceContainerHighest` y el secundario es su
+                        // par tabulado. Con meta es un verde FIJO fuera del esquema: ahí no hay rol
+                        // al que ir, así que el contenido va en el `on…` de esa paleta propia y la
+                        // jerarquía la hace la escala, como en la tarjeta de periodo.
+                        color = if (reached) onContainer else AppColors.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1105,8 +1134,9 @@ private fun StreakRow(days: Int) {
 /** Punto medio de la escala de luminancia: por encima, la superficie es clara. */
 private const val LUMINANCE_MIDPOINT = 0.5f
 
+/** La nota del periodo "Siempre", compartida con la pantalla de estadísticas de un artista. */
 @Composable
-private fun AllTimeNote(historyStartedAt: Long?) {
+internal fun AllTimeNote(historyStartedAt: Long?) {
     val text = if (historyStartedAt != null) {
         stringResource(R.string.stats_all_time_note, formatDate(historyStartedAt))
     } else {
@@ -1122,6 +1152,20 @@ private fun AllTimeNote(historyStartedAt: Long?) {
 
 @Composable
 private fun StatsEmptyState(mode: StatsPeriodMode) {
+    StatsEmptyState(
+        title = stringResource(R.string.stats_empty_title),
+        // Un periodo vacío no es lo mismo que no haber escuchado nunca: en el primero hay otro
+        // mes al que ir, y decirle "escucha algo" a quien lleva meses usando la app sobra.
+        subtitle = stringResource(
+            if (mode == StatsPeriodMode.ALL) R.string.stats_empty_subtitle
+            else R.string.stats_empty_period
+        )
+    )
+}
+
+/** El estado vacío de las dos pantallas de estadísticas; cada una pone su texto. */
+@Composable
+internal fun StatsEmptyState(title: String, subtitle: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1131,20 +1175,17 @@ private fun StatsEmptyState(mode: StatsPeriodMode) {
         MaterialSymbol("bar_chart", size = 64.sp, color = AppColors.outline)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = stringResource(R.string.stats_empty_title),
+            text = title,
             style = MaterialTheme.typography.titleMediumEmphasized,
-            color = AppColors.onSurface
+            color = AppColors.onSurface,
+            textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            // Un periodo vacío no es lo mismo que no haber escuchado nunca: en el primero hay otro
-            // mes al que ir, y decirle "escucha algo" a quien lleva meses usando la app sobra.
-            text = stringResource(
-                if (mode == StatsPeriodMode.ALL) R.string.stats_empty_subtitle
-                else R.string.stats_empty_period
-            ),
+            text = subtitle,
             style = MaterialTheme.typography.bodyMedium,
-            color = AppColors.onSurfaceVariant
+            color = AppColors.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -1160,7 +1201,7 @@ private fun StatsEmptyState(mode: StatsPeriodMode) {
  * porque la consumen el selector y el estado vacío.
  */
 @Composable
-private fun periodLabel(selection: StatsSelection): String {
+internal fun periodLabel(selection: StatsSelection): String {
     val locale = LocalLocale.current.platformLocale
     return when (selection.mode) {
         StatsPeriodMode.ALL -> stringResource(R.string.stats_period_all)
@@ -1209,7 +1250,7 @@ private fun String.capitalized(locale: Locale): String =
     replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
 
 @Composable
-private fun listeningTimeText(millis: Long): String {
+internal fun listeningTimeText(millis: Long): String {
     val hoursAndMinutes = stringResource(R.string.stats_time_hours_minutes)
     val minutesOnly = stringResource(R.string.stats_time_minutes)
     return formatListeningTime(

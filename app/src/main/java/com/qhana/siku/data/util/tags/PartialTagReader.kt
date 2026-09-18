@@ -74,7 +74,18 @@ data class TagFragment(
     val title: String? = null,
     val artist: String? = null,
     val album: String? = null,
-    val albumArtist: String? = null,
+    /**
+     * Artistas del álbum, uno por valor (ALBUMARTIST/TPE2, y ALBUMARTISTS si existe). Vacía = el
+     * archivo no lo declara. Es una LISTA porque los dos formatos admiten varios valores y aplanarlos
+     * en un string es justo lo que obligaría a partirlos después por heurística.
+     */
+    val albumArtists: List<String> = emptyList(),
+    /**
+     * Los artistas de la pista cuando el archivo los declara como MULTIVALOR: la clave ARTISTS de
+     * Picard, o varios valores del propio ARTIST (ID3v2.4 con NUL, claves Vorbis repetidas). Vacía =
+     * no declara más que [artist]. [artist] sigue siendo el texto para MOSTRAR.
+     */
+    val artists: List<String> = emptyList(),
     val genre: String? = null,
     /** Número de pista; 0 = la cabecera no lo declara (ver [parseTrackNumber]). */
     val trackNumber: Int = 0,
@@ -97,7 +108,7 @@ data class TagFragment(
         if (this === other) return true
         if (other !is TagFragment) return false
         return title == other.title && artist == other.artist && album == other.album &&
-            albumArtist == other.albumArtist && genre == other.genre &&
+            albumArtists == other.albumArtists && artists == other.artists && genre == other.genre &&
             trackNumber == other.trackNumber && year == other.year &&
             lyrics == other.lyrics && pictureRange == other.pictureRange &&
             (pictureData?.contentEquals(other.pictureData) ?: (other.pictureData == null))
@@ -107,7 +118,8 @@ data class TagFragment(
         var result = title?.hashCode() ?: 0
         result = 31 * result + (artist?.hashCode() ?: 0)
         result = 31 * result + (album?.hashCode() ?: 0)
-        result = 31 * result + (albumArtist?.hashCode() ?: 0)
+        result = 31 * result + albumArtists.hashCode()
+        result = 31 * result + artists.hashCode()
         result = 31 * result + (genre?.hashCode() ?: 0)
         result = 31 * result + trackNumber
         result = 31 * result + year
@@ -146,6 +158,16 @@ private fun String.syncRichness(): Int = when {
 private const val RICHNESS_PLAIN = 0
 private const val RICHNESS_LINE_TIMED = 1
 private const val RICHNESS_WORD_TIMED = 2
+
+/**
+ * Créditos multivalor a partir de lo que declara el archivo: la clave dedicada (ARTISTS) si existe, y
+ * si no, los valores del ARTIST de siempre cuando son más de uno. Uno solo no aporta nada que
+ * `artist` no diga ya, y devolverlo haría que toda canción pareciera "multivalor".
+ *
+ * Compartida por los dos lectores: la regla de qué cuenta como crédito no depende del contenedor.
+ */
+internal fun artistCreditsFrom(dedicated: List<String>, artistValues: List<String>): List<String> =
+    dedicated.ifEmpty { artistValues.takeIf { it.size > 1 } ?: emptyList() }
 
 /** Registro de lectores: rutea por extensión. Sin coincidencia, `null` (el llamador hace fallback). */
 class PartialTagReaders(private val readers: List<PartialTagReader>) {

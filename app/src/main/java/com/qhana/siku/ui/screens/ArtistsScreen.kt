@@ -24,21 +24,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.transformations
 import com.qhana.siku.R
 import com.qhana.siku.data.local.ArtistSummary
 import com.qhana.siku.data.model.ArtistSortOrder
 import com.qhana.siku.data.model.SongSourceFilter
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.ui.components.BannerAmber
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.FilteredEmptyHint
@@ -46,12 +41,11 @@ import com.qhana.siku.ui.components.GroupedListRow
 import com.qhana.siku.ui.components.entityImageSharedBounds
 import com.qhana.siku.ui.components.SortChip
 import com.qhana.siku.ui.components.SourceFilterChips
+import com.qhana.siku.ui.components.ArtistAvatar
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
-import com.qhana.siku.ui.components.ArtistPhotoMask
 import com.qhana.siku.ui.components.ArtistPhotoShape
 import com.qhana.siku.ui.components.CountChip
-import com.qhana.siku.ui.components.actionAccentOn
 import com.qhana.siku.ui.components.rememberRowActionColors
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.AppSurface
@@ -70,8 +64,8 @@ fun ArtistsScreen(
     /** Encola TODAS las canciones del artista al final de la cola, desde el overflow de la fila. */
     onAddArtistToQueue: (String) -> Unit,
     contentPadding: PaddingValues,
-    sortOrder: ArtistSortOrder,
-    onSortOrderChange: (ArtistSortOrder) -> Unit,
+    sortOrder: SortSpec<ArtistSortOrder>,
+    onSortOrderChange: (SortSpec<ArtistSortOrder>) -> Unit,
     sourceFilters: Set<SongSourceFilter>,
     onToggleSourceFilter: (SongSourceFilter) -> Unit,
     showLocalChip: Boolean,
@@ -132,9 +126,9 @@ fun ArtistsScreen(
                 SortChip(
                     current = sortOrder,
                     options = listOf(
-                        R.string.sort_name_asc to ArtistSortOrder.NAME,
-                        R.string.sort_song_count to ArtistSortOrder.SONG_COUNT,
-                        R.string.sort_recent_first to ArtistSortOrder.RECENTLY_ADDED
+                        R.string.sort_by_name to ArtistSortOrder.NAME,
+                        R.string.sort_by_song_count to ArtistSortOrder.SONG_COUNT,
+                        R.string.sort_by_date_added to ArtistSortOrder.DATE_ADDED
                     ),
                     onChange = onSortOrderChange
                 )
@@ -178,16 +172,6 @@ fun ArtistsScreen(
     }
 }
 
-/**
- * Key de caché en memoria de la foto de un artista, ESTABLE por nombre. La comparten la fila de la
- * pestaña Artistas (que la escribe con [ImageRequest.Builder.memoryCacheKey]) y el header del
- * detalle (que la lee como `placeholderMemoryCacheKey`), para que pasar de la lista al detalle no
- * dispare una nueva descarga de la foto. Por NOMBRE y no por URL porque las dos superficies usan
- * resoluciones distintas de Deezer (thumb `pictureMedium` vs `pictureXl`); al refrescar la foto la
- * fila reescribe el bitmap bajo la misma key, así que el placeholder nunca se queda viejo.
- */
-internal fun artistPhotoCacheKey(name: String): String = "artist_photo_$name"
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ArtistRow(
@@ -226,54 +210,16 @@ private fun ArtistRow(
         onClick = onClick,
         modifier = modifier,
         leadingContent = {
-            // Sin clip en la fila: la forma cookie va HORNEADA en el bitmap (transformación de
-            // Coil, cacheada) — el clip de un Path arbitrario por fila se pagaba en cada frame
-            // del scroll y era el jank de esta pestaña. El placeholder (pocas filas) dibuja la
-            // forma como background fill, que es más barato que clipear una capa.
-            Box(
+            // Misma cascada que el detalle: foto del artista → carátula de alguno de sus álbumes
+            // → placeholder. Sin el paso intermedio, decir "ninguno de estos" en el picker dejaba
+            // la fila con el icono genérico, que se lee como un fallo de carga y no como la
+            // decisión que fue. Por qué la forma va horneada y no como clip: ver `ArtistAvatar`.
+            ArtistAvatar(
+                art = artist.thumbUrl ?: artist.fallbackArtUri,
                 modifier = Modifier
                     .size(ComponentConfig.SongItemIconSize)
-                    .then(sharedModifier),
-                contentAlignment = Alignment.Center
-            ) {
-                // Misma cascada que el detalle: foto del artista → carátula de alguno de sus álbumes
-                // → placeholder. Sin el paso intermedio, decir "ninguno de estos" en el picker dejaba
-                // la fila con el icono genérico, que se lee como un fallo de carga y no como la
-                // decisión que fue.
-                val artistArt = artist.thumbUrl ?: artist.fallbackArtUri
-                if (artistArt != null) {
-                    val context = LocalContext.current
-                    val request = remember(artistArt, artist.name) {
-                        ImageRequest.Builder(context)
-                            .data(artistArt)
-                            // Thumbnail fijo (patrón de AlbumArt): decode chico y hit de caché
-                            // determinista, en vez de decodificar los 250px de Deezer.
-                            .size(ComponentConfig.ThumbnailSize)
-                            .transformations(ArtistPhotoMask)
-                            // Key estable por artista: el header del detalle la reusa como
-                            // placeholder, así al abrir muestra al instante ESTE thumb ya decodificado
-                            // en vez de parpadear bajando la foto grande. Ver [artistPhotoCacheKey].
-                            .memoryCacheKey(artistPhotoCacheKey(artist.name))
-                            .crossfade(200)
-                            .build()
-                    }
-                    AsyncImage(
-                        model = request,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(AppColors.surfaceContainerHighest, photoShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        MaterialSymbol("artist", color = AppColors.onSurfaceVariant)
-                    }
-                }
-            }
+                    .then(sharedModifier)
+            )
         },
         headlineContent = {
             Text(
@@ -307,12 +253,18 @@ private fun ArtistRow(
                 // `play_circle` (disco relleno) ya se lee como botón sin recargar la fila con una
                 // píldora.
                 //
-                // **Su color NO es `primary` a secas** (7 sep 2026, visto en device): un acento no
-                // tiene garantía de contraste contra una superficie NEUTRA —aquí la tarjeta de la
-                // fila—, y con una carátula casi acromática en tema claro el disco desaparecía. La
-                // regla vive en [actionAccentOn], compartida con el play de `AlbumTileCard`, que se
-                // apoya en la MISMA superficie y llevaba el acento fijo.
-                val playColor = actionAccentOn(AppColors.contentSurface)
+                // **`primary` a secas, y con el spec 2021 eso está garantizado.** El glifo se
+                // apoya en `AppColors.contentSurface` (`surfaceContainer`), y en este spec el tono
+                // de cada rol es una CONSTANTE: `primary` vale T40 en claro y T80 en oscuro, la
+                // familia `surface` T94 y T12. Medido sobre los cuatro esquemas, el peor caso da
+                // **5,51:1**, muy por encima del 3:1 que pide un icono.
+                //
+                // Estuvo en `actionAccentOn`, que prueba acentos tabulados contra el fondo real y
+                // solo deriva si ninguno llega. Hacía falta con el spec 2025, donde `primary` vive
+                // en el tono de croma máximo y podía acabar en T90: medido el 8 sep 2026 en una
+                // paleta tostada, este mismo glifo daba **1,89:1**. Con los tonos fijos del 2021 esa
+                // búsqueda devuelve siempre `primary`, o sea un cálculo con resultado constante.
+                val playColor = AppColors.primary
                 IconButton(
                     onClick = onPlayClick,
                     shapes = IconButtonDefaults.shapes(),

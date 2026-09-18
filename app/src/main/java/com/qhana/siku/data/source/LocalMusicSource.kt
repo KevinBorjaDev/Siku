@@ -306,6 +306,8 @@ class LocalMusicSource @Inject constructor(
             artist = analysis.artist ?: song.artist,
             album = analysis.album ?: song.album,
             genre = analysis.genre ?: song.genre,
+            albumArtist = analysis.albumArtist ?: song.albumArtist,
+            artistCredits = if (analysis.albumArtist != null) analysis.artistCredits else song.artistCredits,
             trackNumber = analysis.trackNumber.takeIf { it > 0 } ?: song.trackNumber,
             year = analysis.year.takeIf { it > 0 } ?: song.year,
             duration = if (analysis.duration > 0) analysis.duration else song.duration,
@@ -378,6 +380,9 @@ class LocalMusicSource @Inject constructor(
             artist = analysis.artist ?: file.artist ?: AppConfig.UNKNOWN_ARTIST,
             album = analysis.album ?: file.album ?: AppConfig.UNKNOWN_ALBUM,
             genre = analysis.genre,
+            // null si el análisis falló: queda pendiente para `ArtistTagsBackfiller`.
+            albumArtist = analysis.albumArtist,
+            artistCredits = analysis.artistCredits,
             // Mismo criterio que el resto: manda el tag del archivo y el índice del sistema solo
             // rellena el hueco (en modo carpetas el índice no aporta nada y siempre vale 0).
             trackNumber = analysis.trackNumber.takeIf { it > 0 } ?: file.trackNumber,

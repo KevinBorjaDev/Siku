@@ -51,12 +51,11 @@ import com.qhana.siku.R
 import com.qhana.siku.data.local.GenreSummary
 import com.qhana.siku.ui.components.AdaptiveGridCells
 import com.qhana.siku.ui.components.ComponentConfig
-import com.qhana.siku.ui.components.rememberSecondaryContentColor
 import com.qhana.siku.ui.components.MaterialSymbol
 import com.qhana.siku.ui.components.QueueOverflowButton
 import com.qhana.siku.ui.components.CountChip
 import com.qhana.siku.ui.components.entityImageSharedBounds
-import com.qhana.siku.ui.components.rememberRowActionColors
+import com.qhana.siku.ui.components.RowActionColors
 import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.appFilterChipColors
 
@@ -232,8 +231,16 @@ private fun GenreTileCard(
             )
             Text(
                 text = pluralStringResource(R.plurals.song_count, genre.songCount, genre.songCount),
+                // `onColor` como el título: la jerarquía la hace la ESCALA
+                // (`titleMediumEmphasized` contra `labelSmall`, dos tamaños y dos pesos).
+                //
+                // Estuvo derivado con `rememberSecondaryContentColor`, que acerca el tono del
+                // contenido al del contenedor. Hacía falta mientras el secundario tuviera que salir
+                // de un contenedor de ACENTO —M3 no define ningún `onXContainerVariant`—, pero aquí
+                // no hacía falta ningún secundario: entre dos piezas del mismo `on…` el spec no
+                // promete orden, y la tipografía ya lo da.
                 style = MaterialTheme.typography.labelSmall,
-                color = rememberSecondaryContentColor(onColor, containerColor),
+                color = onColor,
                 maxLines = 1
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -250,12 +257,19 @@ private fun GenreTileCard(
                     MaterialSymbol("play_circle", size = 32.sp, color = onColor, fill = true)
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-                // Colores derivados del color REAL del tile (que cambia con cada género y con la
-                // paleta del tema), no de un rol fijo: sobre un tile que ya ES `primary` una
-                // píldora `secondaryContainer` podría desaparecer.
+                // **El par INVERTIDO del propio tile**: su `on…` de relleno y su contenedor de
+                // glifo. El fondo aquí es uno de los SEIS roles de [genrePalette] —los tres
+                // contenedores y los tres acentos—, así que ningún rol fijo sirve: sobre un tile que
+                // ya ES `primary`, una píldora `secondaryContainer` podría desaparecer. Invertir es
+                // lo único garantizado, porque M3 tabula el par en los dos sentidos, y funciona para
+                // los seis sin preguntar cuál tocó.
+                //
+                // Estuvo derivado con `rememberTonalLayerColors`, que llevaba el tono del rol a 8
+                // puntos del fondo real. Mismo criterio que el chip de origen del reproductor, la
+                // píldora del ⋮ sobre la fila que suena y el botón de cancelar del temporizador.
                 QueueOverflowButton(
                     onAddToQueue = onAddToQueue,
-                    colors = rememberRowActionColors(containerColor),
+                    colors = RowActionColors(container = onColor, content = containerColor),
                     contentDescription = stringResource(R.string.common_genre_options),
                     menuLabel = stringResource(R.string.detail_add_all_to_queue)
                 )

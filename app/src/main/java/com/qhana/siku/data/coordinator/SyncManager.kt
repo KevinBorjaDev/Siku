@@ -50,6 +50,7 @@ class SyncManager @Inject constructor(
     private val artistImageRepository: com.qhana.siku.data.repository.ArtistImageRepository,
     private val lightMetadataFetcher: LightMetadataFetcher,
     private val trackInfoBackfiller: TrackInfoBackfiller,
+    private val artistTagsBackfiller: ArtistTagsBackfiller,
     private val artworkHealingManager: ArtworkHealingManager,
     private val localLibraryChangeMonitor: LocalLibraryChangeMonitor,
     private val snackbarManager: com.qhana.siku.data.util.SnackbarManager,
@@ -418,6 +419,10 @@ class SyncManager @Inject constructor(
         var failed = 0
         var wasCancelled = false
         var authError = false
+        // ¿Ese fallo de auth exige que el usuario vuelva a entrar? Bandera aparte y no un cast de
+        // [authFailure]: el fallo puede llegar por DOS caminos (una fuente que falla teniendo otras
+        // vivas, o el catch de la corrida entera) y solo uno de ellos guarda la excepción.
+        var authRequiresInteraction = false
         var fatal: Exception? = null
         // Sesión caducada de UNA fuente teniendo otras que sí funcionan. Se guarda aquí y se
         // aplica al final de la corrida (ver `finally`): el resto del sync debe correr igual,
@@ -440,6 +445,7 @@ class SyncManager @Inject constructor(
             // con una sola fuente: auth/red terminan en Failed).
             var succeeded = 0
             var sourceFailure: Exception? = null
+            var folderMissing: com.qhana.siku.data.source.SourceFolderMissingException? = null
             for (source in sourceRegistry.activeSources()) {
                 if (stopSignal.value) break
                 try {
@@ -455,12 +461,13 @@ class SyncManager @Inject constructor(
                     // Una carpeta que no existe es un error de CONFIGURACIÓN, no un tropiezo de
                     // red: hay que decirlo aunque otra fuente haya funcionado. Si no, quien tenga
                     // música local además de la nube ve "sincronizado" para siempre mientras su
-                    // OneDrive no aporta una sola canción.
-                    if (e is com.qhana.siku.data.source.SourceFolderMissingException) {
-                        snackbarManager.show(
-                            context.getString(R.string.sync_err_folder_missing, e.folder),
-                            length = com.qhana.siku.data.util.SnackbarLength.LONG
-                        )
+                    // OneDrive no aporta una sola canción. Se avisa DESPUÉS del bucle: si era la
+                    // única fuente, la corrida termina en Failed y quien lo dice es el banner —
+                    // soltar aquí el snackbar duplicaría el mismo aviso.
+                    if (e is com.qhana.siku.data.source.SourceFolderMissingException &&
+                        folderMissing == null
+                    ) {
+                        folderMissing = e
                     }
                     // Una sesión caducada es de la MISMA categoría: no se arregla sola y exige
                     // volver a entrar. Se recuerda para aplicarla al final (ver el `finally`) en
@@ -469,6 +476,9 @@ class SyncManager @Inject constructor(
                     // al día" con la nube entera sin sincronizar y sin un solo aviso.
                     if (e is com.qhana.siku.data.source.SourceAuthException) {
                         authFailure = e
+                        // Basta con que UNA fuente lo pida: quien tiene que volver a entrar es el
+                        // usuario, y no volverá a hacerlo por su cuenta.
+                        if (e.requiresInteraction) authRequiresInteraction = true
                         snackbarManager.show(
                             context.getString(R.string.sync_error_auth),
                             length = com.qhana.siku.data.util.SnackbarLength.LONG
@@ -477,6 +487,12 @@ class SyncManager @Inject constructor(
                 }
             }
             if (succeeded == 0 && sourceFailure != null) throw sourceFailure
+            folderMissing?.let {
+                snackbarManager.show(
+                    context.getString(R.string.sync_err_folder_missing, it.folder),
+                    length = com.qhana.siku.data.util.SnackbarLength.LONG
+                )
+            }
 
             if (!stopSignal.value) {
                 // Healing: canciones ya descargadas cuyo análisis de metadata falló en su
@@ -532,6 +548,19 @@ class SyncManager @Inject constructor(
                     } catch (e: Exception) {
                         // Cosmético: sin pista se sigue ordenando por título, como hasta ahora.
                         Log.w(TAG, "Backfill de pista/año falló: ${e.message}")
+                    }
+                }
+
+                // Tags de artista (v29) de la biblioteca anterior a la actualización. Mismo sitio y
+                // mismo banner que el anterior, por las mismas razones. Sin ellos la biblioteca se
+                // agrupa como antes, así que su fallo tampoco es un error del sync.
+                if (!stopSignal.value) {
+                    try {
+                        artistTagsBackfiller.run(isStopped = { stopSignal.value })
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Backfill de tags de artista falló: ${e.message}")
                     }
                 }
 
@@ -596,8 +625,20 @@ class SyncManager @Inject constructor(
             authError = true
             fatal = e
             Log.e(TAG, "Auth token error: ${e.message}")
+            if (e.requiresInteraction) authRequiresInteraction = true
             // El detalle técnico ya quedó en el log; al banner va el texto localizado.
-            _state.value = SyncStatus.Error(context.getString(R.string.sync_error_auth))
+            _state.value = SyncStatus.Error(
+                context.getString(R.string.sync_error_auth),
+                requiresReauth = e.requiresInteraction
+            )
+        } catch (e: com.qhana.siku.data.source.SourceFolderMissingException) {
+            // Misma razón que el de arriba: es un error CONOCIDO, así que el banner lleva su texto
+            // traducido y no el `message` de la excepción — que es para el log y está en inglés.
+            fatal = e
+            Log.e(TAG, "Carpeta de la fuente no encontrada: ${e.folder}")
+            _state.value = SyncStatus.Error(
+                context.getString(R.string.sync_err_folder_missing, e.folder)
+            )
         } catch (e: CancellationException) {
             // Cancelación cooperativa (worker reemplazado por pull-to-refresh, logout,
             // restricción de batería/red por WorkManager). No es un error visible.
@@ -624,7 +665,10 @@ class SyncManager @Inject constructor(
             if (wasCancelled || stopSignal.value) {
                 _state.value = SyncStatus.Idle
             } else if (authError) {
-                _state.value = SyncStatus.Error(context.getString(R.string.sync_error_auth))
+                _state.value = SyncStatus.Error(
+                    context.getString(R.string.sync_error_auth),
+                    requiresReauth = authRequiresInteraction
+                )
             } else if (_state.value !is SyncStatus.Error) {
                 // Una cola detenida NO es un sync terminado. Antes este bloque publicaba
                 // `Complete` mirando solo si hubo excepción, así que un sync que se quedó a
@@ -1913,7 +1957,15 @@ sealed class SyncStatus(val message: String, val isRunning: Boolean) {
      */
     data class Paused(val reason: IncompleteReason, val currentMessage: String) : SyncStatus(currentMessage, false)
     data class Complete(val newSongs: Int, val downloaded: Int, val failed: Int, val deleted: Int = 0) : SyncStatus("Complete", false)
-    data class Error(val errorMessage: String) : SyncStatus(errorMessage, false)
+    /**
+     * @param requiresReauth el fallo exige que el usuario vuelva a entrar en su cuenta: ningún
+     *   reintento automático ni manual puede resolverlo (ver `SourceAuthException`). Gobierna qué
+     *   acción ofrece el banner de la biblioteca, que por defecto es "reintentar".
+     */
+    data class Error(
+        val errorMessage: String,
+        val requiresReauth: Boolean = false
+    ) : SyncStatus(errorMessage, false)
 }
 
 /**

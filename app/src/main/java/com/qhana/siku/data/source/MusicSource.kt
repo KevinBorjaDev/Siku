@@ -90,7 +90,10 @@ data class LightMetadata(
     val title: String? = null,
     val artist: String? = null,
     val album: String? = null,
-    val albumArtist: String? = null,
+    /** Ver `TagFragment.albumArtists`. */
+    val albumArtists: List<String> = emptyList(),
+    /** Ver `TagFragment.artists`. */
+    val artists: List<String> = emptyList(),
     val genre: String? = null,
     /** 0 si la cabecera no lo declara; entonces la fila conserva el que ya tuviera. */
     val trackNumber: Int = 0,
@@ -108,7 +111,7 @@ data class LightMetadata(
         if (this === other) return true
         if (other !is LightMetadata) return false
         return title == other.title && artist == other.artist && album == other.album &&
-            albumArtist == other.albumArtist && genre == other.genre &&
+            albumArtists == other.albumArtists && artists == other.artists && genre == other.genre &&
             trackNumber == other.trackNumber && year == other.year &&
             (artwork?.contentEquals(other.artwork) ?: (other.artwork == null))
     }
@@ -117,7 +120,8 @@ data class LightMetadata(
         var result = title?.hashCode() ?: 0
         result = 31 * result + (artist?.hashCode() ?: 0)
         result = 31 * result + (album?.hashCode() ?: 0)
-        result = 31 * result + (albumArtist?.hashCode() ?: 0)
+        result = 31 * result + albumArtists.hashCode()
+        result = 31 * result + artists.hashCode()
         result = 31 * result + (genre?.hashCode() ?: 0)
         result = 31 * result + trackNumber
         result = 31 * result + year
@@ -139,12 +143,28 @@ class DiscoverContext(
 /** Contadores de una corrida de [MusicSource.discover]. */
 data class DiscoverResult(val added: Int, val deleted: Int)
 
-/** La fuente requiere autenticación y esta falló (mapea a SyncOutcome.Failed(isAuthError=true)). */
-class SourceAuthException(message: String) : Exception(message)
+/**
+ * La fuente requiere autenticación y esta falló (mapea a SyncOutcome.Failed(isAuthError=true)).
+ *
+ * @param requiresInteraction el fallo NO se arregla reintentando: la sesión necesita que el usuario
+ *   pase por la pantalla del proveedor (refresh token revocado, típicamente tras un cambio de
+ *   contraseña). Viaja hasta el banner de la biblioteca porque decide qué ACCIÓN se le ofrece al
+ *   usuario — reintentar o volver a entrar—, y ofrecer la primera cuando solo vale la segunda deja
+ *   un bucle de error del que no se sale.
+ */
+class SourceAuthException(
+    message: String,
+    val requiresInteraction: Boolean = false
+) : Exception(message)
 
 /**
  * La carpeta configurada de la fuente no existe. Se distingue de un error de red cualquiera para
  * poder decir QUÉ carpeta falta: el usuario tiene que poder relacionarlo con la que eligió, y un
  * "HTTP 404" no lleva a ninguna parte.
+ *
+ * El nombre de la carpeta viaja en [folder] y el `message` es SOLO para el log: el texto que ve el
+ * usuario sale de `R.string.sync_err_folder_missing`, que está traducido. Cuando el `message` se
+ * colaba en la UI (banner de error crítico del sync), en inglés quedaba medio traducido:
+ * "Critical error: No se encontró la carpeta …".
  */
-class SourceFolderMissingException(val folder: String) : Exception("No se encontró la carpeta \"$folder\"")
+class SourceFolderMissingException(val folder: String) : Exception("Folder not found: $folder")

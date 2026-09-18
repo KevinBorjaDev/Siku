@@ -43,7 +43,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 import com.qhana.siku.ui.theme.AppColors
-import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.ui.theme.AppContainerBoundsTransform
 import com.qhana.siku.ui.theme.AppSurface
 import com.qhana.siku.ui.theme.appSpatialSpec
@@ -66,10 +65,12 @@ import com.qhana.siku.ui.theme.AppRevealSpec
 @Composable
 internal fun NowPlayingTopBar(
     onBackClick: () -> Unit,
-    accentColor: Color,
     origin: PlaybackOrigin,
-    /** Color real bajo la barra: de él sale el contraste garantizado de los iconos de los extremos. */
-    backgroundColor: Color,
+    /**
+     * La barra está sobre el DEGRADADO (true) o sobre el fondo sólido (false). No pinta fondo
+     * propio: esto solo decide el color de sus iconos.
+     */
+    onGradient: Boolean,
     onAmbientMode: () -> Unit,
     /** Chip de origen sin etiqueta: en horizontal la barra vive en media pantalla. */
     compactChip: Boolean = false,
@@ -81,26 +82,9 @@ internal fun NowPlayingTopBar(
     /** La línea con la que deben alinearse los GLIFOS de los extremos (ver [opticalEdgePadding]). */
     contentKeyline: Dp = NowPlayingConfig.ContentKeyline
 ) {
-    // Los dos iconos de la barra van con el ACENTO del álbum, no con `onSurface`. Con onSurface (un
-    // neutro casi acromático) se leían como un GRIS suelto al lado del resto de la barra, que va todo
-    // teñido —el play, el corazón, el toolbar, el chip—: el problema no era de contraste (sobre un
-    // fondo claro onSurface contrasta de sobra) sino de COLOR.
-    //
-    // Role-first ([contentRoleOn]): se prueban acentos TABULADOS contra el fondo real y solo se
-    // re-tonaliza [accentColor] si ninguno llega. Antes derivaba siempre, aunque hubiera rol válido.
-    val topBarColors = LocalAppColors.current
-    val iconColor = remember(topBarColors.version, accentColor, backgroundColor) {
-        contentRoleOn(
-            backgroundColor, TopBarIconMinContrast,
-            listOf(
-                topBarColors.primary,
-                topBarColors.secondary,
-                topBarColors.tertiary,
-                topBarColors.onSecondaryContainer,
-            ),
-            accentColor,
-        )
-    }
+    // Sobre el degradado la barra cae en su primera parada, `secondaryContainer`, así que sus iconos
+    // van en su `on…`; sobre el fondo sólido (`surfaceContainer`), en `onSurface`.
+    val iconColor = if (onGradient) AppColors.onSecondaryContainer else AppColors.onSurface
 
     // El padding lateral NO es de la fila sino de cada botón, y sale del tamaño de SU glifo: los
     // dos iconos tienen cuerpos distintos (32 y 28), así que a igual margen quedan a distinta
@@ -124,11 +108,7 @@ internal fun NowPlayingTopBar(
             modifier = Modifier.padding(start = opticalEdgePadding(32.sp, contentKeyline))
         )
 
-        PlaybackSourceChip(
-            origin = origin,
-            backgroundColor = backgroundColor,
-            compact = compactChip
-        )
+        PlaybackSourceChip(origin = origin, compact = compactChip)
 
         ExpressiveActionIcon(
             onClick = onAmbientMode,
@@ -177,27 +157,28 @@ private fun opticalEdgePadding(iconSize: TextUnit, keyline: Dp): Dp {
 @Composable
 internal fun PlaybackSourceChip(
     origin: PlaybackOrigin,
-    /** Color REAL que hay debajo del chip; de él deriva su píldora. */
-    backgroundColor: Color,
     compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // El par TABULADO de M3 que mejor se apoya en el fondo real ([roleLayerOn]): se ESCOGE, no se
-    // deriva, así que la píldora siempre es un rol de la paleta y su texto el `on…` que M3 le
-    // garantiza.
+    // **Chip RELLENO con el par tabulado al revés**: `onSecondaryContainer` de píldora y
+    // `secondaryContainer` de contenido, y el asiento con esos dos intercambiados otra vez. M3
+    // garantiza el par en los dos sentidos, así que ninguno de los cuatro colores se calcula.
     //
-    // Estuvo en `secondaryFixedDim` fijo y el problema no era ese rol sino que fuera FIJO: los
-    // `*Fixed` son invariantes al tema, o sea T80 (claro) también en tema oscuro — discreto sobre
-    // un fondo claro y un faro sobre el degradado oscuro (visto en device: "resalta demasiado").
-    // Eligiendo por tono contra el fondo, el par cambia con el tema y el peso se mantiene.
-    val colors = LocalAppColors.current
-    val (chipContainerColor, chipContentColor) = remember(colors.version, backgroundColor) {
-        roleLayerOn(backgroundColor, playerRolePairs(colors))
-    }
-    // El asiento INVIERTE el par en vez de buscar un tercer rol: el contraste que M3 garantiza entre
-    // esos dos vale en los dos sentidos, así que la forma del origen se lee sin añadir ni un color.
-    val seatColor = chipContentColor
-    val seatContentColor = chipContainerColor
+    // Hasta el 11 sep 2026 las cuatro piezas eran el MISMO color a cuatro tonos, todos derivados del
+    // fondo real: la píldora con `tonalLayerContainer`, el asiento con `recessedLayerContainer` —al
+    // otro lado del fondo, porque es un recorte y no una capa— y los dos contenidos con
+    // `ensureContrast`. Hacía falta porque el chip se apoyaba en el degradado y, en su primera
+    // parada, sobre el rol `secondaryContainer` mismo: un rol no se separa de sí mismo, así que
+    // ningún rol de esa banda podía verse. Con la barra superior en su propia banda sólida el chip
+    // ya sabe qué tiene debajo.
+    //
+    // **A prueba en device**: si el relleno pesa demasiado —en tema claro `onSecondaryContainer` es
+    // casi negro—, la alternativa acordada es el chip con CONTORNO (contenedor transparente, borde
+    // `outline`, etiqueta `onSecondaryContainer` y asiento `secondary`/`onSecondary`).
+    val chipContainerColor = AppColors.onSecondaryContainer
+    val chipContentColor = AppColors.secondaryContainer
+    val seatColor = AppColors.secondaryContainer
+    val seatContentColor = AppColors.onSecondaryContainer
 
     // Forma expressive del asiento del icono, una por origen: cookie de 9 lados en local (disco
     // "dentado"), soft burst en descargado, sunny en stream (rayos). El cambio
@@ -343,11 +324,13 @@ internal fun AlbumArtSection(
                         sharedContentState = rememberSharedContentState(key = artSharedKey),
                         visible = artVisible,
                         // El MISMO spring que la superficie que la lleva (píldora o fila): la portada
-                        // aterriza CON el contenedor, no 150 ms después. Con el tween de 500 de
-                        // `AppBoundsTransform` (el de los shared elements de navegación) el contenedor
-                        // asentaba a ~350 y la portada seguía flotando sola el resto — y esa cola era
-                        // además lo que mantenía activo el `SharedTransitionScope` (overlay por frame)
-                        // ya con todo quieto.
+                        // aterriza CON el contenedor, no 150 ms después. Cuando esto llevaba el tween
+                        // de 500 que entonces era `AppBoundsTransform`, el contenedor asentaba a ~350
+                        // y la portada seguía flotando sola el resto — y esa cola era además lo que
+                        // mantenía activo el `SharedTransitionScope` (overlay por frame) ya con todo
+                        // quieto. Desde el 8 sep 2026 los dos leen el MISMO spec del `MotionScheme`,
+                        // así que esta llamada explícita ya no separa nada; se queda porque dice a
+                        // qué se está atando la portada.
                         boundsTransform = AppContainerBoundsTransform,
                         // Por encima de las dos superficies del container transform; ver
                         // [CONTAINER_ART_OVERLAY_Z]. Vale igual para los dos orígenes: desde la
@@ -585,7 +568,7 @@ internal fun SongInfoSection(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onArtistClick: (String) -> Unit,
-    onAlbumClick: (String) -> Unit
+    onAlbumClick: (String, String?) -> Unit
 ) {
     // El marquee del título es una animación INFINITA, así que se apaga con el reproductor guardado:
     // el subárbol es persistente (ver [com.qhana.siku.ui.LocalPlayerOnScreen]) y un título largo
@@ -657,7 +640,7 @@ internal fun SongInfoSection(
                     color = AppColors.onSecondaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickableTextChip { onAlbumClick(song.album) }
+                    modifier = Modifier.clickableTextChip { onAlbumClick(song.album, song.albumArtist.orEmpty()) }
                 )
             }
         }
@@ -795,9 +778,3 @@ private const val SEEK_FLASH_SCRIM_ALPHA = 0.45f
 // El chip de origen ya no lleva sombra ni borde: su relleno se DERIVA del fondo (ver
 // [PlaybackSourceChip]), así que se separa por color y no por relieve.
 
-/**
- * Contraste mínimo (WCAG) de los iconos de la barra superior contra el fondo real bajo ellos.
- * 3:1 = umbral de objetos gráficos no textuales (los glifos son grandes), suficiente para que
- * cerrar / modo inmersivo se lean sobre CUALQUIER paleta sin oscurecer el resto.
- */
-private const val TopBarIconMinContrast = 3f

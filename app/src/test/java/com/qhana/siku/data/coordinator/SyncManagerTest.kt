@@ -51,6 +51,7 @@ class SyncManagerTest {
     @RelaxedMockK lateinit var artistImageRepository: com.qhana.siku.data.repository.ArtistImageRepository
     @RelaxedMockK lateinit var lightMetadataFetcher: LightMetadataFetcher
     @RelaxedMockK lateinit var trackInfoBackfiller: TrackInfoBackfiller
+    @RelaxedMockK lateinit var artistTagsBackfiller: ArtistTagsBackfiller
     @RelaxedMockK lateinit var artworkHealingManager: ArtworkHealingManager
     @RelaxedMockK lateinit var localLibraryChangeMonitor: LocalLibraryChangeMonitor
     @RelaxedMockK lateinit var snackbarManager: com.qhana.siku.data.util.SnackbarManager
@@ -76,7 +77,7 @@ class SyncManagerTest {
         syncManager = SyncManager(
             context, musicRepository, musicPreferences, networkManager,
             musicDownloader, requestCoordinator, authManager, sourceRegistry,
-            artistImageRepository, lightMetadataFetcher, trackInfoBackfiller,
+            artistImageRepository, lightMetadataFetcher, trackInfoBackfiller, artistTagsBackfiller,
             artworkHealingManager, localLibraryChangeMonitor, snackbarManager,
             downloadScheduler
         )

@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.qhana.siku.data.local.identityKey
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +78,7 @@ fun AlbumTileCard(
         // salían las cuatro esquinas vivas — el recorte lo pone el `Card`, que es un ANCESTRO, y el
         // overlay del `SharedTransitionScope` se los salta. Ver [entityImageSharedBounds].
         val sharedModifier = entityImageSharedBounds(
-            key = "album_image_${album.name}",
+            key = "album_image_${album.identityKey}",
             shape = RoundedCornerShape(topStart = AlbumTileCorner, topEnd = AlbumTileCorner),
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope
@@ -184,10 +185,9 @@ fun AlbumTileCard(
             Spacer(modifier = Modifier.width(8.dp))
             // SIN fondo; el glifo `play_circle` (disco relleno) se lee como botón.
             //
-            // El color por [actionAccentOn] contra la superficie REAL de la card, la misma regla y
-            // el mismo helper que el play de la fila de artista — que se apoya además en la misma
-            // `contentSurface`. Estuvo en `primary` FIJO hasta el 8 sep 2026 y medía **1,89:1** en
-            // una paleta tostada, contra los 5,31:1 de la fila: el mismo control, dos mecanismos.
+            // `primary`, la misma decisión que el play de la fila de artista, que se apoya en la
+            // MISMA `contentSurface`. Con el spec 2021 el contraste está garantizado por
+            // construcción (peor caso medido 5,51:1); ver el bloque largo en `ArtistsScreen`.
             IconButton(
                 onClick = onPlayClick,
                 shapes = IconButtonDefaults.shapes(),
@@ -196,7 +196,7 @@ fun AlbumTileCard(
                 MaterialSymbol(
                     "play_circle",
                     size = 30.sp,
-                    color = actionAccentOn(AppColors.contentSurface),
+                    color = AppColors.primary,
                     fill = true
                 )
             }

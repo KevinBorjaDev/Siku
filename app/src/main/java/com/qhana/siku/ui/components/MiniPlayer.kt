@@ -1,5 +1,9 @@
 package com.qhana.siku.ui.components
 
+import com.qhana.siku.ui.theme.LocalEffectivePaletteStyle
+import com.qhana.siku.ui.theme.LocalThemeGeneration
+import com.qhana.siku.ui.theme.playButtonRoles
+import com.materialkolor.PaletteStyle
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -23,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import com.qhana.siku.ui.theme.AppColors
 import com.qhana.siku.ui.theme.LocalAppColors
 import com.qhana.siku.R
 import androidx.compose.ui.graphics.Color
@@ -198,23 +203,36 @@ fun MiniPlayer(
 ) {
     if (song == null) return
 
-    // Background SÓLIDO teñido con el álbum: `secondaryContainer` CRUDO. La barra se separa del
-    // contenido por CROMA, no por tono — ningún fondo de lista usa ese rol.
+    // **Background SÓLIDO teñido con el álbum: `secondaryContainer`** (12 sep 2026) — salvo Fiel a la
+    // carátula y Fidelidad, que van en `onSecondary` en oscuro y `primaryFixed` en claro (13 sep, ver
+    // [miniPlayerRoles]) —, y esta elección
+    // es la que GOBIERNA todo el color del mini: es el suelo contra el que se miden las otras cuatro
+    // piezas, así que cambiarlo obliga a rehacerlas.
     //
-    // **Era `primaryContainer` hasta el 8 sep 2026** (a prueba en device). El motivo del cambio es
-    // el PESO: con el spec 2025 y `PaletteStyle.Fidelity`, `primaryContainer` deja de ser el rol
-    // pálido de siempre y puede acabar siendo la superficie MÁS fuerte del esquema — medido en dos
-    // capturas, `#943424` (T35,8) y `#3875C5` (T49,0), en las dos **más oscuro y más saturado que
-    // el propio `primary`**. La familia secondary lleva menos croma por construcción, así que la
-    // píldora sigue siendo lo único tintado sobre la biblioteca sin gritar.
+    // **Estuvo en `primaryContainer` y ése era el problema de raíz.** Con la píldora en ese rol, el
+    // play NO PUEDE ser `primary`: son el mismo color. Medido sobre las 8 paletas × 5 carátulas ×
+    // 2 temas, el peor caso de `primary` contra `primaryContainer` es **4,9 puntos de tono** en
+    // oscuro y **9,9 con croma 0** en claro. Por eso el play había acabado en el par invertido
+    // (`onPrimaryContainer`), y de ahí salía la discrepancia que se veía al abrir el reproductor: el
+    // glifo del play del mini y el del NowPlaying eran roles distintos, a 8 puntos de tono, en las
+    // dos puntas del MISMO container transform.
     //
-    // Efecto colateral BUSCADO: `secondaryContainer` es también la primera parada del degradado del
-    // NowPlaying (`albumPrimary`), así que las dos puntas del container transform pasan a compartir
-    // color y la apertura deja de ser un salto. Se había intentado al revés —llevar el degradado a
-    // `primaryContainer`— y el usuario lo descartó por demasiado fuerte; la continuidad sale igual
-    // bajando la píldora en vez de subiendo el reproductor.
+    // Con `secondaryContainer` el play vuelve al par tabulado de una acción llena y se separa
+    // **31,1 puntos en oscuro y 41,8 en claro** (peor caso). Las dos puntas del morph quedan
+    // idénticas.
+    //
+    // Se descartaron las superficies neutras (`surfaceContainerHigh`/`Highest`, `surfaceVariant`):
+    // dan aún más separación al play, pero **pierden contra el fondo de la biblioteca en tema
+    // claro** —7,8 puntos de tono con croma 4— y lavan el tinte del álbum, que es la identidad del
+    // mini. Y los `*Fixed` colapsan con `primary` en oscuro (0,0 puntos): son invariantes al tema,
+    // así que su peso tampoco lo es.
+    //
+    // Contra el fondo de la biblioteca esta píldora se separa por CROMA, no por tono (en claro: 2,8
+    // puntos de tono y **19 de croma**) — el mismo mecanismo que la fila que suena, y vale por lo
+    // mismo: es una superficie grande, donde el tinte se lee.
     val scheme = LocalAppColors.current
-    val backgroundColor = scheme.secondaryContainer
+    val backgroundColor =
+        miniPlayerRoles(LocalEffectivePaletteStyle.current, LocalThemeGeneration.current.isDark).pill
 
     // Título y artista: los dos en `onSecondaryContainer` CRUDO, el par tabulado de M3 con el fondo.
     val textColors = remember(scheme.onSecondaryContainer) {
@@ -421,19 +439,43 @@ private fun MiniPlayerContent(
     // el parpadeo del flapping de isPlaying sin retrasar el estado con un reloj.
     val showAsPlaying = isPlaying || isBuffering
 
-    // Las CUATRO piezas teñidas del mini —play, "siguiente", arco y riel del anillo— salen de UNA
-    // sola decisión, en dos rangos con la separación garantizada (ver [transportLayersOn]). Hasta el
-    // 8 sep 2026 cada una elegía su color por su cuenta contra la barra y las cuatro convergían a
-    // dos colores separados por 1,9 puntos de tono: el mini entero en una capa plana, con el play
-    // encima llevando glifo NEGRO PURO.
-    val colors = LocalAppColors.current
-    val transport = remember(colors.version) {
-        transportLayersOn(colors.secondaryContainer, transportRolePairs(colors))
-    }
-    val playContainer = transport.accent
-    val playContent = transport.onAccent
-    val sideContainer = transport.support
-    val sideContent = transport.onSupport
+    // **El play es el MISMO par que el del NowPlaying: `primary` de relleno y `onPrimary` de glifo**
+    // (12 sep 2026). Eso es lo que M3 tabula para una acción llena, y es lo que hace que las dos
+    // puntas del container transform enseñen el mismo botón: antes el mini usaba el par invertido
+    // del contenedor y los dos glifos se llevaban 8 puntos de tono a mitad del morph.
+    //
+    // Sólo es posible porque la PÍLDORA cambió a `secondaryContainer` (ver el bloque de arriba). El
+    // orden causal importa: no se eligió el par y luego el fondo, fue al revés — con la píldora en
+    // `primaryContainer` este par es inviable por medición, no por gusto.
+    //
+    // **El "siguiente" y el anillo dependen de la PALETA y del TEMA** (13 sep 2026). La tabla está en
+    // [miniPlayerRoles] y cada fila la eligió el usuario en el banco de roles, validada contra seis
+    // carátulas de su propia paleta y su propio tema.
+    //
+    // Por qué una tabla y no un rol: la búsqueda exhaustiva del 12 sep —los 31 roles del esquema
+    // contra las 80 combinaciones— NO encontró ningún relleno para el "siguiente" que sirviera en
+    // TODAS las paletas a la vez. Eso sigue siendo cierto. Lo que no es cierto es que no exista uno
+    // por paleta: en Neutro, Rainbow y FruitSalad la familia secundaria colapsa en la primaria, así
+    // que el rol que separa en Equilibrado es invisible ahí, y al revés. Un rol único tenía que
+    // valer para las dos situaciones; una tabla no.
+    //
+    // Sigue sin haber NADA derivado: la tabla sólo ELIGE entre roles tabulados, y el `when` es
+    // exhaustivo sobre [PaletteStyle], así que un estilo nuevo en MaterialKolor no compila hasta
+    // que alguien le asigne roles.
+    //
+    // Antes de todo esto las cuatro piezas se DERIVABAN con `transportLayersOn`. Medido el 11 sep
+    // con la paleta azul en Equilibrado, los dos candidatos para el play quedaban a 49,99 y 50,04
+    // puntos de la píldora: ganaba `secondary` por CINCO CENTÉSIMAS de tono, así que la familia del
+    // botón la decidía un empate. Mismo "margen cero" que dejó las rejillas de la biblioteca en una
+    // columna.
+    // Play: la MISMA tabla que el NowPlaying ([playButtonRoles]), para que el morph no cambie el botón.
+    val playRoles = playButtonRoles()
+    val playContainer = playRoles.container
+    val playContent = playRoles.content
+    // Estilo EFECTIVO, no el de Ajustes: una carátula en blanco y negro pinta en `Monochrome`.
+    val roles = miniPlayerRoles(LocalEffectivePaletteStyle.current, LocalThemeGeneration.current.isDark)
+    val sideContainer = roles.nextContainer
+    val sideContent = roles.nextContent
 
     // Izados: los `transitionSpec` de los dos `AnimatedContent` del botón de play no son lambdas
     // composables. Mismos tokens que el glifo del transporte del NowPlaying — es el mismo control.
@@ -486,17 +528,17 @@ private fun MiniPlayerContent(
         // queda, desvaneciéndose con el MiniPlayer. `progress` es una lambda que lee la posición → el
         // tick la repinta, no recompone (mismo patrón que el indicador de descarga del toolbar).
         //
-        // El anillo comparte los DOS rangos del transporte: el arco es lo principal (el dato, como el
-        // play es la acción) y el riel lo de apoyo. Que arco y play sean el MISMO color es la
-        // intención, no un descuido — lo que antes era un descuido es que el arco y el RIEL también
-        // lo fueran: cada uno salía de su propio [contentRoleOn] contra la barra, uno pidiendo 4.5:1
-        // y el otro 2:1, y las dos búsquedas caían en el mismo racimo de candidatos. Medido: arco
-        // `#F4BEB2` y riel `#F3B7AC`, 1,9 puntos de tono, o sea un aro liso de dos colores que son
-        // uno. El comentario que había —"arco a 4.5:1, el más OSCURO = el progreso"— describía
-        // además una paleta de barra clara: con la barra en T35,8 los dos umbrales se cumplen por el
-        // lado claro y "el más oscuro" no llegaba a existir.
-        val arcColor = transport.accent
-        val trackColor = transport.support
+        // **Arco y riel salen de la misma tabla que el "siguiente"** ([miniPlayerRoles]): el riel es
+        // un trazo de 3dp que tiene que verse sobre la píldora Y quedar por debajo del arco, y el rol
+        // que lo consigue cambia con la paleta por el mismo motivo que el relleno del "siguiente".
+        //
+        // **NO usar un alfa aquí.** Se probó `primary` y `onSecondaryContainer` rebajados con
+        // [ACCENT_TRACK_ALPHA] y se revirtió el 12 sep 2026: este riel NO está sobre la carátula
+        // —se dibuja alrededor de ella, sobre la píldora—, así que no entra en ninguna de las
+        // excepciones de alfa del proyecto (scrims, degradados, pistas sobre carátula y los estados
+        // deshabilitados que M3 tabula).
+        val arcColor = roles.arc
+        val trackColor = roles.track
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(ComponentConfig.MiniPlayerRingSize)
@@ -725,9 +767,14 @@ private fun MiniTransportButton(
     FilledIconButton(
         onClick = onClick,
         shapes = IconButtonDefaults.shapes(shape = shape, pressedShape = pressedShape),
+        // El juego COMPLETO de roles: una llamada PARCIAL deja los estados deshabilitados saliendo
+        // del esquema BASE (sin el color del álbum), y M3 les da defaults VISIBLES —`onSurface` al
+        // 12 % de contenedor—, así que el fallo se ve pero no falla en compilación.
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = containerColor,
-            contentColor = contentColor
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(alpha = DISABLED_CONTAINER_ALPHA),
+            disabledContentColor = contentColor.copy(alpha = DISABLED_CONTENT_ALPHA)
         ),
         modifier = modifier
             .minimumInteractiveComponentSize()
@@ -737,3 +784,75 @@ private fun MiniTransportButton(
         content()
     }
 }
+
+/**
+ * Los roles del MiniPlayer que dependen de la paleta: el fondo de la píldora, relleno y glifo del
+ * "siguiente", arco y riel. El texto de la píldora (`onSecondaryContainer`) y el play (`primary` +
+ * `onPrimary`) son los mismos en todas y no están aquí.
+ */
+@Immutable
+private class MiniPlayerRoles(
+    val pill: Color,
+    val nextContainer: Color,
+    val nextContent: Color,
+    val arc: Color,
+    val track: Color
+)
+
+/**
+ * **La tabla de roles por PALETA × TEMA**, elegida fila a fila por el usuario en el banco de roles
+ * (13 sep 2026) y validada contra seis carátulas de su paleta y su tema. Es la fuente de verdad: si
+ * una fila cambia en el banco, cambia aquí, y viceversa.
+ *
+ * Los defaults de [miniRoles] son lo que comparten la mayoría: píldora en `secondaryContainer`,
+ * glifo del "siguiente" en `onSecondaryContainer` y arco en `primary`. Una fila sólo escribe lo que
+ * se aparta.
+ *
+ * Fallos que el usuario APROBÓ sabiéndolo, para que nadie los "arregle" sin preguntar:
+ * Vibrante · oscuro (1: con una carátula teal el "siguiente" queda a 5,5 puntos de tono de la
+ * píldora) y Neutro · claro (2).
+ */
+@Composable
+@ReadOnlyComposable
+private fun miniPlayerRoles(style: PaletteStyle, isDark: Boolean): MiniPlayerRoles = when (style) {
+    PaletteStyle.TonalSpot ->
+        if (isDark) miniRoles(next = AppColors.primaryContainer, track = AppColors.inversePrimary)
+        else miniRoles(next = AppColors.primaryFixedDim, track = AppColors.outlineVariant, arc = AppColors.onSecondaryContainer)
+    PaletteStyle.Vibrant ->
+        if (isDark) miniRoles(next = AppColors.onPrimaryContainer, track = AppColors.outline)
+        else miniRoles(next = AppColors.onSecondary, track = AppColors.inverseOnSurface, arc = AppColors.onSecondaryContainer)
+    // Arco en `onSecondaryContainer` en oscuro: sigue al play, que en estas dos paletas deja `primary`
+    // (ver `playButtonRoles`).
+    PaletteStyle.Content ->
+        if (isDark) miniRoles(pill = AppColors.onSecondary, next = AppColors.secondaryContainer, track = AppColors.inversePrimary, arc = AppColors.onSecondaryContainer)
+        else miniRoles(pill = AppColors.primaryFixed, next = AppColors.inversePrimary, track = AppColors.surfaceBright)
+    PaletteStyle.Fidelity ->
+        if (isDark) miniRoles(pill = AppColors.onSecondary, next = AppColors.secondaryContainer, track = AppColors.inversePrimary, arc = AppColors.onSecondaryContainer)
+        else miniRoles(pill = AppColors.primaryFixed, next = AppColors.inversePrimary, track = AppColors.surfaceBright)
+    PaletteStyle.Neutral ->
+        if (isDark) miniRoles(next = AppColors.inversePrimary, track = AppColors.outline)
+        else miniRoles(next = AppColors.outlineVariant, track = AppColors.outlineVariant)
+    PaletteStyle.Expressive ->
+        if (isDark) miniRoles(next = AppColors.onTertiaryContainer, track = AppColors.outline)
+        else miniRoles(next = AppColors.tertiaryContainer, track = AppColors.inverseOnSurface)
+    PaletteStyle.Rainbow ->
+        if (isDark) miniRoles(next = AppColors.onSecondary, track = AppColors.inversePrimary)
+        else miniRoles(next = AppColors.inversePrimary, track = AppColors.secondaryFixedDim)
+    PaletteStyle.FruitSalad ->
+        if (isDark) miniRoles(next = AppColors.inversePrimary, track = AppColors.outline)
+        else miniRoles(next = AppColors.inversePrimary, track = AppColors.inversePrimary)
+    // La que se aplica SOLA a una carátula acromática, sea cual sea el estilo de Ajustes.
+    PaletteStyle.Monochrome ->
+        if (isDark) miniRoles(next = AppColors.outline, track = AppColors.outline, nextContent = AppColors.inverseOnSurface)
+        else miniRoles(next = AppColors.surfaceContainerLow, track = AppColors.outline)
+}
+
+@Composable
+@ReadOnlyComposable
+private fun miniRoles(
+    next: Color,
+    track: Color,
+    pill: Color = AppColors.secondaryContainer,
+    arc: Color = AppColors.primary,
+    nextContent: Color = AppColors.onSecondaryContainer
+) = MiniPlayerRoles(pill = pill, nextContainer = next, nextContent = nextContent, arc = arc, track = track)

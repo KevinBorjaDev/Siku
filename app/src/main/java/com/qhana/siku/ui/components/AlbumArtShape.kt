@@ -136,6 +136,12 @@ const val PLAYER_CONTAINER_SHARED_KEY = "player_container"
  *     a él (ver `overSharedElementsModifier`), porque el overlay dibuja sobre el árbol ENTERO y
  *     desde el árbol no hay z que alcance. Es el mismo motivo por el que ya se elevaba el título
  *     viajero de los detalles, un peldaño más arriba porque aquí lo que hay debajo es la portada.
+ *  3b. **chrome DE PÁGINA** ([PAGE_CHROME_OVERLAY_Z], 2,5) — lo que una pestaña fija sobre su propia
+ *     lista (la cabecera del año en Álbumes y su banda opaca). Tiene que ganarle a la portada por lo
+ *     mismo que el chrome persistente, pero PERDER contra él: en el árbol normal la página va debajo
+ *     del `topBar` del Scaffold, y en el overlay ese orden ya no lo da la composición. Con los dos en
+ *     el mismo peldaño decidía el orden de registro, y la banda del año —que se extiende hasta arriba
+ *     para tapar el aire bajo la búsqueda— dejó la cabecera en blanco toda la transición (17 sep 2026).
  *
 
  * Los nombres son de CONTENEDOR y no del player porque la escala la comparten todos los container
@@ -159,6 +165,9 @@ const val CONTAINER_SURFACE_OVERLAY_Z_EXITING = 1f
 
 /** Ver la escala completa en [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]. */
 const val CONTAINER_ART_OVERLAY_Z = 2f
+
+/** Ver la escala completa en [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]. */
+const val PAGE_CHROME_OVERLAY_Z = 2.5f
 
 /** Ver la escala completa en [CONTAINER_SURFACE_OVERLAY_Z_ENTERING]. */
 const val CHROME_OVERLAY_Z = 3f

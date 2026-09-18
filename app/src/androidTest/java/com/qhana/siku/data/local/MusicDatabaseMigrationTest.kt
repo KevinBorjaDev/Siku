@@ -21,7 +21,7 @@ import org.junit.runner.RunWith
  *
  * Qué cubre cada test, y por qué ese reparto:
  *
- * - [migratesAllTheWayUp] recorre 21 → 28 en cadena. `runMigrationsAndValidate` compara el esquema
+ * - [migratesAllTheWayUp] recorre 21 → 29 en cadena. `runMigrationsAndValidate` compara el esquema
  *   resultante contra el JSON de destino, así que de una sola pasada cubre el error más fácil de
  *   cometer —una columna con otro tipo, otro default o sin su índice— en todas las migraciones.
  * - Los otros van a los sitios donde una migración toca DATOS —o decide NO tocarlos— y no solo la
@@ -158,6 +158,54 @@ class MusicDatabaseMigrationTest {
         db.query("SELECT COUNT(*) FROM play_events").use { cursor ->
             cursor.moveToFirst()
             assertEquals("un evento colgado es legítimo: es un hecho, no una referencia", 1, cursor.getInt(0))
+        }
+    }
+
+    /**
+     * v28 → v29 encola la biblioteca ENTERA para calcular sus créditos y deja los triggers vivos.
+     *
+     * Las dos cosas son invisibles a la validación de esquema: una cola vacía o un trigger ausente
+     * dejan la tabla con la forma correcta, y el síntoma —una pestaña Artistas que no se entera de
+     * nada— solo aparecería en el teléfono de quien actualice.
+     */
+    @Test
+    fun queuesWholeLibraryAndInstallsCreditTriggers() {
+        helper.createDatabase(TEST_DB, 28).use { db ->
+            db.insertSong(id = "onedrive:ABC123", sourceType = "ONEDRIVE")
+            db.insertSong(id = "local:primary/music/x.flac", sourceType = "LOCAL")
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 29, true, *MusicDatabase.ALL_MIGRATIONS)
+
+        db.query("SELECT COUNT(*) FROM artist_credit_queue").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("toda canción existente tiene que calcularse una vez", 2, cursor.getInt(0))
+        }
+        db.query("SELECT albumArtist, artistCredits FROM songs LIMIT 1").use { cursor ->
+            cursor.moveToFirst()
+            assertNull("sin leer: lo rellena el backfill", cursor.getString(0))
+            assertNull(cursor.getString(1))
+        }
+
+        // Trigger de UPDATE: un cambio de artista re-encola con un seq MAYOR.
+        db.execSQL("DELETE FROM artist_credit_queue")
+        db.execSQL("UPDATE songs SET playCount = 3 WHERE id = 'onedrive:ABC123'")
+        db.query("SELECT COUNT(*) FROM artist_credit_queue").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("una escritura que no toca artistas no encola", 0, cursor.getInt(0))
+        }
+        db.execSQL("UPDATE songs SET artist = 'B' WHERE id = 'onedrive:ABC123'")
+        db.query("SELECT COUNT(*) FROM artist_credit_queue").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+
+        // Trigger de DELETE: se lleva los créditos y la cola de la canción borrada.
+        db.execSQL("INSERT INTO song_artists (songId, role, name) VALUES ('onedrive:ABC123', 0, 'B')")
+        db.execSQL("DELETE FROM songs WHERE id = 'onedrive:ABC123'")
+        db.query("SELECT (SELECT COUNT(*) FROM song_artists) + (SELECT COUNT(*) FROM artist_credit_queue)").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("sin créditos ni cola colgando", 0, cursor.getInt(0))
         }
     }
 

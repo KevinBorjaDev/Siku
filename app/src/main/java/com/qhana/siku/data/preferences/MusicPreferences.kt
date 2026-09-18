@@ -17,6 +17,10 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.data.model.AlbumSortOrder
+import com.qhana.siku.data.model.ArtistCreditRole
+import com.qhana.siku.data.model.ArtistSeparator
+import com.qhana.siku.data.model.ArtistSplitConfig
+import com.qhana.siku.data.model.DetailSongSort
 import com.qhana.siku.data.model.ArtistSortOrder
 import com.qhana.siku.data.model.DownloadControlState
 import com.qhana.siku.data.model.DuplicatePolicy
@@ -34,6 +38,8 @@ import com.qhana.siku.data.model.ReplayGainMode
 import com.qhana.siku.data.model.ToolbarActionState
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
+import com.qhana.siku.data.model.parseSortSpec
 import com.qhana.siku.player.manager.ContextResumeSlot
 import org.json.JSONArray
 import org.json.JSONObject
@@ -277,32 +283,56 @@ class MusicPreferences(context: Context) {
 
     // --- Sort order ---
 
-    fun saveSortOrder(order: SortOrder, filter: SongFilter) = update {
-        it[stringPreferencesKey(KEY_SORT_ORDER + filter.name)] = order.name
+    // Criterio y dirección van en UNA sola clave (`CRITERIO:asc|desc`, ver [SortSpec.serialize]) y
+    // no en dos: cada volcado reescribe el archivo ENTERO, así que separarlas serían dos escrituras
+    // por cada toque del chip — el mismo problema que ya obligó a fusionar las dos de las carpetas
+    // locales. `fromLegacy` conserva lo que el usuario tenía elegido cuando la dirección viajaba
+    // dentro del nombre del criterio (`TITLE_DESC`, `RECENTLY_ADDED`): sin él la preferencia se
+    // perdería en silencio al actualizar, porque un nombre desconocido cae al default sin fallar.
+
+    fun saveSortOrder(order: SortSpec<SortOrder>, filter: SongFilter) = update {
+        it[stringPreferencesKey(KEY_SORT_ORDER + filter.name)] = order.serialize()
     }
 
-    fun loadSortOrder(filter: SongFilter): SortOrder {
-        val name = cache[stringPreferencesKey(KEY_SORT_ORDER + filter.name)]
-        return try {
-            SortOrder.valueOf(name ?: SortOrder.TITLE_ASC.name)
-        } catch (_: Exception) {
-            SortOrder.TITLE_ASC
-        }
-    }
+    fun loadSortOrder(filter: SongFilter): SortSpec<SortOrder> = parseSortSpec(
+        cache[stringPreferencesKey(KEY_SORT_ORDER + filter.name)],
+        SortOrder.DEFAULT,
+        SortOrder::fromLegacy
+    )
 
-    fun saveArtistSortOrder(order: ArtistSortOrder) = update { it[KEY_ARTIST_SORT] = order.name }
-    fun loadArtistSortOrder(): ArtistSortOrder = try {
-        ArtistSortOrder.valueOf(cache[KEY_ARTIST_SORT] ?: ArtistSortOrder.NAME.name)
-    } catch (_: Exception) {
-        ArtistSortOrder.NAME
-    }
+    fun saveArtistSortOrder(order: SortSpec<ArtistSortOrder>) =
+        update { it[KEY_ARTIST_SORT] = order.serialize() }
 
-    fun saveAlbumSortOrder(order: AlbumSortOrder) = update { it[KEY_ALBUM_SORT] = order.name }
-    fun loadAlbumSortOrder(): AlbumSortOrder = try {
-        AlbumSortOrder.valueOf(cache[KEY_ALBUM_SORT] ?: AlbumSortOrder.NAME.name)
-    } catch (_: Exception) {
-        AlbumSortOrder.NAME
-    }
+    fun loadArtistSortOrder(): SortSpec<ArtistSortOrder> = parseSortSpec(
+        cache[KEY_ARTIST_SORT],
+        ArtistSortOrder.DEFAULT,
+        ArtistSortOrder::fromLegacy
+    )
+
+    fun saveAlbumSortOrder(order: SortSpec<AlbumSortOrder>) =
+        update { it[KEY_ALBUM_SORT] = order.serialize() }
+
+    fun loadAlbumSortOrder(): SortSpec<AlbumSortOrder> = parseSortSpec(
+        cache[KEY_ALBUM_SORT],
+        AlbumSortOrder.DEFAULT,
+        AlbumSortOrder::fromLegacy
+    )
+
+    /**
+     * Orden de la lista de canciones en los detalles de artista, álbum y género.
+     *
+     * **UNO para las tres pantallas y no uno por entidad**: por artista serían N claves en
+     * DataStore, que reescribe el archivo ENTERO en cada volcado. Eso obliga a que `DEFAULT` siga
+     * siendo válido en las tres pantallas — ver [DetailSongSort].
+     */
+    fun saveDetailSongSort(order: SortSpec<DetailSongSort>) =
+        update { it[KEY_DETAIL_SONG_SORT] = order.serialize() }
+
+    fun loadDetailSongSort(): SortSpec<DetailSongSort> = parseSortSpec(
+        cache[KEY_DETAIL_SONG_SORT],
+        DEFAULT_DETAIL_SONG_SORT,
+        DetailSongSort::fromLegacy
+    )
 
     // --- Keep screen on ---
 
@@ -1443,6 +1473,66 @@ class MusicPreferences(context: Context) {
     val genrePartialMatchFlow: Flow<Boolean> =
         prefFlow { it[KEY_GENRE_PARTIAL_MATCH] ?: false }
 
+    /**
+     * Con qué rol se agrupan los artistas: el de la pista (lo de siempre) o el del álbum. Se guarda
+     * el NOMBRE del enum. Cambiarlo no recalcula nada — `song_artists` guarda los dos roles — así que
+     * es una preferencia VIVA que las consultas leen en cada emisión.
+     */
+    fun saveArtistCreditRole(role: ArtistCreditRole) = update {
+        it[KEY_ARTIST_CREDIT_ROLE] = role.name
+    }
+
+    fun loadArtistCreditRole(): ArtistCreditRole = readArtistCreditRole(cache)
+
+    val artistCreditRoleFlow: Flow<ArtistCreditRole> = prefFlow { readArtistCreditRole(it) }
+
+    private fun readArtistCreditRole(prefs: Preferences): ArtistCreditRole =
+        prefs[KEY_ARTIST_CREDIT_ROLE]
+            ?.let { name -> ArtistCreditRole.entries.firstOrNull { it.name == name } }
+            ?: DEFAULT_ARTIST_CREDIT_ROLE
+
+    /**
+     * Separación de colaboraciones ("A feat. B" cuenta para A y para B). Los tres valores se escriben
+     * y se leen JUNTOS porque son un solo ajuste: el indexador de créditos los consume como una
+     * [ArtistSplitConfig], y un cambio en cualquiera re-encola la biblioteca.
+     *
+     * Los separadores se guardan por NOMBRE del enum; uno desconocido (de una versión futura) se
+     * ignora en vez de invalidar el conjunto.
+     */
+    fun saveArtistSplitConfig(config: ArtistSplitConfig) = update {
+        it[KEY_ARTIST_SPLIT_ENABLED] = config.enabled
+        it[KEY_ARTIST_SEPARATORS] = config.separators.map { separator -> separator.name }.toSet()
+        it[KEY_ARTIST_SPLIT_EXCEPTIONS] = config.exceptions.map(String::trim).filter(String::isNotEmpty).toSet()
+    }
+
+    fun loadArtistSplitConfig(): ArtistSplitConfig = readArtistSplitConfig(cache)
+
+    val artistSplitConfigFlow: Flow<ArtistSplitConfig> = prefFlow { readArtistSplitConfig(it) }
+
+    private fun readArtistSplitConfig(prefs: Preferences): ArtistSplitConfig = ArtistSplitConfig(
+        enabled = prefs[KEY_ARTIST_SPLIT_ENABLED] ?: DEFAULT_ARTIST_SPLIT_ENABLED,
+        separators = prefs[KEY_ARTIST_SEPARATORS]
+            ?.mapNotNull { name -> ArtistSeparator.entries.firstOrNull { it.name == name } }
+            ?.toSet()
+            ?: ArtistSeparator.DEFAULT,
+        exceptions = prefs[KEY_ARTIST_SPLIT_EXCEPTIONS]
+            ?.sortedWith(String.CASE_INSENSITIVE_ORDER)
+            ?: emptyList()
+    )
+
+    /**
+     * Huella de la [ArtistSplitConfig] con la que se calcularon los créditos que hay en la BD. La
+     * escribe SOLO `ArtistCreditIndexer`, después de re-encolar: si el proceso muere entre guardar el
+     * ajuste y re-encolar, la huella sigue siendo la vieja y el siguiente arranque lo termina. Con un
+     * re-encolado disparado desde la pantalla, ese hueco dejaría la biblioteca calculada con el ajuste
+     * anterior para siempre.
+     */
+    fun loadAppliedArtistSplitFingerprint(): String? = cache[KEY_ARTIST_SPLIT_APPLIED]
+
+    fun saveAppliedArtistSplitFingerprint(fingerprint: String) = update {
+        it[KEY_ARTIST_SPLIT_APPLIED] = fingerprint
+    }
+
     // --- Tema ---
 
     /**
@@ -1502,6 +1592,8 @@ class MusicPreferences(context: Context) {
         private const val KEY_SORT_ORDER = "sort_order"
         private val KEY_ARTIST_SORT = stringPreferencesKey("artist_sort_order")
         private val KEY_ALBUM_SORT = stringPreferencesKey("album_sort_order")
+        private val KEY_DETAIL_SONG_SORT = stringPreferencesKey("detail_song_sort")
+        private val DEFAULT_DETAIL_SONG_SORT: SortSpec<DetailSongSort> = DetailSongSort.DEFAULT
         private val KEY_DUPLICATE_POLICY = stringPreferencesKey("duplicate_policy")
         private val KEY_ONBOARDING_STORAGE_PENDING =
             booleanPreferencesKey("onboarding_storage_step_pending")
@@ -1540,6 +1632,17 @@ class MusicPreferences(context: Context) {
         private val KEY_LIBRARY_TABS_CONFIG = stringPreferencesKey("library_tabs_config")
         private val KEY_NOW_PLAYING_DETAILED_FORMAT = booleanPreferencesKey("now_playing_detailed_format")
         private val KEY_GENRE_PARTIAL_MATCH = booleanPreferencesKey("genre_partial_match")
+        private val KEY_ARTIST_CREDIT_ROLE = stringPreferencesKey("artist_credit_role")
+        private val KEY_ARTIST_SPLIT_ENABLED = booleanPreferencesKey("artist_split_enabled")
+        private val KEY_ARTIST_SEPARATORS = stringSetPreferencesKey("artist_split_separators")
+        private val KEY_ARTIST_SPLIT_EXCEPTIONS = stringSetPreferencesKey("artist_split_exceptions")
+        private val KEY_ARTIST_SPLIT_APPLIED = stringPreferencesKey("artist_split_applied")
+
+        /** El de siempre: agrupar por el artista de la pista. */
+        val DEFAULT_ARTIST_CREDIT_ROLE = ArtistCreditRole.TRACK
+
+        /** Apagada: lo que se ve es lo que dice el tag, igual que los géneros compuestos. */
+        const val DEFAULT_ARTIST_SPLIT_ENABLED = false
         private val KEY_RECENT_CONTEXTS = stringPreferencesKey("recent_playback_contexts")
         /** JSON `{ "<contextKey>": {q,o,s,i,p,sid}, ... }` — vive en [contextSlotsDataStore]. */
         private val KEY_CONTEXT_SLOTS = stringPreferencesKey("context_resume_slots")

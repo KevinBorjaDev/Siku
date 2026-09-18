@@ -53,7 +53,6 @@ import com.qhana.siku.data.source.DeviceAudioFolder
 import com.qhana.siku.data.util.CrashReporter
 import com.qhana.siku.ui.components.AppMenuPopup
 import com.qhana.siku.ui.components.DISABLED_CONTENT_ALPHA
-import com.qhana.siku.ui.components.contentRoleOn
 import com.qhana.siku.ui.components.groupedListItemShapes
 import com.qhana.siku.ui.components.ComponentConfig
 import com.qhana.siku.ui.components.ChoiceGroupWidth
@@ -88,6 +87,11 @@ import com.qhana.siku.ui.theme.appSliderColors
 import com.qhana.siku.ui.theme.appTopAppBarColors
 import com.qhana.siku.ui.theme.appSwitchColors
 import com.qhana.siku.ui.theme.appTextButtonColors
+import com.qhana.siku.ui.theme.appFilterChipBorder
+import com.qhana.siku.ui.theme.appFilterChipColors
+import com.qhana.siku.ui.theme.appTextFieldColors
+import com.qhana.siku.data.model.ArtistCreditRole
+import com.qhana.siku.data.model.ArtistSeparator
 import com.qhana.siku.ui.viewmodel.BackupViewModel
 import com.qhana.siku.ui.viewmodel.BrowseViewModel
 import com.qhana.siku.ui.viewmodel.LibraryViewModel
@@ -342,6 +346,16 @@ fun SettingsScreen(
             onClick = { onNavigate(Screen.SettingsDownloads.route) },
             iconShape = MaterialShapes.Cookie12Sided.toShape(),
             seed = Color(0xFF6A1B9A) // violeta
+        ),
+        // Biblioteca: cómo se agrupan los artistas. Categoría propia y no dentro de Apariencia: decide
+        // QUÉ canciones son de quién —cambia conteos, detalles y estadísticas—, no cómo se ven.
+        SettingsCategory(
+            icon = "library_music",
+            title = stringResource(R.string.settings_artists_header),
+            subtitle = stringResource(R.string.settings_cat_artists_desc),
+            onClick = { onNavigate(Screen.SettingsArtists.route) },
+            iconShape = MaterialShapes.Clover8Leaf.toShape(),
+            seed = Color(0xFF5D4037) // marrón
         ),
         SettingsCategory(
             icon = "palette",
@@ -1680,21 +1694,17 @@ fun SettingsProgressBarScreen(
                     .padding(horizontal = 16.dp, vertical = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Igual que en el reproductor ([contentRoleOn] contra `surface`).
+                // **Los MISMOS roles que la barra de verdad** (`ProgressSlider`): los tokens del
+                // Slider de M3, `primary` el tramo recorrido y `secondaryContainer` el riel. Una
+                // previsualización que no pinta lo que va a pintar la pantalla no previsualiza
+                // nada, y eso es lo que pasaba desde el 11 sep: aquí seguían dos `contentRoleOn`
+                // midiendo contra `surface` mientras el reproductor ya había pasado a los tokens.
                 ProgressBarPreview(
                     wavy = wavy,
                     trackHeight = thickness.dp,
                     showHandle = handle,
-                    activeColor = contentRoleOn(
-                        AppColors.surface, 4.5f,
-                        listOf(AppColors.primary, AppColors.secondary, AppColors.onSecondaryContainer),
-                        AppColors.primary,
-                    ),
-                    inactiveColor = contentRoleOn(
-                        AppColors.surface, 1.5f,
-                        listOf(AppColors.secondaryContainer, AppColors.primaryContainer),
-                        AppColors.primary,
-                    )
+                    activeColor = AppColors.primary,
+                    inactiveColor = AppColors.secondaryContainer
                 )
             }
         }
@@ -1814,6 +1824,177 @@ fun SettingsTabsScreen(
                     config = tabs,
                     enabled = !modernNav,
                     onConfigChange = { viewModel.setLibraryTabs(it) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Artistas: con qué rol se agrupan (pista o álbum) y la separación de colaboraciones.
+ *
+ * **Los dos ajustes se guardan en momentos distintos, y es a propósito.** Cambiar el rol no recalcula
+ * nada —`song_artists` guarda los dos— así que se aplica al tocarlo. La separación sí cambia los
+ * créditos de TODA la biblioteca, y cada guardado la re-encola entera: si cada chip o cada tecla de
+ * las excepciones guardara, escribir un nombre de diez letras serían diez recálculos. Por eso se edita
+ * un BORRADOR y se guarda al salir, igual que las carpetas excluidas (convención 13).
+ */
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun SettingsArtistsScreen(
+    onBackClick: () -> Unit,
+    viewModel: BrowseViewModel
+) {
+    val role by viewModel.artistCreditRole.collectAsStateWithLifecycle()
+    val savedSplit by viewModel.artistSplitConfig.collectAsStateWithLifecycle()
+
+    var draft by remember { mutableStateOf(savedSplit) }
+    // Las excepciones se editan como TEXTO (una por línea) y se convierten a lista al guardar: parsear
+    // en cada tecla borraría la línea vacía que el usuario acaba de abrir con Intro.
+    var exceptionsText by remember { mutableStateOf(savedSplit.exceptions.joinToString("\n")) }
+
+    val latestDraft by androidx.compose.runtime.rememberUpdatedState(
+        draft.copy(exceptions = exceptionsText.lines().map { it.trim() }.filter { it.isNotEmpty() })
+    )
+    DisposableEffect(Unit) {
+        onDispose {
+            // `saveArtistSplitConfig` guarda los conjuntos ORDENADOS por nombre; comparar como
+            // conjuntos evita re-encolar la biblioteca por un simple cambio de orden.
+            val current = latestDraft
+            val changed = current.enabled != savedSplit.enabled ||
+                current.separators != savedSplit.separators ||
+                current.exceptions.map { it.lowercase() }.toSet() != savedSplit.exceptions.map { it.lowercase() }.toSet()
+            if (changed) viewModel.setArtistSplitConfig(current)
+        }
+    }
+
+    SettingsScaffold(
+        title = stringResource(R.string.settings_artists_header),
+        onBackClick = onBackClick
+    ) {
+        AppSurface(
+            shape = RoundedCornerShape(SettingsTokens.BlockCorner),
+            color = AppColors.surfaceContainerHigh
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_artist_grouping),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                Text(
+                    text = stringResource(R.string.settings_artist_grouping_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                ConnectedChoiceGroup(
+                    options = ArtistCreditRole.entries.toList(),
+                    selected = role,
+                    onSelect = { viewModel.setArtistCreditRole(it) },
+                    labelFor = {
+                        when (it) {
+                            ArtistCreditRole.TRACK -> stringResource(R.string.settings_artist_grouping_track)
+                            ArtistCreditRole.ALBUM -> stringResource(R.string.settings_artist_grouping_album)
+                        }
+                    }
+                )
+                Text(
+                    text = when (role) {
+                        ArtistCreditRole.TRACK -> stringResource(R.string.settings_artist_grouping_track_desc)
+                        ArtistCreditRole.ALBUM -> stringResource(R.string.settings_artist_grouping_album_desc)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(SettingsTokens.SectionGap))
+
+        SettingsGroup(
+            listOf<@Composable (ListItemShapes) -> Unit>(
+                { shapes ->
+                    SettingsSwitchTile(
+                        icon = "artist",
+                        title = stringResource(R.string.settings_artist_split),
+                        description = stringResource(R.string.settings_artist_split_desc),
+                        checked = draft.enabled,
+                        shapes = shapes,
+                        onCheckedChange = { draft = draft.copy(enabled = it) }
+                    )
+                }
+            )
+        )
+
+        Spacer(Modifier.height(SettingsTokens.SectionGap))
+
+        // Inhabilitado —no oculto— con la separación apagada, por el mismo motivo que los controles de
+        // pestañas con el estilo moderno: la configuración sigue guardada y se ve por qué no aplica.
+        val splitEnabled = draft.enabled
+        val contentAlpha = if (splitEnabled) 1f else DISABLED_CONTENT_ALPHA
+        AppSurface(
+            shape = RoundedCornerShape(SettingsTokens.BlockCorner),
+            color = AppColors.surfaceContainerHigh
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_artist_separators),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = AppColors.onSurface.copy(alpha = contentAlpha),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ArtistSeparator.entries.forEach { separator ->
+                        val selected = separator in draft.separators
+                        androidx.compose.material3.FilterChip(
+                            selected = selected,
+                            enabled = splitEnabled,
+                            onClick = {
+                                draft = draft.copy(
+                                    separators = if (selected) draft.separators - separator
+                                    else draft.separators + separator
+                                )
+                            },
+                            label = { Text(separator.label) },
+                            leadingIcon = if (selected) {
+                                { MaterialSymbol("check", size = 18.sp) }
+                            } else null,
+                            colors = appFilterChipColors(),
+                            border = appFilterChipBorder(selected)
+                        )
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.settings_artist_separators_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.onSurfaceVariant.copy(alpha = contentAlpha),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                )
+                Text(
+                    text = stringResource(R.string.settings_artist_exceptions),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = AppColors.onSurface.copy(alpha = contentAlpha),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                androidx.compose.material3.TextField(
+                    value = exceptionsText,
+                    onValueChange = { exceptionsText = it },
+                    enabled = splitEnabled,
+                    minLines = 3,
+                    placeholder = { Text(stringResource(R.string.settings_artist_exceptions_placeholder)) },
+                    colors = appTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(R.string.settings_artist_exceptions_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.onSurfaceVariant.copy(alpha = contentAlpha),
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }

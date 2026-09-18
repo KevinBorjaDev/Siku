@@ -27,8 +27,8 @@ import com.qhana.siku.ui.theme.AppBoundsTransform
 import com.qhana.siku.ui.theme.AppContainerBoundsTransform
 import com.qhana.siku.ui.theme.appContainerContentEnter
 import com.qhana.siku.ui.theme.appContainerContentExitFast
-import com.qhana.siku.ui.theme.appFadeEnter
-import com.qhana.siku.ui.theme.appFadeExit
+import com.qhana.siku.ui.theme.appEntityContentEnter
+import com.qhana.siku.ui.theme.appEntityContentExit
 
 /**
  * Punta **ORIGEN** de un *container transform*: la superficie de la que CRECE una pantalla y a la que
@@ -254,7 +254,7 @@ fun SongRowContainer(
  *
  * Un shared element se dibuja en el **overlay** del `SharedTransitionScope`, que cuelga de la RAÍZ y
  * por tanto se salta los recortes de sus padres. Las celdas no llevan su forma puesta —la aporta un
- * ancestro: el `maskClip` del carrusel del inicio, el `Card` del tile de álbum—, así que en cuanto
+ * ancestro: entonces el `maskClip` del carrusel de M3 en el inicio, el `Card` del tile de álbum—, así que en cuanto
  * despegaban se convertían en un RECTÁNGULO DE ESQUINAS VIVAS que además desbordaba sus bounds:
  * la portada entera flotando sobre la pantalla, como se ve en la grabación del usuario.
  *
@@ -271,7 +271,7 @@ fun SongRowContainer(
  * aquí gratis porque una imagen cuadrada escalada por ancho y recortada al rect es exactamente lo que
  * pinta el `ContentScale.Crop` del otro extremo.
  *
- * El cruce va con [appFadeEnter]/[appFadeExit] (tween de `SCREEN_TRANSFORM_MS`, curva de *effects*) y
+ * El cruce va con [appEntityContentEnter]/[appEntityContentExit] (el token *fast* de effects) y
  * no con el `fadeIn()`/`fadeOut()` que la API pone por defecto: ese trae specs de `compose-animation`,
  * ajenos al tema, y encima con otra duración que el bounds al que acompañan.
  *
@@ -293,13 +293,13 @@ fun entityImageSharedBounds(
         Modifier.sharedBounds(
             sharedContentState = state,
             animatedVisibilityScope = animatedVisibilityScope,
-            // El spec del TEMA en vez del default de la API: [AppBoundsTransform] es el tween de
-            // `SCREEN_TRANSFORM_MS`, el mismo que mueve el `NavHost`, porque un shared element tiene
-            // que asentar a la vez que la pantalla que lo transporta (si llega antes, se queda quieto
-            // en su sitio final mientras el resto sigue moviéndose).
+            // El spec del TEMA en vez del default de la API: [AppBoundsTransform] es el spring
+            // spatial del `MotionScheme`, y es un SPRING justamente porque el destino se mueve —
+            // vive dentro de la pantalla que entra, que escala durante toda la transición. Así
+            // persigue ese destino y asienta cuando la pantalla asienta.
             boundsTransform = AppBoundsTransform,
-            enter = appFadeEnter(),
-            exit = appFadeExit(),
+            enter = appEntityContentEnter(),
+            exit = appEntityContentExit(),
             clipInOverlayDuringTransition = OverlayClip(shape)
         )
     }

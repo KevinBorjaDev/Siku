@@ -220,6 +220,41 @@ class AuthViewModel @Inject constructor(
     }
 
     /**
+     * Vuelve a entrar en la cuenta YA conectada, tras un [AuthErrorReason.INTERACTION_REQUIRED].
+     *
+     * Es deliberadamente distinto de [signIn] —que es para conectar una cuenta nueva y falla si ya
+     * hay uno— y sobre todo de [logout]: aquí la sesión y la biblioteca sincronizada siguen enteras,
+     * lo único caducado es el token. Ver `AuthManager.reauthenticate`.
+     */
+    fun reauthenticate(activity: android.app.Activity, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                authManager.reauthenticate(activity).collect { result ->
+                    when (result) {
+                        is AuthResult.Error -> _error.value = authErrorMessage(result.reason)
+                        // **El éxito tiene que hacer algo visible**, al revés que en [signIn]: allí
+                        // el login cambia `hasSession` y la app entera reacciona, pero aquí la
+                        // sesión ya constaba como activa, así que nada cambia de estado y el banner
+                        // rojo que trajo al usuario hasta aquí seguiría en pantalla. Quien llama
+                        // relanza el sync, que es lo que lo releva.
+                        is AuthResult.Success -> onSuccess()
+                        AuthResult.Cancelled -> Unit
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Fallo inesperado al reautenticar", e)
+                _error.value = context.getString(R.string.error_auth_generic)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
      * Traduce el motivo tipado de un fallo de autenticación a un texto localizado. Antes llegaban a
      * la pantalla de onboarding literales en inglés de MSAL ("Login failed", "MSAL not initialized")
      * iguales en los dos idiomas; ahora la capa de datos entrega [AuthErrorReason] y aquí se resuelve.
@@ -230,6 +265,10 @@ class AuthViewModel @Inject constructor(
             AuthErrorReason.SIGN_IN_FAILED -> R.string.error_auth_signin_failed
             AuthErrorReason.CONSENT_FAILED -> R.string.error_auth_consent_failed
             AuthErrorReason.NO_ACCOUNT -> R.string.error_auth_no_account
+            // Los dos hablan de la sesión, y este string ya dice exactamente lo que toca hacer
+            // ("Tu sesión expiró. Vuelve a iniciar sesión"). Lo que los distingue no es el texto
+            // sino la ACCIÓN que la UI ofrece al lado, y esa la decide el banner.
+            AuthErrorReason.INTERACTION_REQUIRED -> R.string.error_auth_token_refresh
             AuthErrorReason.TOKEN_REFRESH_FAILED -> R.string.error_auth_token_refresh
         }
         return context.getString(res)

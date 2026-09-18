@@ -1,10 +1,13 @@
 package com.qhana.siku.ui.screens
 
+import com.qhana.siku.data.local.identityKey
+import com.qhana.siku.data.local.AlbumSummary
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -61,6 +64,8 @@ import com.qhana.siku.ui.components.SongRowContainer
 import com.qhana.siku.ui.components.SongOverflowButton
 import com.qhana.siku.ui.components.songRowBackground
 import com.qhana.siku.ui.components.CountChip
+import com.qhana.siku.ui.components.artistPhotoCacheKey
+import com.qhana.siku.ui.components.DetailSortChip
 import com.qhana.siku.ui.components.overSharedElementsModifier
 import com.qhana.siku.ui.components.rememberListItemShape
 import com.qhana.siku.ui.theme.AppColors
@@ -99,7 +104,7 @@ fun ArtistDetailScreen(
     favorites: Set<String>,
     playlists: List<Playlist>,
     onBackClick: () -> Unit,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (String, String?) -> Unit,
     onPlayAll: (List<Song>, Int) -> Unit,
     onShufflePlay: (List<Song>) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -114,13 +119,14 @@ fun ArtistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: BrowseViewModel = hiltViewModel()
 ) {
-    val songs by remember(artistName) { viewModel.getArtistSongs(artistName) }
+    val songs by remember(artistName) { viewModel.getArtistDetailSongs(artistName) }
         .collectAsStateWithLifecycle(emptyList())
     val albums by remember(artistName) { viewModel.getArtistAlbums(artistName) }
         .collectAsStateWithLifecycle(emptyList())
     val artistInfo by remember(artistName) { viewModel.getArtistInfo(artistName) }
         .collectAsStateWithLifecycle(null)
     val pickerState by viewModel.pickerState.collectAsStateWithLifecycle()
+    val songSort by viewModel.detailSongSort.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
 
@@ -142,20 +148,23 @@ fun ArtistDetailScreen(
     // La foto puede LLEGAR TARDE (la baja el backfill de Deezer con la pantalla ya abierta), de ahí
     // que el seed sea un flow y no un valor calculado una vez.
     LaunchedEffect(headerImageUrl) { viewModel.requestArtistSeed(headerImageUrl) }
-    val artistSeed by viewModel.artistSeed.collectAsStateWithLifecycle()
+    val artistSeeds by viewModel.artistSeed.collectAsStateWithLifecycle()
+    // Mismo reparto por tema que el detalle de álbum: `secondary` en oscuro y `primary` en claro.
+    val isDark = isSystemInDarkTheme()
+    val artistSeed = artistSeeds?.let { if (isDark) it.secondary else it.primary }
 
     // Quick-play de un álbum del carrusel: obtiene sus canciones y reproduce (navega al player).
-    val playAlbum: (String) -> Unit = { albumName ->
+    val playAlbum: (AlbumSummary) -> Unit = { album ->
         scope.launch {
-            val albumSongs = viewModel.getAlbumSongs(albumName).first()
+            val albumSongs = viewModel.getAlbumSongs(album.name, album.albumArtist).first()
             if (albumSongs.isNotEmpty()) onPlayAll(albumSongs, 0)
         }
     }
 
     // Encolar un álbum del carrusel. Misma resolución perezosa que [playAlbum]: la tarjeta solo
     // conoce el NOMBRE del álbum, las canciones se piden al pulsar.
-    val queueAlbum: (String) -> Unit = { albumName ->
-        scope.launch { onAddAllToQueue(viewModel.getAlbumSongs(albumName).first()) }
+    val queueAlbum: (AlbumSummary) -> Unit = { album ->
+        scope.launch { onAddAllToQueue(viewModel.getAlbumSongs(album.name, album.albumArtist).first()) }
     }
 
     // TopBar mínima al scrollear: fondo que se funde + título con transición tipo
@@ -249,6 +258,8 @@ fun ArtistDetailScreen(
                     // ("ninguno de estos" en el picker) cuando Deezer solo ofrece homónimos, y
                     // un header con el icono genérico se lee como un fallo de carga.
                     imageUrl = headerImageUrl,
+                    // Lo que pintó el avatar de la superficie de origen, para reusar su bitmap.
+                    placeholderArt = artistInfo?.thumbUrl ?: headerImageUrl,
                     albumCount = albums.size,
                     songCount = songs.size,
                     sharedTransitionScope = sharedTransitionScope,
@@ -292,15 +303,15 @@ fun ArtistDetailScreen(
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(albums, key = { it.name }) { album ->
+                        items(albums, key = { it.identityKey }) { album ->
                             // MISMA tarjeta que la pestaña Álbumes. El artista se omite: acá
                             // todos son del mismo y repetirlo bajo cada carátula es ruido.
                             AlbumTileCard(
                                 album = album,
                                 showArtist = false,
-                                onClick = { onAlbumClick(album.name) },
-                                onPlayClick = { playAlbum(album.name) },
-                                onAddToQueue = { queueAlbum(album.name) },
+                                onClick = { onAlbumClick(album.name, album.albumArtist) },
+                                onPlayClick = { playAlbum(album) },
+                                onAddToQueue = { queueAlbum(album) },
                                 modifier = Modifier
                                     .animateItem()
                                     .width(ArtistAlbumCardWidth)
@@ -317,19 +328,34 @@ fun ArtistDetailScreen(
                             .fillMaxWidth()
                             .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // El título cede el ancho: es lo único de la fila que puede elidirse sin
+                        // perder información —dice "Canciones" y debajo hay canciones— mientras que
+                        // el chip de orden recortado dejaría de decir por cuál está ordenada.
                         Text(
                             text = stringResource(R.string.songs_header),
-                            style = MaterialTheme.typography.titleMediumEmphasized
+                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // `weight` a secas: los hijos con peso se miden DESPUÉS de los que no
+                            // lo llevan, así que los chips se quedan con su ancho natural y el
+                            // título recibe lo que sobra. Con `fill = false` + un Spacer con peso,
+                            // los dos pesos se repartirían el hueco a partes iguales y el título
+                            // elidiría teniendo sitio.
+                            modifier = Modifier.weight(1f)
                         )
-                        CountChip {
-                            MaterialSymbol("music_note", size = 14.sp)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${songs.size}",
-                            )
-                        }
+                        // **SIN contador, y el chip de orden cierra la fila** (device, 16 sep 2026).
+                        // El header de la pantalla ya dice "68 canciones" en su propio `CountChip`, a
+                        // dos bloques de aquí y con la palabra puesta: repetir la cifra desnuda al
+                        // pie no añadía un dato, solo una tercera pieza que empujaba el chip al
+                        // medio de la fila. Es el mismo criterio que ya seguían el detalle de ÁLBUM
+                        // y el de GÉNERO — este se había quedado atrás.
+                        DetailSortChip(
+                            current = songSort,
+                            catalogLabel = R.string.sort_detail_catalog_artist,
+                            onChange = viewModel::setDetailSongSort
+                        )
                     }
                 }
                 itemsIndexed(
@@ -536,6 +562,7 @@ fun ArtistDetailScreen(
 private fun ArtistImmersiveHeader(
     artistName: String,
     imageUrl: String?,
+    placeholderArt: String?,
     albumCount: Int,
     songCount: Int,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -565,7 +592,7 @@ private fun ArtistImmersiveHeader(
     ) {
         if (imageUrl != null) {
             val context = LocalContext.current
-            val request = remember(imageUrl, artistName) {
+            val request = remember(imageUrl, placeholderArt) {
                 ImageRequest.Builder(context)
                     .data(imageUrl)
                     // Placeholder = la MISMA foto que ya cargó la fila de la pestaña Artistas (misma
@@ -575,7 +602,7 @@ private fun ArtistImmersiveHeader(
                     // resoluciones de Deezer (fila = pictureMedium, header = pictureXl), así que el
                     // binario grande SÍ se baja, pero por DETRÁS del placeholder. El thumb lleva
                     // forma cookie; al recortarse (Crop) a un header ancho solo se ve su centro opaco.
-                    .placeholderMemoryCacheKey(artistPhotoCacheKey(artistName))
+                    .placeholderMemoryCacheKey(placeholderArt?.let(::artistPhotoCacheKey))
                     .crossfade(200)
                     .build()
             }

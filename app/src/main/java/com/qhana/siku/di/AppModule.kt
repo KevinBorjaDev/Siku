@@ -263,6 +263,12 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideArtistCreditDao(db: com.qhana.siku.data.local.MusicDatabase): com.qhana.siku.data.local.ArtistCreditDao {
+        return db.artistCreditDao()
+    }
+
+    @Provides
+    @Singleton
     @Named("lyrics")
     fun provideLyricsOkHttpClient(): OkHttpClient {
         // LrcLib pide explícitamente que los clientes se identifiquen con un User-Agent

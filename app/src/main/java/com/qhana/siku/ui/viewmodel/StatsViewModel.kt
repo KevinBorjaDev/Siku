@@ -3,7 +3,9 @@ package com.qhana.siku.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qhana.siku.data.coordinator.SyncManager
+import com.qhana.siku.data.model.ArtistCreditRole
 import com.qhana.siku.data.model.StatsPeriodMode
+import com.qhana.siku.data.preferences.MusicPreferences
 import com.qhana.siku.data.model.StatsSelection
 import com.qhana.siku.data.repository.BrowseRepository
 import com.qhana.siku.data.repository.StatsNameEntry
@@ -146,8 +148,13 @@ data class StatsUiState(
 class StatsViewModel @Inject constructor(
     private val statsRepository: StatsRepository,
     private val browseRepository: BrowseRepository,
+    // Solo para la agrupación de artistas (v29): el ranking cuenta por los mismos créditos que la
+    // pestaña Artistas, y sigue en vivo el ajuste.
+    musicPreferences: MusicPreferences,
     syncManager: SyncManager
 ) : ViewModel() {
+
+    private val artistRole: Flow<ArtistCreditRole> = musicPreferences.artistCreditRoleFlow
 
     private companion object {
         /**
@@ -288,7 +295,7 @@ class StatsViewModel @Inject constructor(
      * `sampledDuringSync` porque llevan `JOIN songs` y Room invalida por TABLA: durante un sync
      * masivo se re-ejecutarían decenas de veces por segundo.
      */
-    val rankings: StateFlow<StatsRankings> = _selection.flatMapLatest { selection ->
+    val rankings: StateFlow<StatsRankings> = combine(_selection, artistRole) { s, r -> s to r }.flatMapLatest { (selection, role) ->
         val zone = ZoneId.systemDefault()
         val since = selection.sinceMillis(zone)
         val until = selection.untilMillis(zone)
@@ -296,8 +303,8 @@ class StatsViewModel @Inject constructor(
         combine(
             if (all) statsRepository.allTimeTopSongs(TOP_ENTRIES)
             else statsRepository.topSongs(since, until, TOP_ENTRIES),
-            if (all) statsRepository.allTimeTopArtists(TOP_ENTRIES)
-            else statsRepository.topArtists(since, until, TOP_ENTRIES),
+            if (all) statsRepository.allTimeTopArtists(role, TOP_ENTRIES)
+            else statsRepository.topArtists(role, since, until, TOP_ENTRIES),
             if (all) statsRepository.allTimeTopAlbums(TOP_ENTRIES)
             else statsRepository.topAlbums(since, until, TOP_ENTRIES),
             if (all) statsRepository.allTimeTopGenres(TOP_ENTRIES)

@@ -30,6 +30,7 @@ import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import com.qhana.siku.data.preferences.MusicPreferences
 import com.qhana.siku.data.repository.ArtworkRepository
@@ -1235,7 +1236,7 @@ class PlaybackViewModel @Inject constructor(
         clickedSong: Song,
         filter: SongFilter,
         query: String,
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter> = emptySet()
     ) {
         resetRetryBudget()
@@ -1320,7 +1321,7 @@ class PlaybackViewModel @Inject constructor(
             oldJob?.cancelAndJoin()
             // Mismo snapshot que arma la cola de la pestaña Todas: el orden da igual (se mezcla),
             // pero así el subconjunto lo define el ÚNICO sitio que sabe qué es "descargada".
-            val songs = repository.getSongsSnapshot("", SortOrder.TITLE_ASC, sourceFilters)
+            val songs = repository.getSongsSnapshot("", SortOrder.DEFAULT, sourceFilters)
             if (songs.isEmpty()) return@launch
             when (val result = playbackUseCase.playShuffled(songs)) {
                 is MusicPlaybackUseCase.PlayResult.Success -> {
@@ -1438,7 +1439,7 @@ class PlaybackViewModel @Inject constructor(
      * dispositivo.
      */
     fun playLibraryList(
-        sortOrder: SortOrder,
+        sortOrder: SortSpec<SortOrder>,
         sourceFilters: Set<SongSourceFilter>,
         shuffled: Boolean
     ) {
@@ -1747,6 +1748,12 @@ class PlaybackViewModel @Inject constructor(
     fun selectLyricsFromCandidate(candidate: LyricsCandidate) {
         val song = currentSong.value ?: return
         val resolved = candidate.resolvedLyrics ?: return
+        // Elegir otra letra es la decisión FINAL sobre esta canción: el ajuste pendiente era del
+        // texto que se está reemplazando, y si sobrevive, el `flushLyricsShift` del `onDispose`
+        // (la hoja vive DENTRO de `LyricsScreen`, así que elegir no la cierra) lo escribiría al
+        // salir encima de la letra recién guardada. Síncrono y antes del `launch`: el volcado
+        // puede llegar antes que la corrutina.
+        if (pendingLyricsShift?.first == song.id) pendingLyricsShift = null
         viewModelScope.launch {
             repository.saveLyrics(song.id, resolved)
             if (currentSong.value?.id != song.id) return@launch
@@ -2080,16 +2087,16 @@ class PlaybackViewModel @Inject constructor(
         viewModelScope.launch {
             val playlistId = repository.createPlaylist(trimmed)
             val added = repository.addSongsToPlaylist(playlistId, ids)
-            snackbarManager.show(
-                context.resources.getQuantityString(R.plurals.playlist_songs_added, added, added)
-            )
+            snackbarManager.show(playlistCreatedMessage(context, trimmed, added))
         }
     }
     fun getAudioSessionId(): Int = musicController.getAudioSessionId()
     fun updatePosition() = musicController.updatePosition()
     fun toggleKeepScreenOn() { val v = !_keepScreenOn.value; _keepScreenOn.value = v; musicPreferences.saveKeepScreenOn(v) }
     fun toggleFavorite(id: String) {
-        viewModelScope.launch { repository.toggleFavorite(id) }
+        viewModelScope.launch {
+            snackbarManager.show(favoriteToggledMessage(context, repository.toggleFavorite(id)))
+        }
     }
     private fun isNetworkAvailable(): Boolean = networkManager.isAvailable()
 

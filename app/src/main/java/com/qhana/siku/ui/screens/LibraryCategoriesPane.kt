@@ -101,7 +101,11 @@ private fun LibraryCategoryTabs(
     if (categories.isEmpty()) return
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val selectedIndex = pagerState.currentPage.coerceIn(0, categories.lastIndex)
+    // `targetPage` y NO `currentPage`, por lo mismo que las cuatro presentaciones del selector de
+    // `LibraryScreen` (ver la nota junto a su `rememberPagerState`): `animateScrollToPage` salta a
+    // un viewport del destino cuando está a 3 o más páginas, y con cuatro categorías ir de la
+    // última a la primera cumple esa condición — la pestaña activa parpadearía en la segunda.
+    val selectedIndex = pagerState.targetPage.coerceIn(0, categories.lastIndex)
 
     // **SCROLLABLE y no la fija**, aunque sean solo cuatro (29 ago 2026). La fija reparte el ancho
     // a partes IGUALES: en un teléfono de 393dp toca a ~98 por pestaña, y descontando el padding

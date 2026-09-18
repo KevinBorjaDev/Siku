@@ -503,7 +503,7 @@ object AppColors {
      * conserva ahora un nivel de contenedor fijo, porque el fondo también es fijo.
      */
     val contentSurface: Color
-        @Composable @ReadOnlyComposable get() = LocalAppColors.current.surfaceContainerHigh
+        @Composable @ReadOnlyComposable get() = LocalAppColors.current.surfaceContainer
 
     /**
      * Superficie de las BARRAS de navegación (fila de pestañas, rail): un peldaño hacia el lado

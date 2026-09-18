@@ -15,6 +15,7 @@ import com.qhana.siku.data.model.PlaybackContext
 import com.qhana.siku.data.model.SongFilter
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.ui.PlayerArtOrigin
 import com.qhana.siku.ui.viewmodel.BrowseViewModel
 import com.qhana.siku.ui.viewmodel.LibraryViewModel
@@ -56,7 +57,7 @@ internal fun SongsCategory(
     libraryViewModel: LibraryViewModel,
     playbackViewModel: PlaybackViewModel,
     songCount: Int,
-    sortOrder: SortOrder,
+    sortOrder: SortSpec<SortOrder>,
     sourceFilters: Set<SongSourceFilter>
 ) {
     SongsScreen(
@@ -157,7 +158,7 @@ internal fun ArtistsCategory(
 internal fun AlbumsCategory(
     albums: List<AlbumSummary>,
     contentPadding: PaddingValues,
-    onAlbumClick: (String) -> Unit,
+    onAlbumClick: (String, String?) -> Unit,
     showLocalChip: Boolean,
     showCloudChips: Boolean,
     libraryViewModel: LibraryViewModel,
@@ -180,20 +181,20 @@ internal fun AlbumsCategory(
         showLocalChip = showLocalChip,
         showCloudChips = showCloudChips,
         // Quick-play: reproduce el álbum sin navegar (el MiniPlayer aparece como feedback).
-        onPlayAlbum = { name ->
+        onPlayAlbum = { album ->
             scope.launch {
-                val albumSongs = browseViewModel.getAlbumSongs(name).first()
+                val albumSongs = browseViewModel.getAlbumSongs(album.name, album.albumArtist).first()
                 if (albumSongs.isNotEmpty()) {
                     libraryViewModel.recordContext(
-                        PlaybackContext.Album(name, albumSongs.firstOrNull()?.albumArtUri?.toString())
+                        PlaybackContext.Album(album.name, albumSongs.firstOrNull()?.albumArtUri?.toString())
                     )
                     playbackViewModel.playSongs(albumSongs, 0)
                 }
             }
         },
-        onAddAlbumToQueue = { name ->
+        onAddAlbumToQueue = { album ->
             scope.launch {
-                playbackViewModel.addToQueue(browseViewModel.getAlbumSongs(name).first())
+                playbackViewModel.addToQueue(browseViewModel.getAlbumSongs(album.name, album.albumArtist).first())
             }
         },
         contentPadding = contentPadding,

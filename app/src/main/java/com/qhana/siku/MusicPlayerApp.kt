@@ -68,6 +68,7 @@ class MusicPlayerApp : Application(), Configuration.Provider, SingletonImageLoad
     @Inject lateinit var artworkHealingManager: ArtworkHealingManager
     @Inject lateinit var widgetBridge: WidgetBridge
     @Inject lateinit var retagJournal: RetagJournal
+    @Inject lateinit var artistCreditIndexer: com.qhana.siku.data.coordinator.ArtistCreditIndexer
 
     /**
      * Ninguna de las tareas de arranque que corren aquí es imprescindible para que la app ABRA, así
@@ -119,6 +120,10 @@ class MusicPlayerApp : Application(), Configuration.Provider, SingletonImageLoad
 
         // Puente reproductor → widgets de pantalla de inicio: vive todo el proceso.
         widgetBridge.start(appScope)
+
+        // Créditos de artista (`song_artists`): también todo el proceso, porque un escaneo en un
+        // worker sin UI tiene que dejar la biblioteca bien agrupada igual.
+        artistCreditIndexer.start(appScope)
 
         // Garantizar que la playlist de favoritos exista (idempotente).
         appScope.launch { playlistRepository.ensureFavoritesPlaylist() }

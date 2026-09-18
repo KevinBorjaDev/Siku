@@ -25,7 +25,7 @@ class FlacTagReader @Inject constructor() : PartialTagReader {
         ) return null
 
         var pos = 4
-        var tags: Map<String, String> = emptyMap()
+        var tags: Map<String, List<String>> = emptyMap()
         var pictureData: ByteArray? = null
         var pictureRange: LongRange? = null
         var durationMs = 0L
@@ -66,20 +66,32 @@ class FlacTagReader @Inject constructor() : PartialTagReader {
             if (length < 0 || pos <= bodyStart) break
         }
 
+        // Una clave Vorbis puede repetirse, y para los artistas eso es un dato: el formato no tiene
+        // otra forma de decir "dos intérpretes". Para el resto de claves vale la primera.
+        fun first(key: String): String? = tags[key]?.firstOrNull()
+        val artistValues = tags["ARTIST"].orEmpty()
+
         return TagFragment(
-            title = tags["TITLE"],
-            artist = tags["ARTIST"],
-            album = tags["ALBUM"],
-            albumArtist = tags["ALBUMARTIST"],
-            genre = tags["GENRE"],
-            trackNumber = parseTrackNumber(tags["TRACKNUMBER"]),
+            title = first("TITLE"),
+            // Lo que se MUESTRA: todos los intérpretes, no solo el primero. Los créditos por separado
+            // van en `artists`.
+            artist = artistValues.takeIf { it.isNotEmpty() }?.joinToString(", "),
+            album = first("ALBUM"),
+            // Tres grafías de facto para la misma clave, según el tagger: la de Picard/MusicBee, la de
+            // foobar2000 y la de algunos rippers.
+            albumArtists = tags["ALBUMARTISTS"].orEmpty().ifEmpty {
+                tags["ALBUMARTIST"] ?: tags["ALBUM ARTIST"] ?: tags["ALBUM_ARTIST"] ?: emptyList()
+            },
+            artists = artistCreditsFrom(tags["ARTISTS"].orEmpty(), artistValues),
+            genre = first("GENRE"),
+            trackNumber = parseTrackNumber(first("TRACKNUMBER")),
             // `DATE` es la clave estándar de Vorbis y admite ISO-8601 completo; `YEAR` es una
             // extensión de facto que escriben algunos taggers viejos. [parseYear] acepta ambas.
-            year = parseYear(tags["DATE"] ?: tags["YEAR"]),
+            year = parseYear(first("DATE") ?: first("YEAR")),
             durationMs = durationMs,
             // No hay clave estándar para la letra en Vorbis: `LYRICS` es la de MusicBee/foobar
             // (y donde suele ir el LRC con marcas de tiempo), `UNSYNCEDLYRICS` la de Picard.
-            lyrics = pickBestLyrics(tags["LYRICS"], tags["UNSYNCEDLYRICS"], tags["SYNCEDLYRICS"]),
+            lyrics = pickBestLyrics(first("LYRICS"), first("UNSYNCEDLYRICS"), first("SYNCEDLYRICS")),
             pictureData = pictureData,
             pictureRange = pictureRange
         )
@@ -122,7 +134,7 @@ class FlacTagReader @Inject constructor() : PartialTagReader {
      * VORBIS_COMMENT: vendor string + N entradas `CLAVE=valor` en UTF-8, todas las longitudes
      * uint32 LITTLE-endian. Las claves son case-insensitive por spec, se normalizan a mayúsculas.
      */
-    private fun parseVorbisComment(buf: ByteArray, start: Int, length: Int): Map<String, String> {
+    private fun parseVorbisComment(buf: ByteArray, start: Int, length: Int): Map<String, List<String>> {
         val end = start + length
         var p = start
         if (p + 4 > end) return emptyMap()
@@ -136,7 +148,7 @@ class FlacTagReader @Inject constructor() : PartialTagReader {
         val count = readUInt32LE(buf, p)
         p += 4
 
-        val out = HashMap<String, String>(count.coerceIn(0, 64))
+        val out = HashMap<String, MutableList<String>>(count.coerceIn(0, 64))
         repeat(count.coerceIn(0, MAX_COMMENTS)) {
             if (p + 4 > end) return out
             val entryLength = readUInt32LE(buf, p)
@@ -147,8 +159,10 @@ class FlacTagReader @Inject constructor() : PartialTagReader {
             val separator = entry.indexOf('=')
             if (separator > 0) {
                 val key = entry.substring(0, separator).uppercase()
-                // La primera gana: algunos archivos repiten ARTIST por cada intérprete.
-                if (key !in out) out[key] = entry.substring(separator + 1)
+                // Se guardan TODOS los valores, en orden: algunos archivos repiten ARTIST por cada
+                // intérprete, y eso es un dato. Quien quiera uno solo toma el primero.
+                val value = entry.substring(separator + 1)
+                if (value.isNotBlank()) out.getOrPut(key) { mutableListOf() }.add(value.trim())
             }
         }
         return out

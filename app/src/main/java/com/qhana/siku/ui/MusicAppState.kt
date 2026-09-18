@@ -625,7 +625,8 @@ class MusicAppState(
     // tocar los call sites —el player es el ÚNICO que puede llamar esto estando expandido, porque
     // tapa todo lo demás—.
     fun navigateToArtist(name: String) = navigateMaybeFromPlayer(Screen.ArtistDetail.createRoute(name))
-    fun navigateToAlbum(name: String) = navigateMaybeFromPlayer(Screen.AlbumDetail.createRoute(name))
+    fun navigateToAlbum(name: String, albumArtist: String?) =
+        navigateMaybeFromPlayer(Screen.AlbumDetail.createRoute(name, albumArtist))
     fun navigateToGenre(name: String) = navigateMaybeFromPlayer(Screen.GenreDetail.createRoute(name))
 
     private fun navigateMaybeFromPlayer(route: String) {
@@ -714,7 +715,7 @@ fun isPillRoute(route: String?): Boolean = when (route) {
     // Estadísticas es contenido SOBRE la biblioteca y sus filas reproducen, del mismo género que
     // artista/álbum/género — no una pantalla de configuración como Ajustes o el gestor de descargas.
     // Lo mismo "Recién agregadas": es una lista de canciones de la biblioteca, aunque sea virtual.
-    Screen.Stats.route, Screen.RecentlyAdded.route -> true
+    Screen.Stats.route, Screen.RecentlyAdded.route, Screen.EntityStats.route -> true
     else -> false
 }
 

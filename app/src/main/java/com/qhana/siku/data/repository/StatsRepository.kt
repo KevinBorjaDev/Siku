@@ -2,9 +2,15 @@ package com.qhana.siku.data.repository
 
 import com.qhana.siku.data.config.AppConfig
 import com.qhana.siku.data.local.PlayEventDao
+import com.qhana.siku.data.local.ScopeChildRow
+import com.qhana.siku.data.local.ScopeTotals
 import com.qhana.siku.data.local.SongDao
+import com.qhana.siku.data.local.StatsScopeQueries
+import com.qhana.siku.data.model.ArtistCreditRole
 import com.qhana.siku.data.model.Song
+import com.qhana.siku.data.model.StatsScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,6 +45,28 @@ data class StatsSongEntry(
     val listenedMs: Long?
 )
 
+/**
+ * Totales de UN ámbito (artista, álbum o género) en un periodo.
+ *
+ * No es [StatsSummary] con otro nombre: ahí la segunda dimensión son los artistas distintos, que
+ * dentro de un artista vale siempre 1. Aquí es [distinctSecondary], y qué cuenta lo decide el
+ * ámbito (`StatsScope.secondaryCount`): los álbumes de un artista, los artistas de un álbum o de un
+ * género.
+ *
+ * [listenedMs] no es nullable, al revés que en [StatsSummary]: el periodo "Siempre" de esta pantalla
+ * sí trae un número —la misma estimación acotada que la pantalla general— y [listenedIsEstimate]
+ * dice cuándo lo es.
+ */
+data class ScopeStatsSummary(
+    val plays: Int,
+    val listenedMs: Long,
+    val distinctSongs: Int,
+    val distinctSecondary: Int,
+    val listenedIsEstimate: Boolean = false
+) {
+    val isEmpty: Boolean get() = plays == 0
+}
+
 /** Una entrada del ranking de artistas, álbumes o géneros. */
 data class StatsNameEntry(
     val name: String,
@@ -47,8 +75,17 @@ data class StatsNameEntry(
     /** Carátula o foto con la que pintarla; `null` cae al placeholder de su categoría. */
     val artUri: String?,
     /** Línea secundaria: el artista de un álbum. `null` en artistas y géneros. */
-    val secondary: String? = null
-)
+    val secondary: String? = null,
+    /**
+     * La otra mitad de la identidad de un ÁLBUM (v29): `""` sin tag. Viaja hasta la navegación para
+     * que tocar un "Greatest Hits" abra ESE disco y no la mezcla de todos los homónimos. `null` en
+     * artistas y géneros.
+     */
+    val albumArtist: String? = null
+) {
+    /** Clave estable para una lista: el nombre no basta con dos álbumes homónimos. */
+    val key: String get() = albumArtist?.let { com.qhana.siku.data.local.albumIdentityKey(name, it) } ?: name
+}
 
 /**
  * Lectura de las estadísticas de escucha. Clase concreta y sin interfaz, siguiendo a
@@ -121,24 +158,28 @@ class StatsRepository @Inject constructor(
             entities.map { StatsSongEntry(it.toSong(), it.playCount, listenedMs = null) }
         }
 
-    fun topArtists(since: Long, until: Long, limit: Int): Flow<List<StatsNameEntry>> =
-        playEventDao.topArtistsFlow(since, until, AppConfig.UNKNOWN_ARTIST, limit).map { rows ->
+    fun topArtists(role: ArtistCreditRole, since: Long, until: Long, limit: Int): Flow<List<StatsNameEntry>> =
+        playEventDao.topArtistsFlow(
+            StatsScopeQueries.periodTopArtists(role, since, until, AppConfig.UNKNOWN_ARTIST, limit)
+        ).map { rows ->
             rows.map { StatsNameEntry(it.name, it.plays, it.listenedMs, it.fallbackArtUri) }
         }
 
-    fun allTimeTopArtists(limit: Int): Flow<List<StatsNameEntry>> =
-        songDao.getAllTimeTopArtistsFlow(AppConfig.UNKNOWN_ARTIST, limit).map { rows ->
+    fun allTimeTopArtists(role: ArtistCreditRole, limit: Int): Flow<List<StatsNameEntry>> =
+        songDao.getAllTimeTopArtistsFlow(
+            StatsScopeQueries.allTimeTopArtists(role, AppConfig.UNKNOWN_ARTIST, limit)
+        ).map { rows ->
             rows.map { StatsNameEntry(it.name, it.plays, listenedMs = null, it.fallbackArtUri) }
         }
 
     fun topAlbums(since: Long, until: Long, limit: Int): Flow<List<StatsNameEntry>> =
         playEventDao.topAlbumsFlow(since, until, AppConfig.UNKNOWN_ALBUM, limit).map { rows ->
-            rows.map { StatsNameEntry(it.name, it.plays, it.listenedMs, it.albumArtUri, it.artist) }
+            rows.map { StatsNameEntry(it.name, it.plays, it.listenedMs, it.albumArtUri, it.artist, it.albumArtist) }
         }
 
     fun allTimeTopAlbums(limit: Int): Flow<List<StatsNameEntry>> =
         songDao.getAllTimeTopAlbumsFlow(AppConfig.UNKNOWN_ALBUM, limit).map { rows ->
-            rows.map { StatsNameEntry(it.name, it.plays, listenedMs = null, it.albumArtUri, it.artist) }
+            rows.map { StatsNameEntry(it.name, it.plays, listenedMs = null, it.albumArtUri, it.artist, it.albumArtist) }
         }
 
     fun topGenres(since: Long, until: Long, limit: Int): Flow<List<StatsNameEntry>> =
@@ -150,6 +191,89 @@ class StatsRepository @Inject constructor(
         songDao.getAllTimeTopGenresFlow(limit).map { rows ->
             rows.map { StatsNameEntry(it.name, it.plays, listenedMs = null, artUri = null) }
         }
+
+    // ==================== UN SOLO ÁMBITO ====================
+    // La misma pareja de fuentes que arriba —log de eventos para los periodos de calendario,
+    // agregados de `songs` para "Siempre"— acotada a un artista, un álbum o un género. NO se
+    // unifican, por lo mismo que explica el KDoc de la clase: "Siempre" es el único que lleva el
+    // pasado anterior al log.
+    //
+    // El SQL de las dos fuentes lo arma `StatsScopeQueries`, no estas funciones: aquí solo se
+    // decide de qué DAO sale cada una y cómo se mapea la fila.
+
+    fun scopeSummary(scope: StatsScope, since: Long, until: Long): Flow<ScopeStatsSummary> =
+        playEventDao.scopeTotalsFlow(
+            StatsScopeQueries.periodTotals(
+                scope, since, until, AppConfig.UNKNOWN_ALBUM, AppConfig.UNKNOWN_ARTIST
+            )
+        ).map { it.toSummary(isEstimate = false) }
+
+    fun allTimeScopeSummary(scope: StatsScope): Flow<ScopeStatsSummary> =
+        songDao.scopeTotalsFlow(
+            StatsScopeQueries.allTimeTotals(scope, AppConfig.UNKNOWN_ALBUM, AppConfig.UNKNOWN_ARTIST)
+        ).map { it.toSummary(isEstimate = true) }
+
+    fun scopeTopSongs(
+        scope: StatsScope,
+        since: Long,
+        until: Long,
+        limit: Int
+    ): Flow<List<StatsSongEntry>> =
+        playEventDao.scopeTopSongsFlow(StatsScopeQueries.periodTopSongs(scope, since, until, limit))
+            .map { rows -> rows.map { StatsSongEntry(it.song.toSong(), it.plays, it.listenedMs) } }
+
+    /**
+     * `listenedMs = null` y no el `0` que trae la consulta: en este periodo el tiempo por canción no
+     * se midió nunca, y un cero se leería como "no la escuchaste".
+     */
+    fun allTimeScopeTopSongs(scope: StatsScope, limit: Int): Flow<List<StatsSongEntry>> =
+        songDao.scopeTopSongsFlow(StatsScopeQueries.allTimeTopSongs(scope, limit))
+            .map { rows -> rows.map { StatsSongEntry(it.song.toSong(), it.plays, listenedMs = null) } }
+
+    /**
+     * Las sub-entidades del ámbito. **Flujo vacío cuando no tiene ninguna** (un álbum): así el
+     * consumidor no necesita saber cuáles la tienen — lo dice `StatsScope.child`, en un sitio.
+     */
+    fun scopeChildren(
+        scope: StatsScope,
+        since: Long,
+        until: Long,
+        limit: Int
+    ): Flow<List<StatsNameEntry>> {
+        val query = StatsScopeQueries.periodTopChildren(
+            scope, since, until, AppConfig.UNKNOWN_ALBUM, AppConfig.UNKNOWN_ARTIST, limit
+        ) ?: return flowOf(emptyList())
+        return playEventDao.scopeChildrenFlow(query).map { rows -> rows.map { it.toEntry() } }
+    }
+
+    fun allTimeScopeChildren(scope: StatsScope, limit: Int): Flow<List<StatsNameEntry>> {
+        val query = StatsScopeQueries.allTimeTopChildren(
+            scope, AppConfig.UNKNOWN_ALBUM, AppConfig.UNKNOWN_ARTIST, limit
+        ) ?: return flowOf(emptyList())
+        return songDao.scopeChildrenFlow(query)
+            .map { rows -> rows.map { it.toEntry().copy(listenedMs = null) } }
+    }
+
+    /** Histograma de actividad del ámbito. Ver [activity]: tampoco hay versión de "Siempre". */
+    fun scopeActivity(
+        scope: StatsScope,
+        since: Long,
+        until: Long,
+        format: String
+    ): Flow<Map<String, Int>> =
+        playEventDao.scopeActivityFlow(StatsScopeQueries.periodActivity(scope, since, until, format))
+            .map { rows -> rows.associate { it.bucket to it.plays } }
+
+    private fun ScopeTotals.toSummary(isEstimate: Boolean) = ScopeStatsSummary(
+        plays = plays,
+        listenedMs = listenedMs,
+        distinctSongs = distinctSongs,
+        distinctSecondary = distinctSecondary,
+        listenedIsEstimate = isEstimate
+    )
+
+    private fun ScopeChildRow.toEntry() =
+        StatsNameEntry(name, plays, listenedMs, artUri, secondary, albumArtist)
 
     /** Días con actividad, del más reciente al más antiguo. El recuento de la racha va en Kotlin. */
     fun recentDays(maxDays: Int): Flow<List<String>> = playEventDao.recentDaysFlow(maxDays)

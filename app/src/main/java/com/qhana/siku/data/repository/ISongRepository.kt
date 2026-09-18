@@ -5,6 +5,7 @@ import com.qhana.siku.data.local.DuplicatePair
 import com.qhana.siku.data.model.Song
 import com.qhana.siku.data.model.SongSourceFilter
 import com.qhana.siku.data.model.SortOrder
+import com.qhana.siku.data.model.SortSpec
 import com.qhana.siku.data.model.SourceType
 import kotlinx.coroutines.flow.Flow
 
@@ -27,7 +28,7 @@ data class FailedDownload(
 interface ISongRepository {
     fun getSongsPaging(
         query: String = "",
-        sortOrder: SortOrder = SortOrder.TITLE_ASC,
+        sortOrder: SortSpec<SortOrder> = SortOrder.DEFAULT,
         sourceFilters: Set<SongSourceFilter> = emptySet(),
         approximateIds: List<String> = emptyList()
     ): Flow<PagingData<Song>>
@@ -56,7 +57,7 @@ interface ISongRepository {
      */
     suspend fun getSongsSnapshot(
         query: String = "",
-        sortOrder: SortOrder = SortOrder.TITLE_ASC,
+        sortOrder: SortSpec<SortOrder> = SortOrder.DEFAULT,
         sourceFilters: Set<SongSourceFilter> = emptySet()
     ): List<Song>
 
@@ -183,14 +184,22 @@ interface ISongRepository {
         genre: String?,
         trackNumber: Int,
         year: Int,
-        durationMs: Long
+        durationMs: Long,
+        albumArtist: String,
+        artistCredits: String?
     )
 
+    /** Canciones con los tags de artista sin leer (ver [SongDao.getSongsNeedingArtistTags]). */
+    suspend fun getSongsNeedingArtistTags(localOnly: Boolean): List<Song>
+
+    /** Escribe solo los tags de artista (ver [SongDao.updateArtistTags]). */
+    suspend fun updateArtistTags(songId: String, albumArtist: String, artistCredits: String?)
+
     /** URI de la carátula ya conocida para ese álbum, o null si ninguna canción suya tiene. */
-    suspend fun getAlbumArtUri(album: String): String?
+    suspend fun getAlbumArtUri(album: String, albumArtist: String): String?
 
     /** Aplica una carátula a todo el álbum sin pisar las canciones que ya tuvieran la suya. */
-    suspend fun setAlbumArt(album: String, uri: String)
+    suspend fun setAlbumArt(album: String, albumArtist: String, uri: String)
     suspend fun updateAlbumArtUri(songId: String, uri: String?)
     suspend fun getSongsWithLocalArt(): List<Song>
 
